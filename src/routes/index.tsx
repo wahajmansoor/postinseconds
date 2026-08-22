@@ -617,9 +617,9 @@ function Index() {
       const stH = stageH ?? (stageSizeRef.current.height > 0 ? stageSizeRef.current.height : stageRef.current?.clientHeight ?? 600);
 
       const rulerOffset = showRulers ? RULER_SIZE : 0;
-      // Exact padding matching stage padding (32px all around)
-      const paddingX = 64;
-      const paddingY = 64;
+      // Exact padding matching stage padding (16px on mobile, 64px on desktop)
+      const paddingX = isMobile ? 16 : 64;
+      const paddingY = isMobile ? 16 : 64;
 
       const availW = Math.max(100, stW - rulerOffset - paddingX);
       const availH = Math.max(100, stH - rulerOffset - paddingY);
@@ -633,7 +633,7 @@ function Index() {
 
       return Math.max(0.1, Math.min(2.0, Math.floor(optimal * 100) / 100));
     },
-    [s.width, s.height, showRulers],
+    [s.width, s.height, showRulers, isMobile],
   );
 
   useEffect(() => {
@@ -924,6 +924,58 @@ function Index() {
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
+
+  // Mobile Touch Pinch-to-Zoom support
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+
+    let initialPinchDist: number | null = null;
+    let initialScale = scale;
+
+    const getTouchDist = (e: TouchEvent) => {
+      if (e.touches.length < 2) return null;
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      if (!t1 || !t2) return null;
+      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        initialPinchDist = getTouchDist(e);
+        initialScale = scale;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && initialPinchDist && initialPinchDist > 0) {
+        e.preventDefault();
+        const currentDist = getTouchDist(e);
+        if (currentDist) {
+          const ratio = currentDist / initialPinchDist;
+          const targetScale = Math.max(0.1, Math.min(2.5, initialScale * ratio));
+          zoomToScale(Math.round(targetScale * 100) / 100);
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      initialPinchDist = null;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [scale, zoomToScale]);
 
   // Templates and saved quotes (loaded the same way — see LeftPanel's
   // "My saved" tab) both come through here, so this is also the one place
@@ -1301,13 +1353,13 @@ function Index() {
       */}
       <div
         aria-hidden
-        className={cn("pointer-events-none transition-opacity duration-500 ease-in-out", isMobile ? "fixed inset-0" : "absolute inset-0")}
-        style={{ background: "var(--gradient-stage-light)", backgroundAttachment: isMobile ? "fixed" : undefined, opacity: dark ? 0 : 1 }}
+        className="pointer-events-none absolute inset-0 transition-opacity duration-500 ease-in-out"
+        style={{ background: "var(--gradient-stage-light)", opacity: dark ? 0 : 1 }}
       />
       <div
         aria-hidden
-        className={cn("pointer-events-none transition-opacity duration-500 ease-in-out", isMobile ? "fixed inset-0" : "absolute inset-0")}
-        style={{ background: "var(--gradient-stage-dark)", backgroundAttachment: isMobile ? "fixed" : undefined, opacity: dark ? 1 : 0 }}
+        className="pointer-events-none absolute inset-0 transition-opacity duration-500 ease-in-out"
+        style={{ background: "var(--gradient-stage-dark)", opacity: dark ? 1 : 0 }}
       />
 
 
@@ -1458,8 +1510,8 @@ function Index() {
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 sm:gap-4 sm:px-5">
+      <div className="flex h-screen h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground">
+        <header className="sticky top-0 z-50 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 py-2 sm:gap-4 sm:px-5">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <span className="grid h-8 w-8 place-items-center rounded-xl bg-[image:var(--gradient-brand)] shadow-[var(--shadow-glow)] sm:h-9 sm:w-9">
               <SparklesIcon size={17} className="text-primary-foreground" />
@@ -1630,9 +1682,9 @@ function Index() {
 
         {isMobile ? (
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            {/* Floating Undo & Redo pill on top-left (top-20 left-5) — shown only when user did changes */}
+            {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when user did changes */}
             {(historyIdx.current > 0 || historyIdx.current < history.current.length - 1) ? (
-              <div className="pointer-events-none fixed top-20 left-5 z-30 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl">
+              <div className="pointer-events-none fixed top-16 left-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl">
                 <AppTooltip content="Undo">
                   <button
                     type="button"
@@ -1659,9 +1711,9 @@ function Index() {
               </div>
             ) : null}
 
-            {/* Floating Lock & Delete pill on top-right (top-20 right-5) */}
+            {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
             {(selectedTextLayer || selectedImageLayer || selectedShapeLayer) ? (
-              <div className="pointer-events-none fixed top-20 right-5 z-30 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl">
+              <div className="pointer-events-none fixed top-16 right-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl">
                 {/* Lock Toggle Button */}
                 <AppTooltip content={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked) ? "Unlock Layer" : "Lock Layer"}>
                   <button
