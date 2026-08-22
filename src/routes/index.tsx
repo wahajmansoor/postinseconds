@@ -407,6 +407,17 @@ function Index() {
   } | null>(null);
 
   const handleStagePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Marquee (drag-to-select) is desktop-only. On mobile it used to arm
+    // itself off the very first touch's pointerdown and track every
+    // subsequent pointermove on `window` regardless of which finger moved —
+    // so adding a second finger to pinch-zoom fed that same loop bogus
+    // coordinates (jumping between the two touches' pointer ids) while the
+    // dedicated touchstart/touchmove pinch handler below was simultaneously
+    // trying to scale the stage, fighting each other and making zoom feel
+    // unreliable. Bailing out here entirely on mobile removes that
+    // competing gesture so multi-finger pinch-zoom is the only thing
+    // handling touch there.
+    if (isMobile) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("button, input, textarea, [data-nopan], [contenteditable='true']")) {
