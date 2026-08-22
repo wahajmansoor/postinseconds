@@ -68,15 +68,14 @@ export function SignupPage() {
 
       {/* RIGHT COLUMN: Authentication Form */}
       <div className="flex w-full flex-col justify-between p-8 sm:p-12 lg:w-1/2 lg:p-16">
-        {/* Branding */}
-        <div className="flex justify-center">
-          <img src="/logo.png" alt="Post In Seconds" className="h-16 w-auto sm:h-20" />
-        </div>
-
         {/* Center Container */}
         <div className="mx-auto my-auto w-full max-w-md space-y-8 py-8">
-          {/* Header Title */}
+          {/* Logo + Header Title — logo sits directly above the headline
+              instead of pinned separately at the very top of the page */}
           <div className="text-center sm:text-left">
+            <div className="flex justify-center sm:justify-start">
+              <img src="/logo.png" alt="Post In Seconds" className="h-16 w-auto sm:h-20" />
+            </div>
             <h1 className="mt-3 text-2xl font-black tracking-tight sm:text-3xl text-foreground">
               Sign in to Post In Seconds
             </h1>

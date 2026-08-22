@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { App as CapacitorApp } from "@capacitor/app";
 import { supabase } from "@/lib/supabase";
+
+// Custom scheme the native app registers a deep-link intent-filter for (see
+// android/app/src/main/AndroidManifest.xml) — must also be added to
+// Supabase's Authentication > URL Configuration > Redirect URLs allowlist,
+// or Supabase rejects the redirect before it ever reaches the device.
+const NATIVE_OAUTH_REDIRECT = "postinseconds://auth-callback";
 
 export interface AuthUser {
   id: string;
@@ -76,6 +84,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Native-app-only: catches the deep-link the system browser is routed
+  // back to once Google OAuth completes (see NATIVE_OAUTH_REDIRECT above
+  // and the intent-filter in AndroidManifest.xml). The tokens travel as a
+  // URL hash fragment (#access_token=...&refresh_token=...), same shape
+  // supabase-js's browser code parses automatically from window.location on
+  // the web — here we parse it by hand off the deep-link URL and hand it to
+  // setSession(), which fires the same onAuthStateChange SIGNED_IN event as
+  // any other sign-in, so syncUserFromSession above picks it up for free.
+  // No-op on web (listener just never fires there).
+  useEffect(() => {
+    const sub = CapacitorApp.addListener("appUrlOpen", async ({ url }) => {
+      if (!url.startsWith(NATIVE_OAUTH_REDIRECT)) return;
+      const hash = url.split("#")[1];
+      if (!hash) return;
+      const params = new URLSearchParams(hash);
+      const access_token = params.get("access_token");
+      const refresh_token = params.get("refresh_token");
+      if (access_token && refresh_token) {
+        const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+        if (error) console.error("Failed to establish session from deep link:", error);
+      }
+    });
+    return () => {
+      sub.then((s) => s.remove());
+    };
+  }, []);
+
   // Helper to fetch user profile and role from Supabase
   const syncUserFromSession = async (sbUser: any) => {
     let role: "user" | "admin" = "user";
@@ -124,7 +159,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: window.location.origin,
+          // In the native app, a plain http(s) redirectTo just reopens the
+          // system browser on that URL with nowhere to go — the browser has
+          // no way to hand control back to the app. The custom-scheme
+          // redirect is what Android recognizes as belonging to this app
+          // (via the deep-link intent-filter) and routes back in; the
+          // appUrlOpen listener below then picks the session out of it.
+          redirectTo: Capacitor.isNativePlatform() ? NATIVE_OAUTH_REDIRECT : window.location.origin,
         },
       });
       if (error) throw error;
