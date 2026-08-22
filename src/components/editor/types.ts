@@ -1097,6 +1097,7 @@ export type EditorState = {
   // triangle, diamond, etc.), same optional/fallback pattern via
   // getShapeLayers() below. Replaces the old single decorative-shape fields.
   shapes?: ShapeLayer[];
+  layerOrder?: { kind: "text" | "image" | "shape"; id: string }[];
 
   // decorative elements
   showQuoteIcon: boolean;
@@ -1144,9 +1145,7 @@ export type EditorState = {
   topButtonPadY: number;
   topButtonLocked?: boolean;
 
-  // Reserved for a future Layers panel (reordering z-stack across every
-  // canvas object) — not read anywhere yet.
-  layerOrder?: string[];
+
   // Set once this design has been initialized under the shapes/texts
   // layer model — either built that way from the start (INITIAL_STATE, a
   // STARTER_TEMPLATE, blankState) or upgraded from an old fixed-field save
@@ -1223,6 +1222,7 @@ export type EditorState = {
   bgImageZoom?: number;
   bgImagePosX?: number;
   bgImagePosY?: number;
+  canvasRadius?: number;
 
   // export
   exportFormat: ExportFormat;
@@ -1930,9 +1930,16 @@ export function withImageAdded(s: EditorState, src: string): ImageLayer[] {
 }
 
 // Batched multi-file add — prepends every src in one array update
-export function withImagesAdded(s: EditorState, srcs: string[]): ImageLayer[] {
+export function withImagesAdded(
+  s: EditorState,
+  srcs: string[],
+): { list: ImageLayer[]; layerOrder: UnifiedLayerRef[]; newIds: string[] } {
   const list = getImageLayers(s);
-  return [...srcs.map((src, i) => makeImageLayer(i, src)), ...list];
+  const newLayers = srcs.map((src, i) => makeImageLayer(list.length + i, src));
+  const newImages = [...list, ...newLayers];
+  const newRefs: UnifiedLayerRef[] = newLayers.map((img) => ({ kind: "image" as const, id: img.id }));
+  const layerOrder = [...getUnifiedLayers(s), ...newRefs];
+  return { list: newImages, layerOrder, newIds: newLayers.map((n) => n.id) };
 }
 
 export function withImageUpdated(
@@ -2017,11 +2024,14 @@ function makeTextLayer(
 export function withTextAdded(
   s: EditorState,
   opts?: { text?: string; size?: number; weight?: number; color?: string; fontFamily?: string },
-): TextLayer[] {
+): { list: TextLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
   const list = getTextLayers(s);
   const dark = isDarkBg(s.background);
   const fallbackColor = dark ? "#ffffff" : "#0d0d12";
-  return [makeTextLayer(0, { ...opts, color: opts?.color ?? fallbackColor }), ...list];
+  const newText = makeTextLayer(list.length, { ...opts, color: opts?.color ?? fallbackColor });
+  const newTexts = [...list, newText];
+  const layerOrder = [...getUnifiedLayers(s), { kind: "text" as const, id: newText.id }];
+  return { list: newTexts, layerOrder, newId: newText.id };
 }
 
 export function withTextUpdated(
@@ -2077,13 +2087,20 @@ function makeShapeLayer(position: number, kind: ShapeKind, radius: number): Shap
     radius,
     shadow: false,
     shadowBlur: 24,
-    layer: "behind",
+    layer: "front",
   };
 }
 
-export function withShapeAdded(s: EditorState, kind: ShapeKind, radius: number): ShapeLayer[] {
+export function withShapeAdded(
+  s: EditorState,
+  kind: ShapeKind,
+  radius: number,
+): { list: ShapeLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
   const list = getShapeLayers(s);
-  return [makeShapeLayer(0, kind, radius), ...list];
+  const newShape = makeShapeLayer(list.length, kind, radius);
+  const newShapes = [...list, newShape];
+  const layerOrder = [...getUnifiedLayers(s), { kind: "shape" as const, id: newShape.id }];
+  return { list: newShapes, layerOrder, newId: newShape.id };
 }
 
 export function withShapeUpdated(
@@ -2139,4 +2156,92 @@ export function withShadowAdded(s: EditorState, preset: ShadowPreset): { list: S
     shadowBlur: 0,
   };
   return { list: [shadowLayer, ...list], newId };
+}
+
+// --- Unified Layer Stacking Helper ---------------------------------------
+export type UnifiedLayerRef = { kind: "text" | "image" | "shape"; id: string };
+
+export function getUnifiedLayers(s: EditorState): UnifiedLayerRef[] {
+  const texts = (s.texts ?? []).map((t) => ({ kind: "text" as const, id: t.id }));
+  const images = (s.images ?? []).map((img) => ({ kind: "image" as const, id: img.id }));
+  const shapes = (s.shapes ?? []).map((sh) => ({ kind: "shape" as const, id: sh.id }));
+
+  const allKnown = new Map<string, UnifiedLayerRef>();
+  [...texts, ...images, ...shapes].forEach((ref) => allKnown.set(ref.id, ref));
+
+  if (!s.layerOrder || s.layerOrder.length === 0) {
+    const shapesBehind = (s.shapes ?? []).filter((sh) => sh.layer === "behind").map((sh) => ({ kind: "shape" as const, id: sh.id }));
+    const shapesFront = (s.shapes ?? []).filter((sh) => sh.layer !== "behind").map((sh) => ({ kind: "shape" as const, id: sh.id }));
+    return [...shapesBehind, ...images, ...shapesFront, ...texts];
+  }
+
+  const result: UnifiedLayerRef[] = [];
+  const seen = new Set<string>();
+
+  for (const item of s.layerOrder) {
+    if (allKnown.has(item.id)) {
+      result.push(item);
+      seen.add(item.id);
+    }
+  }
+
+  for (const [id, ref] of allKnown.entries()) {
+    if (!seen.has(id)) {
+      result.push(ref);
+    }
+  }
+
+  return result;
+}
+
+export function withUnifiedLayerReordered(
+  s: EditorState,
+  id: string,
+  direction: "up" | "down",
+): { layerOrder: UnifiedLayerRef[] } {
+  const currentStack = getUnifiedLayers(s);
+  const idx = currentStack.findIndex((item) => item.id === id);
+  if (idx === -1) return { layerOrder: currentStack };
+
+  // Stack index 0 is bottom-most on canvas, index N-1 is top-most on canvas.
+  // In the Layers Panel UI, top-most canvas layer is displayed first.
+  // Moving "up" in the Layers Panel means moving closer to canvas top (higher index).
+  // Moving "down" in the Layers Panel means moving closer to canvas bottom (lower index).
+  const targetIdx = direction === "up" ? idx + 1 : idx - 1;
+  if (targetIdx < 0 || targetIdx >= currentStack.length) return { layerOrder: currentStack };
+
+  const nextStack = [...currentStack];
+  const item = nextStack[idx]!;
+  nextStack.splice(idx, 1);
+  nextStack.splice(targetIdx, 0, item);
+
+  return { layerOrder: nextStack };
+}
+
+export function withMultipleLayersRemoved(
+  s: EditorState,
+  selected: { kind: "text" | "image" | "shape"; id: string }[],
+): {
+  texts: TextLayer[];
+  images: ImageLayer[];
+  shapes: ShapeLayer[];
+  layerOrder: UnifiedLayerRef[];
+} {
+  const textIds = new Set(selected.filter((item) => item.kind === "text").map((item) => item.id));
+  const imageIds = new Set(selected.filter((item) => item.kind === "image").map((item) => item.id));
+  const shapeIds = new Set(selected.filter((item) => item.kind === "shape").map((item) => item.id));
+
+  const texts = (s.texts ?? []).filter((t) => !textIds.has(t.id) || t.locked);
+  const images = (s.images ?? []).filter((img) => !imageIds.has(img.id) || img.locked);
+  const shapes = (s.shapes ?? []).filter((sh) => !shapeIds.has(sh.id) || sh.locked);
+
+  const deletedIds = new Set([
+    ...(s.texts ?? []).filter((t) => textIds.has(t.id) && !t.locked).map((t) => t.id),
+    ...(s.images ?? []).filter((img) => imageIds.has(img.id) && !img.locked).map((img) => img.id),
+    ...(s.shapes ?? []).filter((sh) => shapeIds.has(sh.id) && !sh.locked).map((sh) => sh.id),
+  ]);
+
+  const layerOrder = getUnifiedLayers(s).filter((item) => !deletedIds.has(item.id));
+
+  return { texts, images, shapes, layerOrder };
 }

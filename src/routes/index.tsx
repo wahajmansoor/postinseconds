@@ -925,13 +925,15 @@ function Index() {
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
 
-  // Mobile Touch Pinch-to-Zoom support
+  // Mobile Touch Pinch-to-Zoom support (60fps requestAnimationFrame)
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
 
     let initialPinchDist: number | null = null;
     let initialScale = scale;
+    let rafId: number | null = null;
+    let pendingScale: number | null = null;
 
     const getTouchDist = (e: TouchEvent) => {
       if (e.touches.length < 2) return null;
@@ -942,29 +944,47 @@ function Index() {
     };
 
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
+      if (e.touches.length >= 2) {
+        e.preventDefault();
+        e.stopPropagation();
         initialPinchDist = getTouchDist(e);
         initialScale = scale;
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && initialPinchDist && initialPinchDist > 0) {
+      if (e.touches.length >= 2 && initialPinchDist && initialPinchDist > 0) {
         e.preventDefault();
+        e.stopPropagation();
         const currentDist = getTouchDist(e);
         if (currentDist) {
           const ratio = currentDist / initialPinchDist;
           const targetScale = Math.max(0.1, Math.min(2.5, initialScale * ratio));
-          zoomToScale(Math.round(targetScale * 100) / 100);
+          pendingScale = Math.round(targetScale * 100) / 100;
+
+          if (rafId === null) {
+            rafId = requestAnimationFrame(() => {
+              if (pendingScale !== null) {
+                zoomToScale(pendingScale);
+              }
+              rafId = null;
+            });
+          }
         }
       }
     };
 
-    const onTouchEnd = () => {
-      initialPinchDist = null;
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        initialPinchDist = null;
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+      }
     };
 
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd, { passive: true });
     el.addEventListener("touchcancel", onTouchEnd, { passive: true });
@@ -974,6 +994,7 @@ function Index() {
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchEnd);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [scale, zoomToScale]);
 
@@ -1320,14 +1341,15 @@ function Index() {
         const dataUrls = (await Promise.all(readPromises)).filter(Boolean);
         if (dataUrls.length === 0) return;
 
-        const updated = withImagesAdded(s, dataUrls);
-        set("images", updated);
-        if (updated[0]) {
-          handleSelectLayer({ kind: "image", id: updated[0].id });
+        const res = withImagesAdded(s, dataUrls);
+        set("images", res.list);
+        set("layerOrder", res.layerOrder);
+        if (res.newIds[0]) {
+          handleSelectLayer({ kind: "image", id: res.newIds[0] });
         }
       }}
       onPointerDown={handleStagePointerDown}
-      className="relative min-h-0 flex-1 overflow-auto rounded-2xl border border-border [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 hover:[&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
+      className={cn("relative min-h-0 flex-1 overflow-auto rounded-2xl border border-border [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 hover:[&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full", isMobile && "select-none touch-manipulation")}
     >
       {/* Drag and Drop File Hover Overlay */}
       {isDraggingOver ? (
@@ -1395,7 +1417,7 @@ function Index() {
             data-nopan=""
             data-keep-text-editing=""
             style={{ maxWidth: "calc(100% - 24px)", width: "fit-content" }}
-            className="pointer-events-auto shadow-2xl relative rounded-2xl border border-border bg-card/95 backdrop-blur-xl p-1"
+            className="pointer-events-auto relative"
           >
             {selectedTextLayer && selectedTextLayerHandle ? (
               <TextSelectionToolbar
@@ -1878,14 +1900,18 @@ function Index() {
                     s={s}
                     set={set}
                     applyTemplate={(t) => {
-                      applyTemplate(t);
                       setMobileToolDrawerOpen(false);
+                      requestAnimationFrame(() => {
+                        applyTemplate(t);
+                      });
                     }}
                     tab={tab}
                     selection={canvasSelection}
                     onSelectLayer={(layer, opts) => {
-                      handleSelectLayer(layer, opts);
                       setMobileToolDrawerOpen(false);
+                      requestAnimationFrame(() => {
+                        handleSelectLayer(layer, opts);
+                      });
                     }}
                     onItemSelect={() => setMobileToolDrawerOpen(false)}
                     textSubTab={textSubTab}
@@ -1893,8 +1919,10 @@ function Index() {
                     templateCategory={templateCategory}
                     onTemplateCategoryChange={setTemplateCategory}
                     onSelectSavedQuote={(quote) => {
-                      setEditingSavedQuoteTarget({ id: quote.id, title: quote.title });
                       setMobileToolDrawerOpen(false);
+                      requestAnimationFrame(() => {
+                        setEditingSavedQuoteTarget({ id: quote.id, title: quote.title });
+                      });
                     }}
                     activeSavedQuote={editingSavedQuoteTarget}
                     onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}

@@ -43,6 +43,9 @@ import {
   getShapeLabel,
   getShapeLayers,
   getTextLayers,
+  getUnifiedLayers,
+  withMultipleLayersRemoved,
+  withUnifiedLayerReordered,
   sanitizeTextHtml,
   shapeCss,
   shapeFillStyle,
@@ -797,11 +800,11 @@ export function LeftPanel({
         : null;
 
     const addPresetText = (preset: { text: string; size: number; weight: number }) => {
-      const updated = withTextAdded(s, preset);
-      set("texts", updated);
-      const newText = updated[0];
-      if (newText) {
-        onSelectLayer?.({ kind: "text", id: newText.id });
+      const res = withTextAdded(s, preset);
+      set("texts", res.list);
+      set("layerOrder", res.layerOrder);
+      if (res.newId) {
+        onSelectLayer?.({ kind: "text", id: res.newId });
       }
       onItemSelect?.();
     };
@@ -1247,11 +1250,12 @@ export function LeftPanel({
               label="Upload images"
               multiple
               onFiles={(files) => {
-                const updated = withImagesAdded(s, files);
-                set("images", updated);
-                const firstNew = updated[0];
+                const res = withImagesAdded(s, files);
+                set("images", res.list);
+                set("layerOrder", res.layerOrder);
+                const firstNew = res.newIds[0];
                 if (firstNew) {
-                  onSelectLayer?.({ kind: "image", id: firstNew.id });
+                  onSelectLayer?.({ kind: "image", id: firstNew });
                 }
                 onItemSelect?.();
               }}
@@ -1318,7 +1322,9 @@ export function LeftPanel({
     const textLayers = getTextLayers(s);
     const imageLayers = getImageLayers(s);
     const shapeLayers = getShapeLayers(s);
-    const totalCount = textLayers.length + imageLayers.length + shapeLayers.length;
+    const unifiedLayers = getUnifiedLayers(s);
+    const displayLayers = [...unifiedLayers].reverse();
+    const totalCount = unifiedLayers.length;
 
     const isLayerSelected = (kind: "image" | "text" | "shape", id: string) =>
       selection?.some((item) => item.kind === kind && item.id === id) ?? false;
@@ -1345,6 +1351,24 @@ export function LeftPanel({
                   {selection?.length ? `${selection.length} selected` : "No selection"}
                 </span>
                 <div className="flex items-center gap-1.5">
+                  {selection && selection.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const result = withMultipleLayersRemoved(s, selection);
+                        set("texts", result.texts);
+                        set("images", result.images);
+                        set("shapes", result.shapes);
+                        set("layerOrder", result.layerOrder);
+                        onSelectLayer?.({ kind: "text", id: "" }, { selectAll: false, toggle: false });
+                      }}
+                      className="flex items-center gap-1 rounded-lg bg-destructive/15 px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/25"
+                      title="Delete all selected layers"
+                    >
+                      <Delete02Icon size={12} />
+                      Delete ({selection.length})
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() =>
@@ -1367,346 +1391,281 @@ export function LeftPanel({
               </div>
             ) : null}
 
-            {/* Text Layers */}
-            {textLayers.length > 0 ? (
+            {/* Unified Layers List — single list for all text, image, and shape layers */}
+            {displayLayers.length > 0 ? (
               <div className="space-y-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Text Layers ({textLayers.length})
-                </span>
-                {textLayers.map((t, idx) => {
-                  const selected = isLayerSelected("text", t.id);
-                  return (
-                    <div
-                      key={t.id}
-                      onClick={(e) =>
-                        onSelectLayer?.({ kind: "text", id: t.id }, { toggle: e.shiftKey })
-                      }
-                      className={cn(
-                        "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
-                        selected
-                          ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
-                          : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
-                        t.hidden && "opacity-55",
-                      )}
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <span
-                          className={cn(
-                            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold",
-                            selected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary",
-                          )}
-                        >
-                          T
-                        </span>
-                        <span className={cn("truncate font-medium text-foreground", t.hidden && "line-through text-muted-foreground")}>
-                          {t.text || `Text ${idx + 1}`}
-                        </span>
-                      </div>
+                {displayLayers.map(({ kind, id }, panelIdx) => {
+                  const selected = isLayerSelected(kind, id);
+                  const isTop = panelIdx === 0;
+                  const isBottom = panelIdx === displayLayers.length - 1;
+
+                  if (kind === "text") {
+                    const t = textLayers.find((item) => item.id === id);
+                    if (!t) return null;
+                    return (
                       <div
-                        className="flex shrink-0 items-center gap-1"
-                        onClick={(e) => e.stopPropagation()}
+                        key={t.id}
+                        onClick={(e) =>
+                          onSelectLayer?.({ kind: "text", id: t.id }, { toggle: e.shiftKey })
+                        }
+                        className={cn(
+                          "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
+                          selected
+                            ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
+                            : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
+                          t.hidden && "opacity-55",
+                        )}
                       >
-                        {/* Sort Up / Down */}
-                        <button
-                          type="button"
-                          onClick={() => set("texts", withTextReordered(s, t.id, "up"))}
-                          disabled={idx === 0}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                          title="Move up (Sort up)"
-                        >
-                          <ArrowUp01Icon size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => set("texts", withTextReordered(s, t.id, "down"))}
-                          disabled={idx === textLayers.length - 1}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                          title="Move down (Sort down)"
-                        >
-                          <ArrowDown01Icon size={13} />
-                        </button>
-
-                        {/* Hide / Show (Eye Icon) */}
-                        <button
-                          type="button"
-                          onClick={() => set("texts", withTextUpdated(s, t.id, { hidden: !t.hidden }))}
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                            t.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
-                          )}
-                          title={t.hidden ? "Show layer" : "Hide layer"}
-                        >
-                          {t.hidden ? <ViewOffIcon size={13} /> : <ViewIcon size={13} />}
-                        </button>
-
-                        {/* Lock / Unlock */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            set("texts", withTextUpdated(s, t.id, { locked: !t.locked }))
-                          }
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                            t.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
-                          )}
-                          title={t.locked ? "Unlock layer" : "Lock layer"}
-                        >
-                          {t.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
-                        </button>
-
-                        {/* Delete */}
-                        <button
-                          type="button"
-                          onClick={() => set("texts", withTextRemoved(s, t.id))}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          title="Delete text layer"
-                        >
-                          <Delete02Icon size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {/* Image Layers */}
-            {imageLayers.length > 0 ? (
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Image Layers ({imageLayers.length})
-                </span>
-                {imageLayers.map((img, idx) => {
-                  const selected = isLayerSelected("image", img.id);
-                  return (
-                    <div
-                      key={img.id}
-                      onClick={(e) =>
-                        onSelectLayer?.({ kind: "image", id: img.id }, { toggle: e.shiftKey })
-                      }
-                      className={cn(
-                        "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
-                        selected
-                          ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
-                          : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
-                        img.hidden && "opacity-55",
-                      )}
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <img
-                          src={img.src}
-                          alt=""
-                          className="h-6 w-6 shrink-0 rounded object-cover"
-                        />
-                        <span className={cn("truncate font-medium text-foreground", img.hidden && "line-through text-muted-foreground")}>
-                          Image {idx + 1}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            set(
-                              "images",
-                              withImageUpdated(s, img.id, {
-                                layer: img.layer === "behind" ? "front" : "behind",
-                              }),
-                            );
-                          }}
-                          className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-                          title="Toggle front / behind"
-                        >
-                          {img.layer === "behind" ? "Behind" : "Front"}
-                        </button>
-                      </div>
-                      <div
-                        className="flex shrink-0 items-center gap-1"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {/* Sort Up / Down */}
-                        <button
-                          type="button"
-                          onClick={() => set("images", withImageReordered(s, img.id, "up"))}
-                          disabled={idx === 0}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                          title="Move up (Sort up)"
-                        >
-                          <ArrowUp01Icon size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => set("images", withImageReordered(s, img.id, "down"))}
-                          disabled={idx === imageLayers.length - 1}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                          title="Move down (Sort down)"
-                        >
-                          <ArrowDown01Icon size={13} />
-                        </button>
-
-                        {/* Hide / Show (Eye Icon) */}
-                        <button
-                          type="button"
-                          onClick={() => set("images", withImageUpdated(s, img.id, { hidden: !img.hidden }))}
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                            img.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
-                          )}
-                          title={img.hidden ? "Show layer" : "Hide layer"}
-                        >
-                          {img.hidden ? <ViewOffIcon size={13} /> : <ViewIcon size={13} />}
-                        </button>
-
-                        {/* Lock / Unlock */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            set("images", withImageUpdated(s, img.id, { locked: !img.locked }))
-                          }
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                            img.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
-                          )}
-                          title={img.locked ? "Unlock layer" : "Lock layer"}
-                        >
-                          {img.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
-                        </button>
-
-                        {/* Delete */}
-                        <button
-                          type="button"
-                          onClick={() => set("images", withImageRemoved(s, img.id))}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          title="Delete image layer"
-                        >
-                          <Delete02Icon size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {/* Shape Layers */}
-            {shapeLayers.length > 0 ? (
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Shape Layers ({shapeLayers.length})
-                </span>
-                {shapeLayers.map((sh, idx) => {
-                  const selected = isLayerSelected("shape", sh.id);
-                  const label = getShapeLabel(sh);
-                  return (
-                    <div
-                      key={sh.id}
-                      onClick={(e) =>
-                        onSelectLayer?.({ kind: "shape", id: sh.id }, { toggle: e.shiftKey })
-                      }
-                      className={cn(
-                        "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
-                        selected
-                          ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
-                          : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
-                        sh.hidden && "opacity-55",
-                      )}
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <span
+                            className={cn(
+                              "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold",
+                              selected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary",
+                            )}
+                          >
+                            T
+                          </span>
+                          <span className={cn("truncate font-medium text-foreground", t.hidden && "line-through text-muted-foreground")}>
+                            {t.text || "Text Layer"}
+                          </span>
+                        </div>
                         <div
-                          className="h-5 w-5 shrink-0 border border-border/80"
-                          style={{
-                            background:
-                              sh.style === "gradient"
-                                ? sh.gradient ?? "linear-gradient(135deg, #ffffff 0%, #ede9fe 100%)"
-                                : sh.style === "outline"
-                                  ? "transparent"
-                                  : sh.color,
-                            borderColor: sh.style === "outline" ? sh.color : undefined,
-                            ...shapeCss(sh.kind, sh.radius >= 80 ? 999 : Math.min(sh.radius, 8)),
-                          }}
-                        />
-                        <span className={cn("truncate font-medium capitalize text-foreground", sh.hidden && "line-through text-muted-foreground")}>
-                          {label} {idx + 1}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            set(
-                              "shapes",
-                              withShapeUpdated(s, sh.id, {
-                                layer: sh.layer === "behind" ? "front" : "behind",
-                              }),
-                            );
-                          }}
-                          className="rounded bg-secondary/80 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-                          title="Toggle front / behind"
+                          className="flex shrink-0 items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          {sh.layer === "behind" ? "Behind" : "Front"}
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, t.id, "up").layerOrder)}
+                            disabled={isTop}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
+                            title="Move up (Sort up)"
+                          >
+                            <ArrowUp01Icon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, t.id, "down").layerOrder)}
+                            disabled={isBottom}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
+                            title="Move down (Sort down)"
+                          >
+                            <ArrowDown01Icon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("texts", withTextUpdated(s, t.id, { hidden: !t.hidden }))}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
+                              t.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title={t.hidden ? "Show layer" : "Hide layer"}
+                          >
+                            {t.hidden ? <ViewOffIcon size={13} /> : <ViewIcon size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("texts", withTextUpdated(s, t.id, { locked: !t.locked }))}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
+                              t.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title={t.locked ? "Unlock layer" : "Lock layer"}
+                          >
+                            {t.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("texts", withTextRemoved(s, t.id))}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            title="Delete text layer"
+                          >
+                            <Delete02Icon size={13} />
+                          </button>
+                        </div>
                       </div>
+                    );
+                  }
+
+                  if (kind === "image") {
+                    const img = imageLayers.find((item) => item.id === id);
+                    if (!img) return null;
+                    return (
                       <div
-                        className="flex shrink-0 items-center gap-1"
-                        onClick={(e) => e.stopPropagation()}
+                        key={img.id}
+                        onClick={(e) =>
+                          onSelectLayer?.({ kind: "image", id: img.id }, { toggle: e.shiftKey })
+                        }
+                        className={cn(
+                          "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
+                          selected
+                            ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
+                            : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
+                          img.hidden && "opacity-55",
+                        )}
                       >
-                        {/* Sort Up / Down */}
-                        <button
-                          type="button"
-                          onClick={() => set("shapes", withShapeReordered(s, sh.id, "up"))}
-                          disabled={idx === 0}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                          title="Move up (Sort up)"
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <img
+                            src={img.src}
+                            alt=""
+                            className="h-6 w-6 shrink-0 rounded object-cover"
+                          />
+                          <span className={cn("truncate font-medium text-foreground", img.hidden && "line-through text-muted-foreground")}>
+                            Image
+                          </span>
+                        </div>
+                        <div
+                          className="flex shrink-0 items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <ArrowUp01Icon size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => set("shapes", withShapeReordered(s, sh.id, "down"))}
-                          disabled={idx === shapeLayers.length - 1}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                          title="Move down (Sort down)"
-                        >
-                          <ArrowDown01Icon size={13} />
-                        </button>
-
-                        {/* Hide / Show (Eye Icon) */}
-                        <button
-                          type="button"
-                          onClick={() => set("shapes", withShapeUpdated(s, sh.id, { hidden: !sh.hidden }))}
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                            sh.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
-                          )}
-                          title={sh.hidden ? "Show layer" : "Hide layer"}
-                        >
-                          {sh.hidden ? <ViewOffIcon size={13} /> : <ViewIcon size={13} />}
-                        </button>
-
-                        {/* Lock / Unlock */}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            set("shapes", withShapeUpdated(s, sh.id, { locked: !sh.locked }))
-                          }
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                            sh.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
-                          )}
-                          title={sh.locked ? "Unlock layer" : "Lock layer"}
-                        >
-                          {sh.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
-                        </button>
-
-                        {/* Delete */}
-                        <button
-                          type="button"
-                          onClick={() => set("shapes", withShapeRemoved(s, sh.id))}
-                          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          title="Delete shape layer"
-                        >
-                          <Delete02Icon size={13} />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, img.id, "up").layerOrder)}
+                            disabled={isTop}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
+                            title="Move up (Sort up)"
+                          >
+                            <ArrowUp01Icon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, img.id, "down").layerOrder)}
+                            disabled={isBottom}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
+                            title="Move down (Sort down)"
+                          >
+                            <ArrowDown01Icon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("images", withImageUpdated(s, img.id, { hidden: !img.hidden }))}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
+                              img.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title={img.hidden ? "Show layer" : "Hide layer"}
+                          >
+                            {img.hidden ? <ViewOffIcon size={13} /> : <ViewIcon size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("images", withImageUpdated(s, img.id, { locked: !img.locked }))}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
+                              img.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title={img.locked ? "Unlock layer" : "Lock layer"}
+                          >
+                            {img.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("images", withImageRemoved(s, img.id))}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            title="Delete image layer"
+                          >
+                            <Delete02Icon size={13} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  );
+                    );
+                  }
+
+                  if (kind === "shape") {
+                    const sh = shapeLayers.find((item) => item.id === id);
+                    if (!sh) return null;
+                    const label = getShapeLabel(sh);
+                    return (
+                      <div
+                        key={sh.id}
+                        onClick={(e) =>
+                          onSelectLayer?.({ kind: "shape", id: sh.id }, { toggle: e.shiftKey })
+                        }
+                        className={cn(
+                          "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
+                          selected
+                            ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
+                            : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
+                          sh.hidden && "opacity-55",
+                        )}
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <div
+                            className="h-5 w-5 shrink-0 border border-border/80"
+                            style={{
+                              background:
+                                sh.style === "gradient"
+                                  ? sh.gradient ?? "linear-gradient(135deg, #ffffff 0%, #ede9fe 100%)"
+                                  : sh.style === "outline"
+                                    ? "transparent"
+                                    : sh.color,
+                              borderColor: sh.style === "outline" ? sh.color : undefined,
+                              ...shapeCss(sh.kind, sh.radius >= 80 ? 999 : Math.min(sh.radius, 8)),
+                            }}
+                          />
+                          <span className={cn("truncate font-medium capitalize text-foreground", sh.hidden && "line-through text-muted-foreground")}>
+                            {label}
+                          </span>
+                        </div>
+                        <div
+                          className="flex shrink-0 items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, sh.id, "up").layerOrder)}
+                            disabled={isTop}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
+                            title="Move up (Sort up)"
+                          >
+                            <ArrowUp01Icon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, sh.id, "down").layerOrder)}
+                            disabled={isBottom}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
+                            title="Move down (Sort down)"
+                          >
+                            <ArrowDown01Icon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("shapes", withShapeUpdated(s, sh.id, { hidden: !sh.hidden }))}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
+                              sh.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title={sh.hidden ? "Show layer" : "Hide layer"}
+                          >
+                            {sh.hidden ? <ViewOffIcon size={13} /> : <ViewIcon size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set("shapes", withShapeUpdated(s, sh.id, { locked: !sh.locked }))
+                            }
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
+                              sh.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title={sh.locked ? "Unlock layer" : "Lock layer"}
+                          >
+                            {sh.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("shapes", withShapeRemoved(s, sh.id))}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            title="Delete shape layer"
+                          >
+                            <Delete02Icon size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return null;
                 })}
               </div>
             ) : null}
@@ -1761,11 +1720,11 @@ export function LeftPanel({
                       key={preset.id}
                       type="button"
                       onClick={() => {
-                        const updated = withShapeAdded(s, preset.kind, preset.radius);
-                        set("shapes", updated);
-                        const newShape = updated[0];
-                        if (newShape) {
-                          onSelectLayer?.({ kind: "shape", id: newShape.id });
+                        const res = withShapeAdded(s, preset.kind, preset.radius);
+                        set("shapes", res.list);
+                        set("layerOrder", res.layerOrder);
+                        if (res.newId) {
+                          onSelectLayer?.({ kind: "shape", id: res.newId });
                         }
                         onItemSelect?.();
                       }}

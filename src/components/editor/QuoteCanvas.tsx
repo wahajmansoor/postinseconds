@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Copy01Icon,
   Delete02Icon,
@@ -10,6 +11,7 @@ import {
   getImageLayers,
   getShapeLayers,
   getTextLayers,
+  getUnifiedLayers,
   hexToRgba,
   sanitizeTextHtml,
   shapeCss,
@@ -17,6 +19,7 @@ import {
   withImageDuplicated,
   withImageRemoved,
   withImageUpdated,
+  withMultipleLayersRemoved,
   withShapeDuplicated,
   withShapeRemoved,
   withShapeUpdated,
@@ -88,6 +91,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   sRef.current = s;
 
   const [guides, setGuides] = useState<GuidesState>({ vCenter: false, hCenter: false });
+  const [controlsOverlayEl, setControlsOverlayEl] = useState<HTMLDivElement | null>(null);
 
   type LayerRef = { kind: "image" | "text" | "shape"; id: string };
   const [internalSelected, setInternalSelected] = useState<LayerRef[]>([]);
@@ -393,15 +397,16 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         fontFamily: '"Outfit", sans-serif',
       }}
     >
-      {/* Background layer clipped to canvas boundary */}
+      {/* 1. CLIPPED CANVAS VISUAL CONTENT VIEWPORT (overflow: hidden) */}
+      {/* Clips images, shapes, text, and shadows strictly at the canvas border like Canva */}
       <div
         style={{
           position: "absolute",
           inset: 0,
           overflow: "hidden",
           background: s.background,
-          zIndex: 0,
-          pointerEvents: "none",
+          borderRadius: s.canvasRadius ?? 0,
+          pointerEvents: "auto",
         }}
       >
         {s.bgImage ? (
@@ -436,86 +441,109 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
             }}
           />
         ) : null}
+
+        {/* Unified Layer Visual Content (Images, Shapes, Text graphics) */}
+        {getUnifiedLayers(s).map((layerRef, i) => {
+          if (layerRef.kind === "shape") {
+            const shape = getShapeLayers(s).find((sh) => sh.id === layerRef.id);
+            if (!shape) return null;
+            return (
+              <DraggableShapeLayer
+                key={shape.id}
+                shape={shape}
+                index={i}
+                s={s}
+                scale={scale}
+                interactive={interactive}
+                set={set}
+                selected={selected.some((sel) => sel.kind === "shape" && sel.id === shape.id)}
+                selectedCount={selected.length}
+                onSelect={onSelectShape}
+                onGroupDragStart={beginGroupDrag}
+                onGroupDragMove={updateGroupDrag}
+                onGroupDragEnd={endGroupDrag}
+                onGuides={setGuides}
+                controlsOverlayEl={controlsOverlayEl}
+              />
+            );
+          }
+
+          if (layerRef.kind === "image") {
+            const img = getImageLayers(s).find((item) => item.id === layerRef.id);
+            if (!img) return null;
+            return (
+              <DraggableImageLayer
+                key={img.id}
+                img={img}
+                index={i}
+                s={s}
+                scale={scale}
+                interactive={interactive}
+                set={set}
+                selected={selected.some((sel) => sel.kind === "image" && sel.id === img.id)}
+                selectedCount={selected.length}
+                onSelect={onSelectImage}
+                onGroupDragStart={beginGroupDrag}
+                onGroupDragMove={updateGroupDrag}
+                onGroupDragEnd={endGroupDrag}
+                onGuides={setGuides}
+                controlsOverlayEl={controlsOverlayEl}
+              />
+            );
+          }
+
+          if (layerRef.kind === "text") {
+            const t = getTextLayers(s).find((item) => item.id === layerRef.id);
+            if (!t) return null;
+            return (
+              <DraggableTextLayer
+                key={t.id}
+                t={t}
+                index={i}
+                s={s}
+                scale={scale}
+                interactive={interactive}
+                set={set}
+                selected={selected.some((sel) => sel.kind === "text" && sel.id === t.id)}
+                selectedCount={selected.length}
+                onSelect={onSelectText}
+                onGroupDragStart={beginGroupDrag}
+                onGroupDragMove={updateGroupDrag}
+                onGroupDragEnd={endGroupDrag}
+                onGuides={setGuides}
+                registerHandle={registerTextLayerHandle}
+                controlsOverlayEl={controlsOverlayEl}
+              />
+            );
+          }
+
+          return null;
+        })}
       </div>
 
-      {/* Free-floating Shapes gallery — decorative silhouettes, each drags/
-          resizes/removes independently on the canvas. Replaces the old
-          single decorative-shape control. */}
-      {getShapeLayers(s).map((shape, i) => (
-        <DraggableShapeLayer
-          key={shape.id}
-          shape={shape}
-          index={i}
-          s={s}
-          scale={scale}
-          interactive={interactive}
-          set={set}
-          selected={selected.some((sel) => sel.kind === "shape" && sel.id === shape.id)}
-          selectedCount={selected.length}
-          onSelect={onSelectShape}
-          onGroupDragStart={beginGroupDrag}
-          onGroupDragMove={updateGroupDrag}
-          onGroupDragEnd={endGroupDrag}
-          onGuides={setGuides}
-        />
-      ))}
-
-
-      {/* Free-floating Images gallery — each entry drags/resizes/removes
-          independently on the canvas. */}
-      {getImageLayers(s).map((img, i) => (
-        <DraggableImageLayer
-          key={img.id}
-          img={img}
-          index={i}
-          s={s}
-          scale={scale}
-          interactive={interactive}
-          set={set}
-          selected={selected.some((sel) => sel.kind === "image" && sel.id === img.id)}
-          selectedCount={selected.length}
-          onSelect={onSelectImage}
-          onGroupDragStart={beginGroupDrag}
-          onGroupDragMove={updateGroupDrag}
-          onGroupDragEnd={endGroupDrag}
-          onGuides={setGuides}
-        />
-      ))}
-
-      {/* Free-floating Text gallery — extra editable text blocks beyond the
-          fixed quote/name/tagline, each drags/resizes/removes/edits
-          independently on the canvas. */}
-      {getTextLayers(s).map((t, i) => (
-        <DraggableTextLayer
-          key={t.id}
-          t={t}
-          index={i}
-          s={s}
-          scale={scale}
-          interactive={interactive}
-          set={set}
-          selected={selected.some((sel) => sel.kind === "text" && sel.id === t.id)}
-          selectedCount={selected.length}
-          onSelect={onSelectText}
-          onGroupDragStart={beginGroupDrag}
-          onGroupDragMove={updateGroupDrag}
-          onGroupDragEnd={endGroupDrag}
-          onGuides={setGuides}
-          registerHandle={registerTextLayerHandle}
-        />
-      ))}
+      {/* 2. UNCLIPPED CONTROLS & SELECTION HANDLES OVERLAY (overflow: visible) */}
+      {/* Selection outline, corner handle circles, edge pills, and toolbars render here via Portal */}
+      <div
+        ref={setControlsOverlayEl}
+        style={{
+          position: "absolute",
+          inset: 0,
+          overflow: "visible",
+          pointerEvents: "none",
+        }}
+      />
 
 
 
       {/* Smart Alignment & Canvas Edge Indication Guides Overlay */}
       {interactive &&
-      (guides.vCenter ||
-        guides.hCenter ||
-        guides.edgeLeft ||
-        guides.edgeRight ||
-        guides.edgeTop ||
-        guides.edgeBottom ||
-        (guides.lines && guides.lines.length > 0)) ? (
+        (guides.vCenter ||
+          guides.hCenter ||
+          guides.edgeLeft ||
+          guides.edgeRight ||
+          guides.edgeTop ||
+          guides.edgeBottom ||
+          (guides.lines && guides.lines.length > 0)) ? (
         <div className="pointer-events-none absolute inset-0 z-[100] overflow-hidden">
           {/* Canvas Left Edge Indicator */}
           {guides.edgeLeft ? (
@@ -786,26 +814,63 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
           <div className="absolute -left-1.5 -bottom-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
           <div className="absolute -right-1.5 -bottom-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
 
-          {/* Group Info Badge */}
-          <span
+          {/* Group Info Badge & Interactive Multi-Delete Toolbar */}
+          <div
+            data-nopan=""
+            onPointerDown={(e) => e.stopPropagation()}
             style={{
               position: "absolute",
               left: "50%",
-              top: -24,
+              top: -34,
               transform: "translateX(-50%)",
-              background: "#8b5cf6",
+              background: "#0f172a",
+              border: "1px solid rgba(255,255,255,0.15)",
               color: "#ffffff",
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.03em",
-              padding: "2px 8px",
-              borderRadius: 4,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "3px 10px",
+              borderRadius: 20,
+              boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
               whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              pointerEvents: "auto",
             }}
           >
-            {selected.length} Layers Selected · {Math.round(selectedBounds.width)} × {Math.round(selectedBounds.height)}px
-          </span>
+            <span>{selected.length} Layers Selected</span>
+            <span style={{ opacity: 0.3 }}>|</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!set) return;
+                const result = withMultipleLayersRemoved(s, selected);
+                set("texts", result.texts);
+                set("images", result.images);
+                set("shapes", result.shapes);
+                set("layerOrder", result.layerOrder);
+                onSelectionChange?.([]);
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                color: "#ef4444",
+                background: "rgba(239, 68, 68, 0.15)",
+                border: "none",
+                borderRadius: 12,
+                padding: "2px 8px",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 10,
+              }}
+              title="Delete all selected layers"
+            >
+              <Delete02Icon size={12} />
+              Delete All
+            </button>
+          </div>
         </div>
       ) : null}
     </div>
@@ -1221,15 +1286,61 @@ type HandleId = (typeof HANDLE_POSITIONS)[number]["id"];
 // Corners render as small circles; edge handles as pill/bar shapes (a
 // stadium shape falls straight out of `rounded-full` once width != height,
 // no separate border-radius logic needed).
-function handleDims(_kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
-  switch (_kind) {
+function handleDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
+  switch (kind) {
     case "corner":
-      return { width: 16, height: 16 };
+      return { width: 32, height: 32 };
     case "edge-h":
-      return { width: 18, height: 6 };
+      return { width: 44, height: 12 };
     case "edge-v":
-      return { width: 6, height: 18 };
+      return { width: 12, height: 44 };
   }
+}
+
+function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number]): React.CSSProperties {
+  const dims = handleDims(h.kind);
+  const outlineOffset = 5; // 4px outlineOffset + 1px stroke offset to center on outline line
+
+  const offsetX = outlineOffset + dims.width / 2;
+  const offsetY = outlineOffset + dims.height / 2;
+
+  let posStyle: React.CSSProperties = {};
+  switch (h.id) {
+    case "nw":
+      posStyle = { left: -offsetX, top: -offsetY };
+      break;
+    case "n":
+      posStyle = { left: "50%", top: -offsetY, transform: "translateX(-50%)" };
+      break;
+    case "ne":
+      posStyle = { right: -offsetX, top: -offsetY };
+      break;
+    case "e":
+      posStyle = { right: -offsetX, top: "50%", transform: "translateY(-50%)" };
+      break;
+    case "se":
+      posStyle = { right: -offsetX, bottom: -offsetY };
+      break;
+    case "s":
+      posStyle = { left: "50%", bottom: -offsetY, transform: "translateX(-50%)" };
+      break;
+    case "sw":
+      posStyle = { left: -offsetX, bottom: -offsetY };
+      break;
+    case "w":
+      posStyle = { left: -offsetX, top: "50%", transform: "translateY(-50%)" };
+      break;
+  }
+
+  return {
+    position: "absolute",
+    ...posStyle,
+    ...dims,
+    boxShadow: "0 2px 10px 0 rgba(0,33,255,0.5), 0 0 0 2px rgba(255,255,255,0.9)",
+    cursor: h.cursor,
+    zIndex: 60,
+    touchAction: "none",
+  };
 }
 
 function resizeDelta(handleId: HandleId, dx: number, dy: number): number {
@@ -1502,6 +1613,7 @@ function DraggableTextLayer({
   onGroupDragEnd,
   onGuides,
   registerHandle,
+  controlsOverlayEl,
 }: {
   t: TextLayer;
   index: number;
@@ -1516,12 +1628,8 @@ function DraggableTextLayer({
   onGroupDragMove: (clientX: number, clientY: number) => void;
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
-  // Registers/unregisters this layer's imperative formatting handle (see
-  // TextLayerHandle) under its id — lets a toolbar living outside the
-  // canvas entirely (index.tsx's new top-docked selection toolbar) drive
-  // this exact layer's formatting without the canvas needing to expose its
-  // whole internal DOM/selection machinery.
   registerHandle?: ((id: string, handle: TextLayerHandle | null) => void) | undefined;
+  controlsOverlayEl?: HTMLDivElement | null;
 }) {
   const dragRef = useRef<{
     px: number;
@@ -1544,58 +1652,12 @@ function DraggableTextLayer({
   } | null>(null);
   const editableRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Captured from the double-click that enters edit mode (see
-  // onDoubleClick below) and consumed once by the isEditing effect right
-  // after — lets the caret land at the word actually clicked instead of
-  // always jumping to the very start of the text. See that effect for why
-  // this is needed at all: the browser's own native "double-click selects
-  // the word" behavior can't run at click time (this div isn't editable/
-  // selectable yet at that instant), so nothing places a caret on its own.
   const dblClickPointRef = useRef<{ x: number; y: number } | null>(null);
-  // Set by applyFormatSmart (the imperative handle's version of
-  // applyFormat, driven by the top-docked selection toolbar in index.tsx)
-  // when a list command is requested but the layer isn't being edited yet
-  // and has no highlighted range to act on — consumed once by the same
-  // isEditing effect below, which selects the whole layer's text once it
-  // actually becomes editable and then runs the command against that
-  // selection, same as clicking "bullet list" with nothing highlighted
-  // does in most rich text editors (turns the whole text into one list
-  // item rather than silently doing nothing).
   const pendingListCommandRef = useRef<RichFormatCmd | null>(null);
-
-  // Captured just before a native control that must steal focus to work at
-  // all (the toolbar's font-family <select>, its color <input type=color>)
-  // opens — unlike the plain format buttons, preventDefault on those would
-  // just break them outright, so their own mousedown blurs this element
-  // first. By the time their onChange actually fires (after the dropdown/
-  // picker closes), window.getSelection() no longer shows the highlighted
-  // range at all — it was real a moment ago, but focus moving away from a
-  // contentEditable collapses whatever Selection was inside it. Cloning
-  // the Range here, one tick earlier while it's still live, is what lets
-  // applyStyleSmart still act on "the highlighted range" instead of always
-  // falling back to the whole layer once focus has already moved on.
   const selectionSnapshotRef = useRef<Range | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
 
-  // Frozen snapshot of the rendered content while actively editing — the
-  // fix for a real, separate bug: onKeyUp below calls `update()` on every
-  // keystroke to keep `t.text`/`t.html` live (so the sidebar and anything
-  // else reading this layer stays in sync while typing), but `t` used to
-  // be a dependency of editableNode's dangerouslySetInnerHTML too. That
-  // meant every single keystroke forced editableNode to recompute and reset
-  // this div's DOM — which, like the selection-collapsing bug above, wipes
-  // out the live caret position, so every typed character landed at
-  // position 0 instead of where the caret actually was (confirmed directly:
-  // typing "XYZ" mid-string produced "ZYX<rest of text>", each character
-  // prepended to the front). Mutating a ref during render like this is a
-  // deliberate, narrow exception — safe here specifically because it's a
-  // pure function of `t.html`/`t.text`/`isEditing` (same inputs always
-  // produce the same assignment, so it's fine under double-invocation) and
-  // is exactly the "derive a value without an effect" pattern React's own
-  // docs describe: an effect would only run after the commit where
-  // `isEditing` first flips true, one render too late for `content` below
-  // to already be right on that render.
   const editSnapshotRef = useRef<string>(sanitizeTextHtml(t.html || t.text));
   if (!isEditing) {
     editSnapshotRef.current = sanitizeTextHtml(t.html || t.text);
@@ -1612,13 +1674,6 @@ function DraggableTextLayer({
     if (!el) return;
     el.focus();
     if (dblClickPointRef.current) {
-      // A real double-click's native "select the word" behavior can't run
-      // at the moment the click actually lands — this div is still
-      // `userSelect: none` and not yet contentEditable at that instant
-      // (isEditing only flips true, and this effect only runs, afterward,
-      // once React commits it). Nothing browser-native ever placed a
-      // caret, so plain el.focus() alone falls back to position 0 — hence
-      // reconstructing the click point's word here instead.
       const { x, y } = dblClickPointRef.current;
       dblClickPointRef.current = null;
       const wordRange = wordRangeFromPoint(x, y, el);
@@ -1644,26 +1699,10 @@ function DraggableTextLayer({
       sel?.removeAllRanges();
       sel?.addRange(range);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing]);
 
   const canInteract = interactive && !!set;
   const locked = t.locked ?? false;
-  // `update` needs the CURRENT `s` to correctly splice just this layer's
-  // patch into the full document (withTextUpdated(s, t.id, patch)) without
-  // clobbering unrelated concurrent edits elsewhere — but `s` necessarily
-  // gets a new reference on every single keystroke typed into *this same*
-  // layer (that's what typing does: onKeyUp below calls update(), which
-  // changes `s.texts`, which is `s` itself). If `update` closed over `s`
-  // directly (as a useCallback dependency) it would get a new identity on
-  // every keystroke too, which — since `update` is one of editableNode's
-  // memo dependencies — would still force that DOM to reset every
-  // keystroke despite the `content` freeze above, reintroducing the exact
-  // same caret-reset bug through a different path. Reading `s` from a ref
-  // instead (kept fresh on every render, not as a captured value) makes
-  // `update` itself genuinely stable (only depends on `set`, which is
-  // already useCallback-stable up in index.tsx) while still always acting
-  // on the latest state when actually called.
   const sRef = useRef(s);
   sRef.current = s;
   const update = useCallback(
@@ -1700,12 +1739,6 @@ function DraggableTextLayer({
     }
 
     if (!executed && !isListCmd) {
-      // No manual fallback for the two list commands — building a `<ul>/
-      // <li>` structure by hand (splitting the current line, wrapping it,
-      // merging with an adjacent list if one already sits next to it) is a
-      // lot of edge-case-prone DOM surgery for a command that's supported
-      // essentially everywhere already; unlike bold/italic/underline/
-      // strike, there's no simple single-tag-wrap equivalent.
       const tag = cmd === "bold" ? "b" : cmd === "italic" ? "i" : cmd === "underline" ? "u" : "s";
       const wrapper = document.createElement(tag);
       if (cmd === "bold") wrapper.style.fontWeight = "900";
@@ -1728,15 +1761,6 @@ function DraggableTextLayer({
     }
 
     if (isListCmd && executed) {
-      // Tailwind's Preflight resets `ul, ol { list-style: none; margin: 0;
-      // padding: 0 }` globally (src/index.css imports the full
-      // "tailwindcss" package, base layer included), so a freshly-inserted
-      // list would otherwise render with no visible bullets/numbers and no
-      // indent. Setting it inline here (rather than only in a stylesheet)
-      // is what lets it survive: this runs once, right before el.innerHTML
-      // is captured into `t.html` below, and DOMPurify's allowlist (see
-      // RICH_TEXT_ALLOWED_STYLE_PROPS in types.ts) keeps exactly these
-      // three properties on every future re-sanitize too.
       el.querySelectorAll("ul, ol").forEach((listEl) => {
         const style = (listEl as HTMLElement).style;
         style.listStyleType = listEl.tagName === "OL" ? "decimal" : "disc";
@@ -1751,10 +1775,6 @@ function DraggableTextLayer({
     notifyActiveFormat();
   };
 
-  // Shared by applyFormatSmart and applyStyleSmart below: is there a real,
-  // non-collapsed browser Selection currently inside this exact element?
-  // That's the signal both use to decide "format just the highlighted
-  // range" vs. "nothing highlighted, fall back to the whole layer".
   const hasLiveSelection = () => {
     const el = editableRef.current;
     const sel = window.getSelection();
@@ -1763,16 +1783,6 @@ function DraggableTextLayer({
     return el === r.commonAncestorContainer || el.contains(r.commonAncestorContainer);
   };
 
-  // Backs getActiveFormat/subscribeActiveFormat below: while editing, a
-  // collapsed caret still has a meaningful bold/italic/underline/strike
-  // state (queryCommandState reports what typing right now would produce,
-  // same as every rich text editor's toolbar), and a highlighted range
-  // reports whatever formatting actually covers it — either way this is a
-  // live query against the browser's own Selection, not something read off
-  // `t`. Falls back to the whole layer's fields the moment there's no live
-  // selection inside this element at all (not editing yet, or editing but
-  // focus/selection genuinely isn't here), same fallback applyFormatSmart
-  // itself uses for actually applying a command with nothing highlighted.
   const getActiveFormat = useCallback((): LiveTextFormat => {
     const el = editableRef.current;
     const sel = window.getSelection();
@@ -1794,8 +1804,6 @@ function DraggableTextLayer({
           numberedList: document.queryCommandState("insertOrderedList"),
         };
       } catch {
-        // Fall through to the whole-layer fields below — some environments
-        // don't support queryCommandState for one of these commands.
       }
     }
     return {
@@ -1826,35 +1834,16 @@ function DraggableTextLayer({
     [getActiveFormat],
   );
 
-  // Re-broadcasts whenever anything getActiveFormat depends on changes:
-  // entering/leaving edit mode, or the whole layer's own fields (e.g. the
-  // sidebar toggling Bold while this toolbar happens to be mounted too).
   useEffect(() => {
     notifyActiveFormat();
   }, [notifyActiveFormat]);
 
-  // Selection can also change without any of the above changing at all —
-  // moving the caret with arrow keys, clicking to a new spot, or dragging
-  // out a new highlight — so it needs its own live signal while editing.
   useEffect(() => {
     if (!isEditing) return;
     document.addEventListener("selectionchange", notifyActiveFormat);
     return () => document.removeEventListener("selectionchange", notifyActiveFormat);
   }, [isEditing, notifyActiveFormat]);
 
-  // The version of applyFormat exposed through the imperative handle (see
-  // TextLayerHandle) — used by index.tsx's top-docked selection toolbar,
-  // which can be clicked the moment a layer is merely *selected*, well
-  // before (or entirely without) the user ever entering edit mode or
-  // highlighting a range. applyFormat itself requires a live, non-collapsed
-  // selection inside this exact element (that's what the highlight-to-style
-  // popover always had, before it was removed in favor of this toolbar) —
-  // this wrapper adds the fallback for when there isn't one: bold/italic/
-  // underline/strike toggle the whole layer's boolean field (same
-  // fallback the sidebar's own handleFormat in LeftPanel.tsx already uses
-  // for its "nothing highlighted" case), and the two list commands select
-  // the entire layer's text first (via pendingListCommandRef + the
-  // isEditing effect above) so there's something for execCommand to act on.
   const applyFormatSmart = (cmd: RichFormatCmd) => {
     if (hasLiveSelection()) {
       applyFormat(cmd);
@@ -1873,23 +1862,10 @@ function DraggableTextLayer({
     else if (cmd === "strike") update({ strike: !t.strike });
   };
 
-  // Called on mousedown by the toolbar's font-family <select> and color
-  // <input type=color> — see selectionSnapshotRef above for why.
   const snapshotSelection = () => {
     selectionSnapshotRef.current = hasLiveSelection() ? window.getSelection()!.getRangeAt(0).cloneRange() : null;
   };
 
-  // Same "highlighted range vs. whole layer" fallback as applyFormatSmart,
-  // for the toolbar's font/size/color controls: with a live highlighted
-  // range (or a snapshot of one taken just before a native control stole
-  // focus — see snapshotSelection/selectionSnapshotRef above), wrap just
-  // that range in a <span style="..."> (same DOM-surgery technique
-  // applyFormat's own manual fallback uses for bold/italic/underline/
-  // strike); with neither, patch the whole layer. Deliberately NOT used
-  // for alignment — text-align is a block-level CSS property that has no
-  // effect on an inline <span>, so "align just this highlighted word"
-  // isn't a meaningful operation; setAlign below always patches the whole
-  // layer.
   const applyStyleSmart = (cssProps: Partial<CSSStyleDeclaration>, wholeLayerPatch: Partial<Omit<TextLayer, "id">>) => {
     const liveRange = hasLiveSelection() ? window.getSelection()!.getRangeAt(0) : null;
     const range = liveRange ?? selectionSnapshotRef.current;
@@ -1908,10 +1884,6 @@ function DraggableTextLayer({
       wrapper.appendChild(contents);
       range.insertNode(wrapper);
       if (liveRange) {
-        // Only re-select when the range came from the *live* selection —
-        // if it came from the snapshot, focus has already moved to the
-        // native control that's mid-interaction (the dropdown/picker), and
-        // forcing selection back into this element would just fight it.
         const sel = window.getSelection();
         const newRange = document.createRange();
         newRange.selectNodeContents(wrapper);
@@ -1930,10 +1902,6 @@ function DraggableTextLayer({
 
   const setFontFamily = (v: string) => applyStyleSmart({ fontFamily: v }, { fontFamily: v });
 
-  // Strip inline font-size styles from HTML spans when we're changing the
-  // whole-layer font size, so t.size (applied as CSS fontSize on the
-  // container) is the single source of truth and inline spans don't
-  // silently override it after a corner resize or toolbar increment.
   const stripInlineFontSize = (html: string): string => {
     if (!html || typeof window === "undefined") return html;
     try {
@@ -1959,7 +1927,6 @@ function DraggableTextLayer({
     const range = liveRange ?? selectionSnapshotRef.current;
 
     if (range) {
-      // Range selected — apply to just the highlighted span
       applyStyleSmart(
         { fontSize: `${v}px` },
         {
@@ -1969,8 +1936,6 @@ function DraggableTextLayer({
         },
       );
     } else {
-      // No selection — change the whole layer and strip all inline font-size
-      // overrides from existing HTML so the layer-level size is respected.
       const cleanHtml = t.html ? stripInlineFontSize(t.html) : undefined;
       update({
         size: v,
@@ -1993,10 +1958,6 @@ function DraggableTextLayer({
   const setLineHeight = (v: number) => update({ lineHeight: v });
   const setVerticalAlign = (v: "top" | "middle" | "bottom") => update({ verticalAlign: v });
 
-  // Kept as a stable object reference (registered once) whose properties
-  // are refreshed every render, rather than a new object each time — see
-  // the comment on `registerHandle` above for why an index.tsx-level Map
-  // needs this to survive across renders without re-registering constantly.
   const handleRef = useRef<TextLayerHandle>({
     applyFormat: applyFormatSmart,
     setFontFamily,
@@ -2027,7 +1988,6 @@ function DraggableTextLayer({
   useEffect(() => {
     registerHandle?.(t.id, handleRef.current);
     return () => registerHandle?.(t.id, null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerHandle, t.id]);
 
   const duplicate = () => {
@@ -2039,18 +1999,6 @@ function DraggableTextLayer({
 
   const hasExplicitWidth = t.width !== undefined;
 
-  // Memoized deliberately: this is the actual contentEditable node
-  // (dangerouslySetInnerHTML-driven), and re-rendering it in response to
-  // unrelated state (even to an *unchanged* `dangerouslySetInnerHTML`
-  // value) makes React touch its DOM, which silently collapses whatever
-  // native browser selection the user is mid-drag on. Confirmed directly
-  // (headless Chromium + a MutationObserver): every such re-render
-  // coincided with a DOM mutation and an immediately collapsed selection,
-  // and isolating this node with useMemo/deps that exclude anything not
-  // genuinely relevant to it was independently confirmed to fix it.
-  // `update` in the dependency list below is made stable via useCallback
-  // specifically so it doesn't defeat this by changing identity every
-  // render (see the comment on it above).
   const isCurved = t.shapeType === "curve" && t.curveAmount !== undefined && t.curveAmount !== 0;
 
   const editableNode = useMemo(
@@ -2059,89 +2007,89 @@ function DraggableTextLayer({
         ? undefined
         : isEditing
           ? (e: React.PointerEvent) => {
-              e.stopPropagation();
-            }
+            e.stopPropagation();
+          }
           : (e: React.PointerEvent) => {
-              e.stopPropagation();
-              if (e.shiftKey) {
-                onSelect(t.id, { toggle: true });
-                return;
-              }
-              if (locked) return;
+            e.stopPropagation();
+            if (e.shiftKey) {
+              onSelect(t.id, { toggle: true });
+              return;
+            }
+            if (locked) return;
 
-              if (e.altKey && set) {
-                const dup = withTextDuplicated(sRef.current, t.id);
-                set("texts", dup.list);
-                onSelect(dup.newId);
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                dragRef.current = {
-                  px: t.x,
-                  py: t.y,
-                  x: e.clientX,
-                  y: e.clientY,
-                  activeId: dup.newId,
-                  hasDuplicated: true,
-                };
-                return;
-              }
-
-              if (!selected) {
-                onSelect(t.id);
-              }
+            if (e.altKey && set) {
+              const dup = withTextDuplicated(sRef.current, t.id);
+              set("texts", dup.list);
+              onSelect(dup.newId);
               (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              if (selected && selectedCount > 1) {
-                groupDraggingRef.current = true;
-                onGroupDragStart(e.clientX, e.clientY);
-              } else {
-                dragRef.current = {
-                  px: t.x,
-                  py: t.y,
-                  x: e.clientX,
-                  y: e.clientY,
-                  activeId: t.id,
-                  hasDuplicated: false,
-                };
-              }
-            };
+              dragRef.current = {
+                px: t.x,
+                py: t.y,
+                x: e.clientX,
+                y: e.clientY,
+                activeId: dup.newId,
+                hasDuplicated: true,
+              };
+              return;
+            }
+
+            if (!selected) {
+              onSelect(t.id);
+            }
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+            if (selected && selectedCount > 1) {
+              groupDraggingRef.current = true;
+              onGroupDragStart(e.clientX, e.clientY);
+            } else {
+              dragRef.current = {
+                px: t.x,
+                py: t.y,
+                x: e.clientX,
+                y: e.clientY,
+                activeId: t.id,
+                hasDuplicated: false,
+              };
+            }
+          };
 
       const handlePointerMove =
         canInteract && !locked && !isEditing
           ? (e: React.PointerEvent) => {
-              if (groupDraggingRef.current) {
-                e.stopPropagation();
-                onGroupDragMove(e.clientX, e.clientY);
-                return;
-              }
-              const d = dragRef.current;
-              if (!d) return;
+            if (groupDraggingRef.current) {
               e.stopPropagation();
-
-              if (e.altKey && !d.hasDuplicated && set) {
-                const dup = withTextDuplicated(sRef.current, t.id);
-                set("texts", dup.list);
-                onSelect(dup.newId);
-                d.activeId = dup.newId;
-                d.hasDuplicated = true;
-              }
-
-              const dx = ((e.clientX - d.x) / scale / s.width) * 100;
-              const dy = ((e.clientY - d.y) / scale / s.height) * 100;
-              const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
-              const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
-              const otherElements = getAllCanvasElements(s);
-              const targetId = d.activeId || t.id;
-              const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
-                currentId: targetId,
-                rawX: d.px + dx,
-                rawY: d.py + dy,
-                width,
-                height,
-                s,
-                otherElements,
-              });
-              onGuides(snapGuides);
-              set?.("texts", withTextUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
+              onGroupDragMove(e.clientX, e.clientY);
+              return;
             }
+            const d = dragRef.current;
+            if (!d) return;
+            e.stopPropagation();
+
+            if (e.altKey && !d.hasDuplicated && set) {
+              const dup = withTextDuplicated(sRef.current, t.id);
+              set("texts", dup.list);
+              onSelect(dup.newId);
+              d.activeId = dup.newId;
+              d.hasDuplicated = true;
+            }
+
+            const dx = ((e.clientX - d.x) / scale / s.width) * 100;
+            const dy = ((e.clientY - d.y) / scale / s.height) * 100;
+            const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
+            const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
+            const otherElements = getAllCanvasElements(s);
+            const targetId = d.activeId || t.id;
+            const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+              currentId: targetId,
+              rawX: d.px + dx,
+              rawY: d.py + dy,
+              width,
+              height,
+              s,
+              otherElements,
+            });
+            onGuides(snapGuides);
+            set?.("texts", withTextUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
+          }
           : undefined;
 
       const handlePointerUp = () => {
@@ -2186,58 +2134,54 @@ function DraggableTextLayer({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           onDoubleClick={handleDoubleClick}
-        onKeyUp={() => {
-          if (isEditing) {
-            const el = editableRef.current;
-            if (el) {
-              update({
-                text: el.textContent ?? "",
-                html: sanitizeTextHtml(el.innerHTML),
-              });
+          onKeyUp={() => {
+            if (isEditing) {
+              const el = editableRef.current;
+              if (el) {
+                update({
+                  text: el.textContent ?? "",
+                  html: sanitizeTextHtml(el.innerHTML),
+                });
+              }
+              notifyActiveFormat();
             }
-            notifyActiveFormat();
-          }
-        }}
-        onBlur={(e) => {
-          update({
-            text: e.currentTarget.textContent ?? "",
-            html: sanitizeTextHtml(e.currentTarget.innerHTML),
-          });
-          setIsEditing(false);
-        }}
-        style={{
-          fontFamily: t.fontFamily,
-          fontSize: t.size,
-          fontWeight: t.weight,
-          fontStyle: t.italic ? "italic" : "normal",
-          textDecoration: [t.underline ? "underline" : "", t.strike ? "line-through" : ""]
-            .filter(Boolean)
-            .join(" "),
-          color: t.color,
-          textAlign: t.align,
-          textAlignLast: t.align === "justify" ? "justify" : undefined,
-          textJustify: t.align === "justify" ? "inter-word" : undefined,
-          letterSpacing: t.letterSpacing !== undefined ? `${(t.letterSpacing / 1000) * t.size}px` : undefined,
-          lineHeight: t.lineHeight ?? 1.3,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          minHeight: t.minHeight,
-          outline: "none",
-          touchAction: isEditing ? "auto" : "none",
-          userSelect: isEditing ? "text" : "none",
-          cursor: !canInteract ? "default" : locked ? "pointer" : isEditing ? "text" : "grab",
-          display: "block",
-          width: "100%",
-          ...getTextEffectStyle(t),
-        }}
-        dangerouslySetInnerHTML={{ __html: content }}
-      />
-    );
-  },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately
-    // depends on individual t.* fields plus `content` rather than `t`
-    // itself, excluding `t.text`/`t.html` specifically — see the comment
-    // above `editSnapshotRef` for why.
+          }}
+          onBlur={(e) => {
+            update({
+              text: e.currentTarget.textContent ?? "",
+              html: sanitizeTextHtml(e.currentTarget.innerHTML),
+            });
+            setIsEditing(false);
+          }}
+          style={{
+            fontFamily: t.fontFamily,
+            fontSize: t.size,
+            fontWeight: t.weight,
+            fontStyle: t.italic ? "italic" : "normal",
+            textDecoration: [t.underline ? "underline" : "", t.strike ? "line-through" : ""]
+              .filter(Boolean)
+              .join(" "),
+            color: t.color,
+            textAlign: t.align,
+            textAlignLast: t.align === "justify" ? "justify" : undefined,
+            textJustify: t.align === "justify" ? "inter-word" : undefined,
+            letterSpacing: t.letterSpacing !== undefined ? `${(t.letterSpacing / 1000) * t.size}px` : undefined,
+            lineHeight: t.lineHeight ?? 1.3,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            minHeight: t.minHeight,
+            outline: "none",
+            touchAction: isEditing ? "auto" : "none",
+            userSelect: isEditing ? "text" : "none",
+            cursor: !canInteract ? "default" : locked ? "pointer" : isEditing ? "text" : "grab",
+            display: "block",
+            width: "100%",
+            ...getTextEffectStyle(t),
+          }}
+          dangerouslySetInnerHTML={{ __html: content }}
+        />
+      );
+    },
     [
       canInteract,
       locked,
@@ -2289,149 +2233,157 @@ function DraggableTextLayer({
   if (t.hidden) return null;
 
   return (
-    <div
-      ref={containerRef}
-      data-layer-id={t.id}
-      data-nopan=""
-      style={{
-        position: "absolute",
-        left: `${t.x}%`,
-        top: `${t.y}%`,
-        transform: "translate(-50%, -50%)",
-        width: validTextWidth ?? "fit-content",
-        maxWidth: validTextWidth ? undefined : Math.min(s.width * 0.92, 900),
-        minWidth: 40,
-        minHeight: t.minHeight,
-        display: t.minHeight ? "flex" : "block",
-        flexDirection: "column",
-        justifyContent:
-          t.verticalAlign === "middle"
-            ? "center"
-            : t.verticalAlign === "bottom"
-              ? "flex-end"
-              : "flex-start",
-        zIndex: 50 + (getTextLayers(s).length - index),
-        touchAction: "none",
-        outline: canInteract && selected ? "2px solid var(--color-primary)" : "none",
-        outlineOffset: 4,
-      }}
-      className="group"
-    >
-      {editableNode}
-
-      {canInteract && selected && selectedCount === 1 ? (
-        <>
-          <LayerToolbar
-            locked={locked}
-            onToggleLock={() => update({ locked: !locked })}
-            onDuplicate={duplicate}
-            onDelete={remove}
-            scale={scale}
-          />
-
-          {!locked ? (
-            <>
-              {/* 8 Stretch / Resize Handles — the 4 round corners scale
-                  font size & box proportionally; the 4 pill-shaped edge handles
-                  resize the box itself (width for left/right, reserved
-                  vertical room for top/bottom) and leave font size alone. */}
-              {HANDLE_POSITIONS.map((h) => (
-                <div
-                  key={h.id}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                    resizeRef.current = {
-                      startSize: t.size,
-                      startWidth: t.width ?? containerRef.current?.offsetWidth ?? 520,
-                      startMinHeight: t.minHeight ?? containerRef.current?.offsetHeight ?? 0,
-                      startPosX: t.x,
-                      startPosY: t.y,
-                      startMouseX: e.clientX,
-                      startMouseY: e.clientY,
-                      handle: h.id,
-                    };
-                  }}
-                  onPointerMove={(e) => {
-                    const r = resizeRef.current;
-                    if (!r || r.handle !== h.id) return;
-                    e.stopPropagation();
-                    const dx = (e.clientX - r.startMouseX) / scale;
-                    const dy = (e.clientY - r.startMouseY) / scale;
-                    if (h.kind === "corner") {
-                      const delta = resizeDelta(h.id, dx, dy);
-                      const nextSize = Math.round(Math.max(10, Math.min(300, r.startSize + delta / 2)));
-                      const scaleRatio = nextSize / r.startSize;
-                      const nextWidth = r.startWidth ? Math.round(Math.max(40, r.startWidth * scaleRatio)) : undefined;
-                      const nextMinHeight = r.startMinHeight ? Math.round(r.startMinHeight * scaleRatio) : undefined;
-                      // Also strip any inline font-size spans so the layer-level
-                      // size is always the single source of truth after a resize.
-                      const cleanHtml = t.html ? (() => {
-                        try {
-                          const tmp = document.createElement("div");
-                          tmp.innerHTML = t.html;
-                          tmp.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
-                            el.style.removeProperty("font-size");
-                            if (!el.getAttribute("style")?.trim()) el.removeAttribute("style");
-                          });
-                          return sanitizeTextHtml(tmp.innerHTML);
-                        } catch { return t.html; }
-                      })() : undefined;
-                      update({
-                        size: nextSize,
-                        ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                        ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-                        ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
-                      });
-                      return;
-                    }
-                    const dw = widthDeltaFor(h.id, dx);
-                    const dh = heightDeltaFor(h.id, dy);
-                    const nextWidth = Math.round(Math.max(80, Math.min(1600, r.startWidth + dw)));
-                    const nextMinHeight = Math.round(Math.max(0, Math.min(2000, r.startMinHeight + dh)));
-                    const appliedDw = nextWidth - r.startWidth;
-                    const appliedDh = nextMinHeight - r.startMinHeight;
-                    update({
-                      width: nextWidth,
-                      minHeight: nextMinHeight,
-                      x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                      y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                    });
-                  }}
-                  onPointerUp={(e) => {
-                    e.stopPropagation();
-                    resizeRef.current = null;
-                  }}
-                  onPointerCancel={(e) => {
-                    e.stopPropagation();
-                    resizeRef.current = null;
-                  }}
-                  data-nopan=""
-                  className="rounded-full bg-white transition-all hover:scale-125 hover:bg-[#0021FF]"
-                  style={{
-                    position: "absolute",
-                    ...h.style,
-                    ...handleDims(h.kind),
-                    boxShadow: "0 2px 8px 0 rgba(0,33,255,0.45), 0 1px 3px 0 rgba(0,0,0,0.25)",
-                    cursor: h.cursor,
-                    zIndex: 60,
-                    touchAction: "none",
-                  }}
-                  title="Drag to resize text"
-                />
-              ))}
-            </>
-          ) : null}
-        </>
-      ) : null}
+    <>
+      <div
+        ref={containerRef}
+        data-layer-id={t.id}
+        data-nopan=""
+        style={{
+          position: "absolute",
+          left: `${t.x}%`,
+          top: `${t.y}%`,
+          transform: "translate(-50%, -50%)",
+          width: validTextWidth ?? "fit-content",
+          maxWidth: validTextWidth ? undefined : Math.min(s.width * 0.92, 900),
+          minWidth: 40,
+          minHeight: t.minHeight,
+          display: t.minHeight ? "flex" : "block",
+          flexDirection: "column",
+          justifyContent:
+            t.verticalAlign === "middle"
+              ? "center"
+              : t.verticalAlign === "bottom"
+                ? "flex-end"
+                : "flex-start",
+          zIndex: (selected ? 80 : 10) + index,
+          touchAction: "none",
+          outline: "none",
+        }}
+        className="group"
+      >
+        {editableNode}
       </div>
-    );
-  }
 
-// One entry in the free-floating Images gallery. Split out as its own
-// component (rather than inlined + looped like the single legacy top image
-// was) because each one needs its own drag/resize refs — hooks can't live
-// inside a .map() callback in the parent.
+      {canInteract && selected && selectedCount === 1 && controlsOverlayEl
+        ? createPortal(
+            <div
+              style={{
+                position: "absolute",
+                left: `${t.x}%`,
+                top: `${t.y}%`,
+                transform: "translate(-50%, -50%)",
+                width: containerRef.current?.offsetWidth ?? (validTextWidth ?? 200),
+                height: containerRef.current?.offsetHeight ?? (t.minHeight ?? 40),
+                zIndex: 80 + index,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: -4,
+                  border: "2px solid #0021ff",
+                  borderRadius: 4,
+                  pointerEvents: "none",
+                }}
+              />
+              <div style={{ pointerEvents: "auto" }}>
+                <LayerToolbar
+                  locked={locked}
+                  onToggleLock={() => update({ locked: !locked })}
+                  onDuplicate={duplicate}
+                  onDelete={remove}
+                  scale={scale}
+                />
+              </div>
+
+              {!locked ? (
+                <>
+                  {HANDLE_POSITIONS.map((h) => (
+                    <div
+                      key={h.id}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        resizeRef.current = {
+                          startSize: t.size,
+                          startWidth: t.width ?? containerRef.current?.offsetWidth ?? 520,
+                          startMinHeight: t.minHeight ?? containerRef.current?.offsetHeight ?? 0,
+                          startPosX: t.x,
+                          startPosY: t.y,
+                          startMouseX: e.clientX,
+                          startMouseY: e.clientY,
+                          handle: h.id,
+                        };
+                      }}
+                      onPointerMove={(e) => {
+                        const r = resizeRef.current;
+                        if (!r || r.handle !== h.id) return;
+                        e.stopPropagation();
+                        const dx = (e.clientX - r.startMouseX) / scale;
+                        const dy = (e.clientY - r.startMouseY) / scale;
+                        if (h.kind === "corner") {
+                          const delta = resizeDelta(h.id, dx, dy);
+                          const nextSize = Math.round(Math.max(10, Math.min(300, r.startSize + delta / 2)));
+                          const scaleRatio = nextSize / r.startSize;
+                          const nextWidth = r.startWidth ? Math.round(Math.max(40, r.startWidth * scaleRatio)) : undefined;
+                          const nextMinHeight = r.startMinHeight ? Math.round(r.startMinHeight * scaleRatio) : undefined;
+                          const cleanHtml = t.html ? (() => {
+                            try {
+                              const tmp = document.createElement("div");
+                              tmp.innerHTML = t.html;
+                              tmp.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
+                                el.style.removeProperty("font-size");
+                                if (!el.getAttribute("style")?.trim()) el.removeAttribute("style");
+                              });
+                              return sanitizeTextHtml(tmp.innerHTML);
+                            } catch { return t.html; }
+                          })() : undefined;
+                          update({
+                            size: nextSize,
+                            ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+                            ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+                            ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+                          });
+                        } else {
+                          const dw = widthDeltaFor(h.id, dx);
+                          const dh = heightDeltaFor(h.id, dy);
+                          const nextWidth = Math.round(Math.max(40, r.startWidth + dw));
+                          const nextMinHeight = Math.round(Math.max(0, r.startMinHeight + dh));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextMinHeight - r.startMinHeight;
+                          update({
+                            width: nextWidth,
+                            minHeight: nextMinHeight,
+                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
+                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
+                          });
+                        }
+                      }}
+                      onPointerUp={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                      }}
+                      onPointerCancel={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                      }}
+                      data-nopan=""
+                      className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                      style={{ ...getHandleStyle(h), pointerEvents: "auto" }}
+                      title="Drag to resize text"
+                    />
+                  ))}
+                </>
+              ) : null}
+            </div>,
+            controlsOverlayEl,
+          )
+        : null}
+    </>
+  );
+}
+
 function DraggableImageLayer({
   img,
   index,
@@ -2446,6 +2398,7 @@ function DraggableImageLayer({
   onGroupDragMove,
   onGroupDragEnd,
   onGuides,
+  controlsOverlayEl,
 }: {
   img: ImageLayer;
   index: number;
@@ -2460,6 +2413,7 @@ function DraggableImageLayer({
   onGroupDragMove: (clientX: number, clientY: number) => void;
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
+  controlsOverlayEl?: HTMLDivElement | null;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -2495,263 +2449,266 @@ function DraggableImageLayer({
     onSelect(dup.newId);
   };
 
+  const handlePointerDown = canInteract
+    ? (e: React.PointerEvent) => {
+      e.stopPropagation();
+      if (e.shiftKey) {
+        onSelect(img.id, { toggle: true });
+        return;
+      }
+      if (locked) return;
+
+      if (e.altKey && set) {
+        const dup = withImageDuplicated(sRef.current, img.id);
+        set("images", dup.list);
+        onSelect(dup.newId);
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        dragRef.current = {
+          px: img.x,
+          py: img.y,
+          x: e.clientX,
+          y: e.clientY,
+          activeId: dup.newId,
+          hasDuplicated: true,
+        };
+        return;
+      }
+
+      if (!selected) onSelect(img.id);
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      if (selected && selectedCount > 1) {
+        groupDraggingRef.current = true;
+        onGroupDragStart(e.clientX, e.clientY);
+      } else {
+        dragRef.current = {
+          px: img.x,
+          py: img.y,
+          x: e.clientX,
+          y: e.clientY,
+          activeId: img.id,
+          hasDuplicated: false,
+        };
+      }
+    }
+    : undefined;
+
+  const handlePointerMove = canInteract && !locked
+    ? (e: React.PointerEvent) => {
+      if (groupDraggingRef.current) {
+        e.stopPropagation();
+        onGroupDragMove(e.clientX, e.clientY);
+        return;
+      }
+      const d = dragRef.current;
+      if (!d) return;
+      e.stopPropagation();
+
+      if (e.altKey && !d.hasDuplicated && set) {
+        const dup = withImageDuplicated(sRef.current, img.id);
+        set("images", dup.list);
+        onSelect(dup.newId);
+        d.activeId = dup.newId;
+        d.hasDuplicated = true;
+      }
+
+      const dx = ((e.clientX - d.x) / scale / sRef.current.width) * 100;
+      const dy = ((e.clientY - d.y) / scale / sRef.current.height) * 100;
+      const width = img.size;
+      const height = img.height ?? img.size;
+      const otherElements = getAllCanvasElements(sRef.current);
+      const targetId = d.activeId || img.id;
+      const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+        currentId: targetId,
+        rawX: d.px + dx,
+        rawY: d.py + dy,
+        width,
+        height,
+        s: sRef.current,
+        otherElements,
+      });
+      onGuides(snapGuides);
+      set?.("images", withImageUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
+    }
+    : undefined;
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+    dragRef.current = null;
+    if (groupDraggingRef.current) {
+      groupDraggingRef.current = false;
+      onGroupDragEnd();
+    }
+    onGuides({ vCenter: false, hCenter: false });
+  };
+
   if (img.hidden) return null;
 
   return (
-    <div
-      ref={containerRef}
-      data-layer-id={img.id}
-      onPointerDown={
-        canInteract
-          ? (e) => {
-              e.stopPropagation();
-              if (e.shiftKey) {
-                onSelect(img.id, { toggle: true });
-                return;
-              }
-              if (locked) return;
-
-              // Alt + Drag to Duplicate Image Layer
-              if (e.altKey && set) {
-                const dup = withImageDuplicated(sRef.current, img.id);
-                set("images", dup.list);
-                onSelect(dup.newId);
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                dragRef.current = {
-                  px: img.x,
-                  py: img.y,
-                  x: e.clientX,
-                  y: e.clientY,
-                  activeId: dup.newId,
-                  hasDuplicated: true,
-                };
-                return;
-              }
-
-              if (!selected) onSelect(img.id);
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              if (selected && selectedCount > 1) {
-                groupDraggingRef.current = true;
-                onGroupDragStart(e.clientX, e.clientY);
-              } else {
-                dragRef.current = {
-                  px: img.x,
-                  py: img.y,
-                  x: e.clientX,
-                  y: e.clientY,
-                  activeId: img.id,
-                  hasDuplicated: false,
-                };
-              }
-            }
-          : undefined
-      }
-      onPointerMove={
-        canInteract && !locked
-          ? (e) => {
-              if (groupDraggingRef.current) {
-                e.stopPropagation();
-                onGroupDragMove(e.clientX, e.clientY);
-                return;
-              }
-              const d = dragRef.current;
-              if (!d) return;
-              e.stopPropagation();
-
-              // If user presses Alt mid-drag: clone and drag new clone
-              if (e.altKey && !d.hasDuplicated && set) {
-                const dup = withImageDuplicated(sRef.current, img.id);
-                set("images", dup.list);
-                onSelect(dup.newId);
-                d.activeId = dup.newId;
-                d.hasDuplicated = true;
-              }
-
-              const dx = ((e.clientX - d.x) / scale / s.width) * 100;
-              const dy = ((e.clientY - d.y) / scale / s.height) * 100;
-              const width = img.size;
-              const height = img.height ?? img.size;
-              const otherElements = getAllCanvasElements(s);
-              const targetId = d.activeId || img.id;
-              const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
-                currentId: targetId,
-                rawX: d.px + dx,
-                rawY: d.py + dy,
-                width,
-                height,
-                s,
-                otherElements,
-              });
-              onGuides(snapGuides);
-              set?.("images", withImageUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
-            }
-          : undefined
-      }
-      data-nopan=""
-      onPointerUp={() => {
-        dragRef.current = null;
-        if (groupDraggingRef.current) {
-          groupDraggingRef.current = false;
-          onGroupDragEnd();
-        }
-        onGuides({ vCenter: false, hCenter: false });
-      }}
-      onPointerCancel={() => {
-        dragRef.current = null;
-        if (groupDraggingRef.current) {
-          groupDraggingRef.current = false;
-          onGroupDragEnd();
-        }
-        onGuides({ vCenter: false, hCenter: false });
-      }}
-      style={{
-        position: "absolute",
-        left: `${img.x}%`,
-        top: `${img.y}%`,
-        transform: "translate(-50%, -50%)",
-        width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
-        height:
-          hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
-            ? `${img.height}px`
-            : undefined,
-        cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-        zIndex: (img.layer === "behind" ? 2 : 40) + (getImageLayers(s).length - index),
-        touchAction: "none",
-        userSelect: "none",
-        outline: canInteract && selected ? "2px solid var(--color-primary)" : "none",
-        outlineOffset: 4,
-      }}
-      className="group"
-    >
-      <img
-        src={img.src}
-        alt=""
-        draggable={false}
+    <>
+      <div
+        ref={containerRef}
+        data-layer-id={img.id}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         style={{
-          display: "block",
-          width: "100%",
-          height: hasExplicitHeight ? "100%" : "auto",
-          borderRadius: img.radius,
-          objectFit: img.objectFit ?? "cover",
-          opacity: (img.opacity ?? 100) / 100,
-          transform: `${img.flipH ? "scaleX(-1)" : ""} ${img.flipV ? "scaleY(-1)" : ""}`.trim() || undefined,
-          boxShadow: img.shadow
-            ? `${img.shadowX ?? 0}px ${img.shadowY ?? 12}px ${img.shadowBlur}px ${img.shadowSpread ?? 0}px ${hexToRgba(
+          position: "absolute",
+          left: `${img.x}%`,
+          top: `${img.y}%`,
+          transform: "translate(-50%, -50%)",
+          width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
+          height:
+            hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
+              ? `${img.height}px`
+              : undefined,
+          cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
+          zIndex: (selected ? 80 : img.layer === "behind" ? 2 : 10) + index,
+          touchAction: "none",
+          userSelect: "none",
+          outline: "none",
+        }}
+        className="group"
+      >
+        <img
+          src={img.src}
+          alt=""
+          draggable={false}
+          style={{
+            display: "block",
+            width: "100%",
+            height: hasExplicitHeight ? "100%" : "auto",
+            borderRadius: img.radius,
+            objectFit: img.objectFit ?? "cover",
+            opacity: (img.opacity ?? 100) / 100,
+            transform: `${img.flipH ? "scaleX(-1)" : ""} ${img.flipV ? "scaleY(-1)" : ""}`.trim() || undefined,
+            boxShadow: img.shadow
+              ? `${img.shadowX ?? 0}px ${img.shadowY ?? 12}px ${img.shadowBlur}px ${img.shadowSpread ?? 0}px ${hexToRgba(
                 img.shadowColor ?? "#000000",
                 (img.shadowOpacity ?? 35) / 100,
               )}`
-            : "none",
-          pointerEvents: "none",
-          userSelect: "none",
-        }}
-      />
-
-      {canInteract && selected && selectedCount === 1 ? (
-        <>
-          <LayerToolbar
-            locked={locked}
-            onToggleLock={() => update({ locked: !locked })}
-            onDuplicate={duplicate}
-            onDelete={remove}
-            scale={scale}
-          />
-
-          {!locked ? (
-            <>
-              {/* 8 Stretch / Resize Handles */}
-              {HANDLE_POSITIONS.map((h) => (
-                <div
-                  key={h.id}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                    // Height may never have been set explicitly (natural
-                    // aspect ratio) — measure the live rendered height as
-                    // the resize's starting point so a first-ever N/S drag
-                    // doesn't jump.
-                    const startHeight = img.height ?? containerRef.current?.offsetHeight ?? img.size;
-                    resizeRef.current = {
-                      startWidth: img.size,
-                      startHeight,
-                      startPosX: img.x,
-                      startPosY: img.y,
-                      startMouseX: e.clientX,
-                      startMouseY: e.clientY,
-                      handle: h.id,
-                    };
-                  }}
-                  onPointerMove={(e) => {
-                    const r = resizeRef.current;
-                    if (!r || r.handle !== h.id) return;
-                    e.stopPropagation();
-                    const dx = (e.clientX - r.startMouseX) / scale;
-                    const dy = (e.clientY - r.startMouseY) / scale;
-                    // Corner handles scale width+height together at the
-                    // image's original aspect ratio (Uniform Scaling); the
-                    // 4 edge handles still stretch just their own axis, same
-                    // as before — see proportionalCornerSize above.
-                    const { width: nextWidth, height: nextHeight } =
-                      h.kind === "corner"
-                        ? proportionalCornerSize(h.id, dx, dy, r.startWidth, r.startHeight, 40, 1600)
-                        : {
-                            width: Math.round(Math.max(40, Math.min(1600, r.startWidth + widthDeltaFor(h.id, dx)))),
-                            height: Math.round(Math.max(40, Math.min(1600, r.startHeight + heightDeltaFor(h.id, dy)))),
-                          };
-                    // The element is positioned by its center, so growing
-                    // width/height alone would expand it symmetrically —
-                    // shift the center by half of what actually changed
-                    // (post-clamp) toward the dragged side, so the
-                    // opposite edge/corner stays put instead of the whole
-                    // thing appearing to resize from the middle.
-                    const appliedDw = nextWidth - r.startWidth;
-                    const appliedDh = nextHeight - r.startHeight;
-                    // Both size AND height are always written (not just
-                    // the axis this handle is dragging) — height defaults
-                    // to the image's natural aspect ratio whenever it's
-                    // never been set explicitly, so leaving it untouched
-                    // during a width-only drag would make it silently
-                    // keep tracking the new width every render, looking
-                    // like a fixed-ratio resize instead of a one-axis one.
-                    update({
-                      size: nextWidth,
-                      height: nextHeight,
-                      x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                      y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                    });
-                  }}
-                  onPointerUp={(e) => {
-                    e.stopPropagation();
-                    resizeRef.current = null;
-                  }}
-                  onPointerCancel={(e) => {
-                    e.stopPropagation();
-                    resizeRef.current = null;
-                  }}
-                  data-nopan=""
-                  className="rounded-full bg-white transition-all hover:scale-125 hover:bg-[#0021FF]"
-                  style={{
-                    position: "absolute",
-                    ...h.style,
-                    ...handleDims(h.kind),
-                    boxShadow: "0 2px 8px 0 rgba(0,33,255,0.45), 0 1px 3px 0 rgba(0,0,0,0.25)",
-                    cursor: h.cursor,
-                    zIndex: 60,
-                    touchAction: "none",
-                  }}
-                  title="Drag to resize image"
-                />
-              ))}
-            </>
-          ) : null}
-        </>
-      ) : null}
+              : "none",
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        />
       </div>
-    );
-  }
 
-// One entry in the free-floating Shapes gallery — same drag/resize/remove
-// interaction model as DraggableImageLayer, but a plain colored div shaped
-// via shapeCss() (clip-path or border-radius) instead of an <img>.
+      {canInteract && selected && selectedCount === 1 && controlsOverlayEl
+        ? createPortal(
+            <div
+              style={{
+                position: "absolute",
+                left: `${img.x}%`,
+                top: `${img.y}%`,
+                transform: "translate(-50%, -50%)",
+                width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
+                height:
+                  hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
+                    ? `${img.height}px`
+                    : `${containerRef.current?.offsetHeight ?? img.size}px`,
+                zIndex: 80 + index,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: -4,
+                  border: "2px solid #0021ff",
+                  borderRadius: Math.max(0, (img.radius ?? 0) + 4),
+                  pointerEvents: "none",
+                }}
+              />
+              <div style={{ pointerEvents: "auto" }}>
+                <LayerToolbar
+                  locked={locked}
+                  onToggleLock={() => update({ locked: !locked })}
+                  onDuplicate={duplicate}
+                  onDelete={remove}
+                  scale={scale}
+                />
+              </div>
+
+              {!locked ? (
+                <>
+                  {HANDLE_POSITIONS.map((h) => (
+                    <div
+                      key={h.id}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        const startHeight = img.height ?? containerRef.current?.offsetHeight ?? img.size;
+                        resizeRef.current = {
+                          startWidth: img.size,
+                          startHeight,
+                          startPosX: img.x,
+                          startPosY: img.y,
+                          startMouseX: e.clientX,
+                          startMouseY: e.clientY,
+                          handle: h.id,
+                        };
+                      }}
+                      onPointerMove={(e) => {
+                        const r = resizeRef.current;
+                        if (!r || r.handle !== h.id) return;
+                        e.stopPropagation();
+                        const dx = (e.clientX - r.startMouseX) / scale;
+                        const dy = (e.clientY - r.startMouseY) / scale;
+                        if (h.kind === "corner") {
+                          const delta = resizeDelta(h.id, dx, dy);
+                          const nextWidth = Math.round(Math.max(20, r.startWidth + delta));
+                          const ratio = r.startHeight > 0 ? r.startHeight / r.startWidth : 1;
+                          const nextHeight = Math.round(Math.max(20, nextWidth * ratio));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          update({
+                            size: nextWidth,
+                            height: nextHeight,
+                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
+                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
+                          });
+                        } else {
+                          const dw = widthDeltaFor(h.id, dx);
+                          const dh = heightDeltaFor(h.id, dy);
+                          const nextWidth = Math.round(Math.max(20, r.startWidth + dw));
+                          const nextHeight = Math.round(Math.max(20, r.startHeight + dh));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          update({
+                            size: nextWidth,
+                            height: nextHeight,
+                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
+                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
+                          });
+                        }
+                      }}
+                      onPointerUp={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                      }}
+                      onPointerCancel={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                      }}
+                      data-nopan=""
+                      className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                      style={{ ...getHandleStyle(h), pointerEvents: "auto" }}
+                      title="Drag to resize image"
+                    />
+                  ))}
+                </>
+              ) : null}
+            </div>,
+            controlsOverlayEl,
+          )
+        : null}
+    </>
+  );
+}
+
 function DraggableShapeLayer({
   shape,
   index,
@@ -2766,6 +2723,7 @@ function DraggableShapeLayer({
   onGroupDragMove,
   onGroupDragEnd,
   onGuides,
+  controlsOverlayEl,
 }: {
   shape: ShapeLayer;
   index: number;
@@ -2780,6 +2738,7 @@ function DraggableShapeLayer({
   onGroupDragMove: (clientX: number, clientY: number) => void;
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
+  controlsOverlayEl?: HTMLDivElement | null;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -2801,6 +2760,7 @@ function DraggableShapeLayer({
     startMouseY: number;
     handle: HandleId;
   } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const canInteract = interactive && !!set && !s.locked;
   const locked = shape.locked ?? false;
@@ -2818,24 +2778,27 @@ function DraggableShapeLayer({
   if (shape.hidden) return null;
 
   return (
-    <div
-      data-layer-id={shape.id}
-      onPointerDown={
-        canInteract
-          ? (e) => {
+    <>
+      <div
+        ref={containerRef}
+        data-layer-id={shape.id}
+        onPointerDown={
+          canInteract
+            ? (e) => {
               e.stopPropagation();
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               if (e.shiftKey) {
                 onSelect(shape.id, { toggle: true });
                 return;
               }
               if (locked) return;
-
-              // Alt + Drag to Duplicate Shape Layer
+              if (!selected) {
+                onSelect(shape.id);
+              }
               if (e.altKey && set) {
                 const dup = withShapeDuplicated(sRef.current, shape.id);
                 set("shapes", dup.list);
                 onSelect(dup.newId);
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
                 dragRef.current = {
                   px: shape.x,
                   py: shape.y,
@@ -2846,9 +2809,6 @@ function DraggableShapeLayer({
                 };
                 return;
               }
-
-              if (!selected) onSelect(shape.id);
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               if (selected && selectedCount > 1) {
                 groupDraggingRef.current = true;
                 onGroupDragStart(e.clientX, e.clientY);
@@ -2863,11 +2823,11 @@ function DraggableShapeLayer({
                 };
               }
             }
-          : undefined
-      }
-      onPointerMove={
-        canInteract && !locked
-          ? (e) => {
+            : undefined
+        }
+        onPointerMove={
+          canInteract && !locked
+            ? (e) => {
               if (groupDraggingRef.current) {
                 e.stopPropagation();
                 onGroupDragMove(e.clientX, e.clientY);
@@ -2876,8 +2836,6 @@ function DraggableShapeLayer({
               const d = dragRef.current;
               if (!d) return;
               e.stopPropagation();
-
-              // If user presses Alt mid-drag: clone and drag new clone
               if (e.altKey && !d.hasDuplicated && set) {
                 const dup = withShapeDuplicated(sRef.current, shape.id);
                 set("shapes", dup.list);
@@ -2885,12 +2843,11 @@ function DraggableShapeLayer({
                 d.activeId = dup.newId;
                 d.hasDuplicated = true;
               }
-
-              const dx = ((e.clientX - d.x) / scale / s.width) * 100;
-              const dy = ((e.clientY - d.y) / scale / s.height) * 100;
+              const dx = ((e.clientX - d.x) / scale / sRef.current.width) * 100;
+              const dy = ((e.clientY - d.y) / scale / sRef.current.height) * 100;
               const width = shape.size;
               const height = effectiveHeight;
-              const otherElements = getAllCanvasElements(s);
+              const otherElements = getAllCanvasElements(sRef.current);
               const targetId = d.activeId || shape.id;
               const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
                 currentId: targetId,
@@ -2898,167 +2855,193 @@ function DraggableShapeLayer({
                 rawY: d.py + dy,
                 width,
                 height,
-                s,
+                s: sRef.current,
                 otherElements,
               });
               onGuides(snapGuides);
               set?.("shapes", withShapeUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
             }
-          : undefined
-      }
-      data-nopan=""
-      onPointerUp={() => {
-        dragRef.current = null;
-        if (groupDraggingRef.current) {
-          groupDraggingRef.current = false;
-          onGroupDragEnd();
+            : undefined
         }
-        onGuides({ vCenter: false, hCenter: false });
-      }}
-      onPointerCancel={() => {
-        dragRef.current = null;
-        if (groupDraggingRef.current) {
-          groupDraggingRef.current = false;
-          onGroupDragEnd();
-        }
-        onGuides({ vCenter: false, hCenter: false });
-      }}
-      style={{
-        position: "absolute",
-        left: `${shape.x}%`,
-        top: `${shape.y}%`,
-        transform: "translate(-50%, -50%)",
-        width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
-        height:
-          typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
-            ? effectiveHeight
-            : 200,
-        cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-        zIndex: (shape.layer === "behind" ? 2 : 40) + (getShapeLayers(s).length - index),
-        touchAction: "none",
-        userSelect: "none",
-        outline: canInteract && selected ? "2px solid var(--color-primary)" : "none",
-        outlineOffset: 4,
-      }}
-      className="group"
-    >
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          pointerEvents: "none",
-          transform: [
-            shape.flipH ? "scaleX(-1)" : "",
-            shape.flipV ? "scaleY(-1)" : "",
-          ]
-            .filter(Boolean)
-            .join(" ") || undefined,
-          ...shapeFillStyle(shape),
-          ...shapeCss(shape.kind, shape.radius),
+        data-nopan=""
+        onPointerUp={(e) => {
+          try {
+            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+          } catch {}
+          dragRef.current = null;
+          if (groupDraggingRef.current) {
+            groupDraggingRef.current = false;
+            onGroupDragEnd();
+          }
+          onGuides({ vCenter: false, hCenter: false });
         }}
-      />
-
-      {canInteract && selected && selectedCount === 1 ? (
-        <>
-          {(() => {
-            const isNearTop = (shape.y / 100) * s.height - effectiveHeight / 2 < 45;
-            return (
-              <LayerToolbar
-                locked={locked}
-                onToggleLock={() => update({ locked: !locked })}
-                onDuplicate={duplicate}
-                onDelete={remove}
-                scale={scale}
-                placement={isNearTop ? "bottom" : "top"}
-              />
-            );
-          })()}
-
-          {!locked ? (
-            <>
-              {/* 8 Stretch / Resize Handles — supports free unconstrained aspect ratio (unscaling ratio) */}
-              {HANDLE_POSITIONS.map((h) => (
-                <div
-                  key={h.id}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                    resizeRef.current = {
-                      startWidth: shape.size,
-                      startHeight: effectiveHeight,
-                      startPosX: shape.x,
-                      startPosY: shape.y,
-                      startMouseX: e.clientX,
-                      startMouseY: e.clientY,
-                      handle: h.id,
-                    };
-                  }}
-                  onPointerMove={(e) => {
-                    const r = resizeRef.current;
-                    if (!r || r.handle !== h.id) return;
-                    e.stopPropagation();
-                    const dx = (e.clientX - r.startMouseX) / scale;
-                    const dy = (e.clientY - r.startMouseY) / scale;
-                    const maxBound = Math.max(s.width, s.height, 4000);
-
-                    if (h.kind === "corner") {
-                      // Corner handles: lock aspect ratio so width === height
-                      // (uniform/proportional scaling — equal sides).
-                      const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
-                        h.id, dx, dy,
-                        r.startWidth, r.startHeight,
-                        10, maxBound,
-                      );
-                      const appliedDw = nextWidth - r.startWidth;
-                      const appliedDh = nextHeight - r.startHeight;
-                      update({
-                        size: nextWidth,
-                        height: nextHeight,
-                        x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                        y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                      });
-                    } else {
-                      // Edge handles: free resize on the single axis they control.
-                      const dw = widthDeltaFor(h.id, dx);
-                      const dh = heightDeltaFor(h.id, dy);
-                      const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
-                      const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
-                      const appliedDw = nextWidth - r.startWidth;
-                      const appliedDh = nextHeight - r.startHeight;
-                      update({
-                        size: nextWidth,
-                        height: nextHeight,
-                        x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                        y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                      });
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    e.stopPropagation();
-                    resizeRef.current = null;
-                  }}
-                  onPointerCancel={(e) => {
-                    e.stopPropagation();
-                    resizeRef.current = null;
-                  }}
-                  data-nopan=""
-                  className="rounded-full bg-white transition-all hover:scale-125 hover:bg-[#0021FF]"
-                  style={{
-                    position: "absolute",
-                    ...h.style,
-                    ...handleDims(h.kind),
-                    boxShadow: "0 2px 8px 0 rgba(0,33,255,0.45), 0 1px 3px 0 rgba(0,0,0,0.25)",
-                    cursor: h.cursor,
-                    zIndex: 60,
-                    touchAction: "none",
-                  }}
-                  title="Drag to resize shape"
-                />
-              ))}
-            </>
-          ) : null}
-        </>
-      ) : null}
+        onPointerCancel={(e) => {
+          try {
+            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+          } catch {}
+          dragRef.current = null;
+          if (groupDraggingRef.current) {
+            groupDraggingRef.current = false;
+            onGroupDragEnd();
+          }
+          onGuides({ vCenter: false, hCenter: false });
+        }}
+        style={{
+          position: "absolute",
+          left: `${shape.x}%`,
+          top: `${shape.y}%`,
+          transform: "translate(-50%, -50%)",
+          width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
+          height:
+            typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
+              ? effectiveHeight
+              : 200,
+          cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
+          zIndex: (selected ? 80 : shape.layer === "behind" ? 2 : 10) + index,
+          touchAction: "none",
+          userSelect: "none",
+          outline: "none",
+        }}
+        className="group"
+      >
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
+            transform: [
+              shape.flipH ? "scaleX(-1)" : "",
+              shape.flipV ? "scaleY(-1)" : "",
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined,
+            ...shapeFillStyle(shape),
+            ...shapeCss(shape.kind, shape.radius),
+          }}
+        />
       </div>
-    );
-  }
+
+      {canInteract && selected && selectedCount === 1 && controlsOverlayEl
+        ? createPortal(
+            <div
+              style={{
+                position: "absolute",
+                left: `${shape.x}%`,
+                top: `${shape.y}%`,
+                transform: "translate(-50%, -50%)",
+                width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
+                height:
+                  typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
+                    ? effectiveHeight
+                    : 200,
+                zIndex: 80 + index,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: -4,
+                  border: "2px solid #0021ff",
+                  borderRadius: 4,
+                  pointerEvents: "none",
+                }}
+              />
+              <div style={{ pointerEvents: "auto" }}>
+                {(() => {
+                  const isNearTop = (shape.y / 100) * s.height - effectiveHeight / 2 < 45;
+                  return (
+                    <LayerToolbar
+                      locked={locked}
+                      onToggleLock={() => update({ locked: !locked })}
+                      onDuplicate={duplicate}
+                      onDelete={remove}
+                      scale={scale}
+                      placement={isNearTop ? "bottom" : "top"}
+                    />
+                  );
+                })()}
+              </div>
+
+              {!locked ? (
+                <>
+                  {HANDLE_POSITIONS.map((h) => (
+                    <div
+                      key={h.id}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        resizeRef.current = {
+                          startWidth: shape.size,
+                          startHeight: effectiveHeight,
+                          startPosX: shape.x,
+                          startPosY: shape.y,
+                          startMouseX: e.clientX,
+                          startMouseY: e.clientY,
+                          handle: h.id,
+                        };
+                      }}
+                      onPointerMove={(e) => {
+                        const r = resizeRef.current;
+                        if (!r || r.handle !== h.id) return;
+                        e.stopPropagation();
+                        const dx = (e.clientX - r.startMouseX) / scale;
+                        const dy = (e.clientY - r.startMouseY) / scale;
+                        const maxBound = Math.max(s.width, s.height, 4000);
+
+                        if (h.kind === "corner") {
+                          const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
+                            h.id,
+                            dx,
+                            dy,
+                            r.startWidth,
+                            r.startHeight,
+                            10,
+                            maxBound,
+                          );
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          update({
+                            size: nextWidth,
+                            height: nextHeight,
+                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
+                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
+                          });
+                        } else {
+                          const dw = widthDeltaFor(h.id, dx);
+                          const dh = heightDeltaFor(h.id, dy);
+                          const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
+                          const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          update({
+                            size: nextWidth,
+                            height: nextHeight,
+                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
+                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
+                          });
+                        }
+                      }}
+                      onPointerUp={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                      }}
+                      onPointerCancel={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                      }}
+                      data-nopan=""
+                      className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                      style={{ ...getHandleStyle(h), pointerEvents: "auto" }}
+                      title="Drag to resize shape"
+                    />
+                  ))}
+                </>
+              ) : null}
+            </div>,
+            controlsOverlayEl,
+          )
+        : null}
+    </>
+  );
+}
