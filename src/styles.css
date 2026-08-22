@@ -1,0 +1,344 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.98 0.004 285);
+  --foreground: oklch(0.14 0.02 285);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.14 0.02 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.14 0.02 285);
+  --primary: oklch(0.44 0.29 264);
+  --primary-foreground: oklch(0.99 0.002 264);
+  --secondary: oklch(0.93 0.01 264);
+  --secondary-foreground: oklch(0.2 0.02 264);
+  --muted: oklch(0.93 0.01 264);
+  --muted-foreground: oklch(0.5 0.018 264);
+  --accent: oklch(0.93 0.025 264);
+  --accent-foreground: oklch(0.2 0.02 264);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.98 0.003 264);
+  --border: oklch(0.87 0.012 264);
+  --input: oklch(0.93 0.01 264);
+  --ring: oklch(0.44 0.29 264);
+  --gradient-brand: linear-gradient(120deg, #0021ff, #4a6aff);
+  --gradient-stage: radial-gradient(
+    circle at 50% 20%,
+    oklch(0.93 0.015 264) 0%,
+    oklch(0.97 0.006 264) 70%
+  );
+  /*
+   * Static (never redefined in .dark) copies of --gradient-stage's two
+   * variants, so both are simultaneously available for the light/dark
+   * crossfade layers in index.tsx's stage background — gradients can't be
+   * smoothly interpolated by transitioning a single --gradient-stage
+   * variable (background-image doesn't animate the way background-color
+   * does), so instead we stack both and crossfade their opacity.
+   */
+  --gradient-stage-light: radial-gradient(
+    circle at 50% 20%,
+    oklch(0.93 0.015 264) 0%,
+    oklch(0.97 0.006 264) 70%
+  );
+  --gradient-stage-dark: radial-gradient(
+    circle at 50% 20%,
+    oklch(0.22 0.03 264) 0%,
+    oklch(0.12 0.016 264) 70%
+  );
+  --shadow-panel: 0 18px 44px -22px oklch(0 0 0 / 0.12);
+  --shadow-glow: 0 10px 30px -10px oklch(0.44 0.29 264 / 0.3);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.97 0.006 264);
+  --sidebar-foreground: oklch(0.14 0.02 264);
+  --sidebar-primary: oklch(0.44 0.29 264);
+  --sidebar-primary-foreground: oklch(0.99 0.002 264);
+  --sidebar-accent: oklch(0.93 0.01 264);
+  --sidebar-accent-foreground: oklch(0.14 0.02 264);
+  --sidebar-border: oklch(0.87 0.012 264);
+  --sidebar-ring: oklch(0.44 0.29 264);
+}
+
+.dark {
+  --background: oklch(0.13 0.02 264);
+  --foreground: oklch(0.97 0.005 264);
+  --card: oklch(0.18 0.022 264);
+  --card-foreground: oklch(0.97 0.005 264);
+  --popover: oklch(0.18 0.022 264);
+  --popover-foreground: oklch(0.97 0.005 264);
+  --primary: oklch(0.58 0.26 264);
+  --primary-foreground: oklch(0.99 0.002 264);
+  --secondary: oklch(0.24 0.022 264);
+  --secondary-foreground: oklch(0.92 0.008 264);
+  --muted: oklch(0.24 0.022 264);
+  --muted-foreground: oklch(0.66 0.018 264);
+  --accent: oklch(0.29 0.024 264);
+  --accent-foreground: oklch(0.97 0.005 264);
+  --destructive: oklch(0.62 0.22 25);
+  --destructive-foreground: oklch(0.98 0.003 264);
+  --border: oklch(0.28 0.022 264);
+  --input: oklch(0.21 0.022 264);
+  --ring: oklch(0.58 0.26 264);
+  --gradient-brand: linear-gradient(120deg, #0021ff, #4a6aff);
+  --gradient-stage: radial-gradient(
+    circle at 50% 20%,
+    oklch(0.22 0.03 264) 0%,
+    oklch(0.12 0.016 264) 70%
+  );
+  --shadow-panel: 0 18px 44px -22px oklch(0 0 0 / 0.8);
+  --shadow-glow: 0 10px 30px -10px oklch(0.58 0.26 264 / 0.65);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.18 0.022 264);
+  --sidebar-foreground: oklch(0.97 0.005 264);
+  --sidebar-primary: oklch(0.58 0.26 264);
+  --sidebar-primary-foreground: oklch(0.99 0.002 264);
+  --sidebar-accent: oklch(0.24 0.022 264);
+  --sidebar-accent-foreground: oklch(0.92 0.008 264);
+  --sidebar-border: oklch(0.28 0.022 264);
+  --sidebar-ring: oklch(0.58 0.26 264);
+}
+
+@layer base {
+  /*
+   * Smooth the dark/light toggle: without this, every element referencing
+   * a --color-* token snaps to its new value in the same frame the .dark
+   * class flips, which reads as a hard blink across the whole page. This
+   * only sets transition-property/duration in the base layer, so any
+   * element that already opts into its own transition via a Tailwind
+   * utility (transition-colors, transition-all, etc. — those compile into
+   * the utilities layer, which wins the cascade) keeps that behavior
+   * untouched; this only fills in the gap for plain elements that had no
+   * transition at all.
+   */
+  * {
+    border-color: var(--color-border);
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+    transition-timing-function: ease;
+    transition-duration: 200ms;
+  }
+
+  /*
+   * Themed scrollbars — built on --color-border/--color-muted-foreground,
+   * the same tokens everything else already uses, so they follow dark/light
+   * mode automatically with no extra logic. scrollbar-color/scrollbar-width
+   * are the standardized properties (Firefox, and Chrome/Edge 121+); the
+   * ::-webkit-scrollbar-* pseudo-elements cover older/other Chromium-based
+   * and Safari, which don't (yet) honor the standard properties.
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-muted-foreground);
+  }
+
+  button,
+  [role="button"],
+  label[for],
+  input[type="file"] + label,
+  select {
+    cursor: pointer;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: "Sarabun", ui-sans-serif, system-ui, sans-serif;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: "Sarabun", ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+@utility editor-range {
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-secondary);
+  outline: none;
+  /* The global `* { transition-property: background-color, ... }` rule in
+     @layer base doesn't reach into native form-control parts like this —
+     browsers render slider thumbs/tracks in UA shadow DOM, invisible to a
+     plain `*` selector — so the dark/light fade needs restating here. */
+  transition: background-color 200ms ease;
+
+  &::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    border: 2px solid var(--color-background);
+    cursor: pointer;
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease;
+  }
+
+  &::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    border: 2px solid var(--color-background);
+    cursor: pointer;
+    transition:
+      background-color 200ms ease,
+      border-color 200ms ease;
+  }
+}
+
+/* Rich text tags styling for Canvas text layers */
+b, strong {
+  font-weight: 800 !important;
+  font-synthesis: weight !important;
+}
+i, em {
+  font-style: italic !important;
+  font-synthesis: style !important;
+}
+u {
+  text-decoration: underline !important;
+  text-underline-offset: 3px;
+}
+s, strike, del {
+  text-decoration: line-through !important;
+}
+
+/* ==========================================================================
+   Exact Custom Vector Cursor & Alt-Held Duplicate Cursor
+   ========================================================================== */
+:root {
+  --cursor-custom-default: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADK0lEQVR4AexV30uTURg+unKL8MLuwkQGIoJ3eiXpZHinIshUsi7yx4VKBtmFf4Csm9VNlBcGSwuWA/HKMkcwdrFIpG26C0VpRttqTtjIb5+uWq6ex/BHMoNtnwQyeZ5973fOed/3Oe95v2O++M9/RwXQPgc950EVmAeeOpiUSZhQHQwGb0SjUaPVai3H4AWQYk5VCAWQBX6//25xcfHE1NTUcGtr67IkSS9XVlauQ0QhqAYpEg9lweQMrEkkEpfHxsZEX1+fUKvVYmhoSB+JRCYw/nFjY+O+0+nUIfVFkFWhH8zssR8o32g0znR1dR1ENJvNora2VlRXV1+anJy8XVJSYo/FYrb19fU7EKrFQh4ReyarI6KAJILtjo+Ph8LhsLuzsxOvh/B6vayGKC0tFf39/Vfdbrepp6fHg+o8XV1dNWClBmQcPNIHHSngB1xlu90+093dDTM1LBaLaGtrE5WVlYUmk+maSqWyrq2t3cTqAjCjSlDALzhTwDaSv66rq5PKy/kRYPQExONxEQgExOLiokgmk1ewLCsB8Be7+ImD0tLSkq29vR3m36ipqdk7iunpaeFyueSRkRF3UVHR44qKiudYmQdmBFaAjqzCdxjy7OzsG1QC5iFQFYHyf2hpabGFQqFHzc3Nt8rKyoYbGhrMWCWDrCBjwEwP+wLo9RM/O9iZS6PReJEMr39AAbgnlvV6/cPBwcEXCwsLLsz4wM/gV1ARATyGbwgmeTweB5sN9h50Op1Ax7/HSwD8BAbBMMjkPDr64jV9HK0AvbmT7dHRUVtHR8eOVqsVZFVV1RbugndYEAGjoAQycQLPjEoPvz0cF8CdxOfm5vw+n+8tm7G+vl7IsrzscDi+wGMHpMiskiLGAY4L4J3AZozNz8/bBwYGhMFgEPif4ISH4skRUxwXwDGWVe7t7X2Fz+0eLpsHTU1NFkyw2zkHUzmkEsBj4G430YjPGhsbnyDdJsgxzsFUDqkE8Hx5zltIw04n2e08Gs5hWDmkEsDo3CkTsuwkP0+OcU5RniSASbhbNiVJm2OK818CFE+WKmBOQK4CuQrkKnD2K5Dq9js69hsAAP//ZjQrnwAAAAZJREFUAwC4TCNQwuZfKgAAAABJRU5ErkJggg==") 0 0, default;
+
+  --cursor-custom-alt: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEbUlEQVR4AexVW0jkVRj/tqlxYpkH80lNMETyhiE9qKihCAreHrxEhqIoXkDENJoHWUx0fcgWfVFD0bRQjJTEmC0l2Ux0sxRG2NQUmXlwMhsvjTPj7pqu9vvNdlGa0RkNFpaV7+c5/3O+832/73LOPCdP+M8dAtR9AXwJBcZrwJWFRl0xQoce29vb1bu7uzf7+/tfxaEXAZK5EhFXCNCBcnl5Oc/Ly+uDoaEhTXZ29qLFYtFi7W2QUAMeAElicE9cJeChVCpf6+jokImJCVGpVFJVVZWwsbHRd3h4aNjc3Pxwenr6Dbi+DjArrtiFqsh5itegwaiex6isq6v7MicnR0ZHR+Xk5ESioqJEo9FIaGjoS52dnZXe3t53rFbruF6vfwffr+AMS8SztINPx+KMgALqKtT83Z2dnZtw5D8wMLB3cHBwLz09XVpbW6W0tFTm5+elu7tbDAaDhISESF5eXgwy0VxUVKTDuY9XVlayREQFOPPjMANkfLrm7zU0NPyANLdrtdo7aWlp0tLSApuPJS4uTnp7e8VoNEp8fLy0tbVJcHCwurm5+S2FQvHZ6upqATSVAO1iOCuOmFHRXvOuri4pLy+317y6uvr1gICAKmagsrJSEOE/ltbW1mRubk5MJpOgJ8RsNgsyIQsLC3J8fPwyFN0iAH1RIMqvCgsLObdjcHBQkpKSJCIiQnADBBmxr/NfYGCg1NTUcCr19fUsiRml+d7T07MtKCjoU2wwKAz/FUcZOIHao/b2duPW1tZPxcXF+PxX1tfXpampScLCwiQhIcGefkQpuJICZ58PDw/fUKvVRSjDjcTExG6ctAF/ALSL4aw4I3AItf3Z2dmv8/PzMXUsk5OTgoazl6ikpERiYmLeRI9ch7YB0AMbgBlwiwD0hQf28eCM4Lrth4eHc80pfHx85OjoSBYXF8Xf359dvwVl4neMD4BHgENxlAEqHuEfD1rQxTOZmZn4PCvs/traWhkbG7M7bmxs/BkP1EeRkZFd0GTaeZ52HKYeOnZxRoCHDqBhhQNtQQFvEr7+kujoaJmamrJ3fE9PDxvynp+fnyY5ObkHKhaAGaQNTM8XZwR4in1wH4/QXUS2yuvHRQJlkb6+vi/KysqEmdDpdN9i3Qj8CuwB/wuBYxh6CFiXlpa+y83NxfSx0CnuuW58fPwWat6KXvkEO5vAhTWHzhk5LwNMISOx4XW7nZWV9dDX11eQaomNjd1D6n+sqKgYysjI6ITFvyMnYRLHkmtyHgFaYBM9GBkZ0eO1u8tm5N232WxL2DQBvwCM3IyRPUPSmLouFxFgNIzKijfhG752/EXEozMNF3RKWDGnjtOrhn2nchEBHmQzWvEi3p6ZmXkfPzC3UlNTB7DBq8aoSdLtyHHeLq4QYGT3oW3Cz+1gSkoK7znTzzXuYevy4goBRsdIeb1+gyuCqeca97B0eXGFAK0zzXTItBOXrjmNnYarBHiG0ZIIwTnXrgx3CFzZmSMDzwg8y8DTnwFHnX967U8AAAD//wDwvNkAAAAGSURBVAMA5bS0UH5WtuAAAAAASUVORK5CYII=") 0 0, copy;
+}
+
+*,
+*::before,
+*::after,
+html,
+body,
+#root,
+button,
+[role="button"],
+a {
+  cursor: var(--cursor-custom-default);
+}
+
+body.alt-held,
+body.alt-held *,
+body.alt-held *::before,
+body.alt-held *::after {
+  cursor: var(--cursor-custom-alt) !important;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  cursor: text !important;
+}
+
+input[type="range"],
+input[type="range"]::-webkit-slider-thumb,
+input[type="range"]::-moz-range-thumb {
+  cursor: grab !important;
+}
+
+input[type="range"]:active,
+input[type="range"]:active::-webkit-slider-thumb,
+input[type="range"]:active::-moz-range-thumb {
+  cursor: grabbing !important;
+}
+
+
+
