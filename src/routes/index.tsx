@@ -1294,63 +1294,30 @@ function Index() {
   const mobileToolbarBottomOffset = "calc(60px + env(safe-area-inset-bottom))";
   const canvasStage = (
     <div
-      ref={stageRef}
-      onDragEnter={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragCounterRef.current += 1;
-        if (e.dataTransfer.types.includes("Files")) {
-          setIsDraggingOver(true);
-        }
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        e.dataTransfer.dropEffect = "copy";
-      }}
-      onDragLeave={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragCounterRef.current -= 1;
-        if (dragCounterRef.current <= 0) {
-          setIsDraggingOver(false);
-          dragCounterRef.current = 0;
-        }
-      }}
-      onDrop={async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setIsDraggingOver(false);
-        dragCounterRef.current = 0;
-
-        const files = Array.from(e.dataTransfer.files).filter((file) =>
-          file.type.startsWith("image/"),
-        );
-        if (files.length === 0) return;
-
-        const readPromises = files.map((file) => {
-          return new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              resolve((event.target?.result as string) || "");
-            };
-            reader.readAsDataURL(file);
-          });
-        });
-
-        const dataUrls = (await Promise.all(readPromises)).filter(Boolean);
-        if (dataUrls.length === 0) return;
-
-        const res = withImagesAdded(s, dataUrls);
-        set("images", res.list);
-        set("layerOrder", res.layerOrder);
-        if (res.newIds[0]) {
-          handleSelectLayer({ kind: "image", id: res.newIds[0] });
-        }
-      }}
-      onPointerDown={handleStagePointerDown}
-      className={cn("relative min-h-0 flex-1 overflow-auto rounded-2xl border border-border [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 hover:[&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full", isMobile && "select-none touch-manipulation")}
+      className={cn(
+        "relative min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-background",
+        isMobile && "select-none touch-manipulation",
+      )}
     >
+      {/*
+        Two stacked, always-mounted gradient layers crossfaded via
+        opacity instead of one element whose background-image swaps
+        on the .dark class.
+        - Removed/hidden on mobile (md:block) for a clean native background.
+        - Fixed in the viewport frame on desktop so the gradient stays static
+          and never shifts or tears as the user pans, zooms, or scrolls the canvas.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 hidden md:block transition-opacity duration-500 ease-in-out"
+        style={{ background: "var(--gradient-stage-light)", opacity: dark ? 0 : 1 }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 hidden md:block transition-opacity duration-500 ease-in-out"
+        style={{ background: "var(--gradient-stage-dark)", opacity: dark ? 1 : 0 }}
+      />
+
       {/* Drag and Drop File Hover Overlay */}
       {isDraggingOver ? (
         <div className="pointer-events-none absolute inset-3 z-[150] flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/15 shadow-2xl backdrop-blur-sm animate-pulse">
@@ -1365,168 +1332,208 @@ function Index() {
           </div>
         </div>
       ) : null}
-      {/*
-        Two stacked, always-mounted gradient layers crossfaded via
-        opacity instead of one element whose background-image swaps
-        on the .dark class — a gradient can't be smoothly
-        interpolated the way a solid background-color can, so
-        swapping it directly makes this large, dominant area snap
-        instantly while the rest of the page fades around it.
-      */}
+
+      {/* Scrollable Stage Viewport */}
       <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 transition-opacity duration-500 ease-in-out"
-        style={{ background: "var(--gradient-stage-light)", opacity: dark ? 0 : 1 }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 transition-opacity duration-500 ease-in-out"
-        style={{ background: "var(--gradient-stage-dark)", opacity: dark ? 1 : 0 }}
-      />
-
-
-
-      {/* Marquee Selection Rectangle (Canva style) */}
-      {stageMarquee && Math.hypot(stageMarquee.currentX - stageMarquee.startX, stageMarquee.currentY - stageMarquee.startY) > 4 ? (
-        <div
-          style={{
-            position: "absolute",
-            left: Math.min(stageMarquee.startX, stageMarquee.currentX),
-            top: Math.min(stageMarquee.startY, stageMarquee.currentY),
-            width: Math.abs(stageMarquee.currentX - stageMarquee.startX),
-            height: Math.abs(stageMarquee.currentY - stageMarquee.startY),
-            border: "1.5px solid var(--color-primary, #6366f1)",
-            backgroundColor: "rgba(99, 102, 241, 0.22)",
-            boxShadow: "0 0 16px rgba(99, 102, 241, 0.15)",
-            borderRadius: 4,
-            pointerEvents: "none",
-            zIndex: 110,
-          }}
-        />
-      ) : null}
-
-      {/* Floating Selection Toolbar — sticky-top on desktop, docked just
-          above the bottom tab bar (Canva-mobile pattern) and horizontally
-          scrollable on mobile since its contents don't wrap. */}
-      {!isMobile && !stageMarquee && canvasSelection.length === 1 ? (
-        <div
-          className="pointer-events-none z-40 flex justify-center overflow-visible sticky top-4 h-0 w-full"
-          style={{ margin: "0 auto" }}
-        >
-          <div
-            data-nopan=""
-            data-keep-text-editing=""
-            style={{ maxWidth: "calc(100% - 24px)", width: "fit-content" }}
-            className="pointer-events-auto relative"
-          >
-            {selectedTextLayer && selectedTextLayerHandle ? (
-              <TextSelectionToolbar
-                layer={selectedTextLayer}
-                handle={selectedTextLayerHandle}
-                onOpenEffectsTab={() => {
-                  setTab("text");
-                  setTextSubTab("effects");
-                  setLeftPanelCollapsed(false);
-                }}
-              />
-            ) : selectedImageLayer ? (
-              <ImageSelectionToolbar
-                layer={selectedImageLayer}
-                onUpdate={(patch) =>
-                  set("images", withImageUpdated(s, selectedImageLayer.id, patch))
-                }
-                onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
-              />
-            ) : selectedShapeLayer ? (
-              <ShapeSelectionToolbar
-                layer={selectedShapeLayer}
-                onUpdate={(patch) =>
-                  set("shapes", withShapeUpdated(s, selectedShapeLayer.id, patch))
-                }
-                onDuplicate={() => {
-                  const dup = withShapeDuplicated(s, selectedShapeLayer.id);
-                  set("shapes", dup.list);
-                  setCanvasSelection([{ kind: "shape", id: dup.newId }]);
-                }}
-                onDelete={() => {
-                  set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
-                  setCanvasSelection([]);
-                }}
-                onToggleLock={() =>
-                  set(
-                    "shapes",
-                    withShapeUpdated(s, selectedShapeLayer.id, {
-                      locked: !selectedShapeLayer.locked,
-                    }),
-                  )
-                }
-              />
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Scrollable Canvas Centering Area */}
-      <div
-        className="relative flex min-h-full min-w-full items-center justify-center p-6 md:p-8"
-        style={{
-          width: "max-content",
-          height: "max-content",
-          minWidth: "100%",
-          minHeight: "100%",
-          margin: "auto",
+        ref={stageRef}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dragCounterRef.current += 1;
+          if (e.dataTransfer.types.includes("Files")) {
+            setIsDraggingOver(true);
+          }
         }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dragCounterRef.current -= 1;
+          if (dragCounterRef.current <= 0) {
+            setIsDraggingOver(false);
+            dragCounterRef.current = 0;
+          }
+        }}
+        onDrop={async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDraggingOver(false);
+          dragCounterRef.current = 0;
+
+          const files = Array.from(e.dataTransfer.files).filter((file) =>
+            file.type.startsWith("image/"),
+          );
+          if (files.length === 0) return;
+
+          const readPromises = files.map((file) => {
+            return new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                resolve((event.target?.result as string) || "");
+              };
+              reader.readAsDataURL(file);
+            });
+          });
+
+          const dataUrls = (await Promise.all(readPromises)).filter(Boolean);
+          if (dataUrls.length === 0) return;
+
+          const res = withImagesAdded(s, dataUrls);
+          set("images", res.list);
+          set("layerOrder", res.layerOrder);
+          if (res.newIds[0]) {
+            handleSelectLayer({ kind: "image", id: res.newIds[0] });
+          }
+        }}
+        onPointerDown={handleStagePointerDown}
+        className="relative h-full w-full overflow-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 hover:[&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
       >
+        {/* Marquee Selection Rectangle (Canva style) */}
+        {stageMarquee && Math.hypot(stageMarquee.currentX - stageMarquee.startX, stageMarquee.currentY - stageMarquee.startY) > 4 ? (
+          <div
+            style={{
+              position: "absolute",
+              left: Math.min(stageMarquee.startX, stageMarquee.currentX),
+              top: Math.min(stageMarquee.startY, stageMarquee.currentY),
+              width: Math.abs(stageMarquee.currentX - stageMarquee.startX),
+              height: Math.abs(stageMarquee.currentY - stageMarquee.startY),
+              border: "1.5px solid var(--color-primary, #6366f1)",
+              backgroundColor: "rgba(99, 102, 241, 0.22)",
+              boxShadow: "0 0 16px rgba(99, 102, 241, 0.15)",
+              borderRadius: 4,
+              pointerEvents: "none",
+              zIndex: 110,
+            }}
+          />
+        ) : null}
+
+        {/* Floating Selection Toolbar — sticky-top on desktop, docked just
+            above the bottom tab bar (Canva-mobile pattern) and horizontally
+            scrollable on mobile since its contents don't wrap. */}
+        {!isMobile && !stageMarquee && canvasSelection.length === 1 ? (
+          <div
+            className="pointer-events-none z-40 flex justify-center overflow-visible sticky top-4 h-0 w-full"
+            style={{ margin: "0 auto" }}
+          >
+            <div
+              data-nopan=""
+              data-keep-text-editing=""
+              style={{ maxWidth: "calc(100% - 24px)", width: "fit-content" }}
+              className="pointer-events-auto relative"
+            >
+              {selectedTextLayer && selectedTextLayerHandle ? (
+                <TextSelectionToolbar
+                  layer={selectedTextLayer}
+                  handle={selectedTextLayerHandle}
+                  onOpenEffectsTab={() => {
+                    setTab("text");
+                    setTextSubTab("effects");
+                    setLeftPanelCollapsed(false);
+                  }}
+                />
+              ) : selectedImageLayer ? (
+                <ImageSelectionToolbar
+                  layer={selectedImageLayer}
+                  onUpdate={(patch) =>
+                    set("images", withImageUpdated(s, selectedImageLayer.id, patch))
+                  }
+                  onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
+                />
+              ) : selectedShapeLayer ? (
+                <ShapeSelectionToolbar
+                  layer={selectedShapeLayer}
+                  onUpdate={(patch) =>
+                    set("shapes", withShapeUpdated(s, selectedShapeLayer.id, patch))
+                  }
+                  onDuplicate={() => {
+                    const dup = withShapeDuplicated(s, selectedShapeLayer.id);
+                    set("shapes", dup.list);
+                    setCanvasSelection([{ kind: "shape", id: dup.newId }]);
+                  }}
+                  onDelete={() => {
+                    set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                    setCanvasSelection([]);
+                  }}
+                  onToggleLock={() =>
+                    set(
+                      "shapes",
+                      withShapeUpdated(s, selectedShapeLayer.id, {
+                        locked: !selectedShapeLayer.locked,
+                      }),
+                    )
+                  }
+                />
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {/* Scrollable Canvas Centering Area */}
         <div
+          className="relative flex min-h-full min-w-full items-center justify-center p-6 md:p-8"
           style={{
-            width: s.width * scale,
-            height: s.height * scale,
-            position: "relative",
-            flexShrink: 0,
-            transform: "translateZ(0)",
-            backfaceVisibility: "hidden",
-            willChange: "width, height, transform",
+            width: "max-content",
+            height: "max-content",
+            minWidth: "100%",
+            minHeight: "100%",
+            margin: "auto",
           }}
-          className="shadow-[var(--shadow-panel)] ring-1 ring-border"
         >
           <div
             style={{
-              width: s.width,
-              height: s.height,
-              transform: `scale(${scale}) translateZ(0)`,
-              transformOrigin: "top left",
+              width: s.width * scale,
+              height: s.height * scale,
+              position: "relative",
+              flexShrink: 0,
+              transform: "translateZ(0)",
               backfaceVisibility: "hidden",
+              willChange: "width, height, transform",
             }}
+            className="shadow-[var(--shadow-panel)] ring-1 ring-border"
           >
-            <QuoteCanvas
-              ref={canvasRef}
-              s={s}
-              interactive
-              scale={scale}
-              set={set}
-              selection={canvasSelection}
-              onSelectionChange={setCanvasSelection}
-              registerTextLayerHandle={registerTextLayerHandle}
-            />
+            <div
+              style={{
+                width: s.width,
+                height: s.height,
+                transform: `scale(${scale}) translateZ(0)`,
+                transformOrigin: "top left",
+                backfaceVisibility: "hidden",
+              }}
+            >
+              <QuoteCanvas
+                ref={canvasRef}
+                s={s}
+                interactive
+                scale={scale}
+                set={set}
+                selection={canvasSelection}
+                onSelectionChange={setCanvasSelection}
+                registerTextLayerHandle={registerTextLayerHandle}
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {showRulers ? (
-        <Rulers
-          stageWidth={stageSize.width}
-          stageHeight={stageSize.height}
-          canvasWidth={s.width}
-          canvasHeight={s.height}
-          scale={scale}
-          pan={effectivePan}
-          guidesH={guidesH}
-          guidesV={guidesV}
-          onGuidesHChange={setGuidesH}
-          onGuidesVChange={setGuidesV}
-          dark={dark}
-        />
-      ) : null}
+        {showRulers ? (
+          <Rulers
+            stageWidth={stageSize.width}
+            stageHeight={stageSize.height}
+            canvasWidth={s.width}
+            canvasHeight={s.height}
+            scale={scale}
+            pan={effectivePan}
+            guidesH={guidesH}
+            guidesV={guidesV}
+            onGuidesHChange={setGuidesH}
+            onGuidesVChange={setGuidesV}
+            dark={dark}
+          />
+        ) : null}
+      </div>
     </div>
   );
 
