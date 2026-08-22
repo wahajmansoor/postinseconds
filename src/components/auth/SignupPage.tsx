@@ -69,9 +69,8 @@ export function SignupPage() {
       {/* RIGHT COLUMN: Authentication Form */}
       <div className="flex w-full flex-col justify-between p-8 sm:p-12 lg:w-1/2 lg:p-16">
         {/* Branding */}
-        <div>
-          <h2 className="text-base font-extrabold tracking-tight text-foreground">Post In Seconds</h2>
-          <p className="text-[11px] font-medium text-muted-foreground">Studio Creator Suite</p>
+        <div className="flex justify-center">
+          <img src="/logo.png" alt="Post In Seconds" className="h-16 w-auto sm:h-20" />
         </div>
 
         {/* Center Container */}

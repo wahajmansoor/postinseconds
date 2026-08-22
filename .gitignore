@@ -20,6 +20,17 @@ dist-ssr
 *.local
 .dev.vars
 
+# Capacitor Android native project — the project itself is committed (like
+# any native app repo), just not local build output/machine-specific files.
+android/.gradle
+android/app/build
+android/build
+android/captures
+android/local.properties
+android/.idea
+android/app/release
+android/app/debug
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

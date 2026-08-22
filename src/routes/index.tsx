@@ -122,9 +122,7 @@ function StudioGate() {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
         <div className="flex flex-col items-center gap-4">
-          <span className="grid h-12 w-12 animate-pulse place-items-center rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-xl">
-            <SparklesIcon size={24} className="text-white" />
-          </span>
+          <img src="/logo.png" alt="Post In Seconds" className="h-14 w-auto animate-pulse" />
           <p className="text-xs font-semibold text-muted-foreground animate-pulse">
             Connecting to Studio Editor...
           </p>
@@ -619,6 +617,13 @@ function Index() {
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const stageSizeRef = useRef({ width: 0, height: 0 });
   const isCustomZoomRef = useRef(false);
+  // Mirrors `scale` for the pinch-zoom effect below, so that effect can read
+  // the always-current scale without depending on `scale` itself — see the
+  // comment on that effect for why depending on scale directly was a bug.
+  const scaleRef = useRef(scale);
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
   const [guidesH, setGuidesH] = useState<number[]>([]);
   const [guidesV, setGuidesV] = useState<number[]>([]);
 
@@ -863,34 +868,39 @@ function Index() {
       const scrollY = stageEl.scrollTop;
       const scaleRatio = nextScale / prevScale;
 
-      requestAnimationFrame(() => {
-        if (!stageEl) return;
-        stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
-        stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
-      });
+      // Written synchronously (not in a follow-up rAF) — scrollLeft/scrollTop
+      // are plain instant DOM writes, so there's nothing to wait a frame
+      // for, and deferring them used to add a full extra frame of lag on
+      // top of the caller's own rAF throttle (see the pinch-zoom effect
+      // below), which is exactly what made touch pinch-zoom feel a beat
+      // behind your fingers.
+      stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
+      stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
 
       return nextScale;
     });
   }, []);
 
-  const zoomToScale = useCallback((targetScale: number) => {
+  const zoomToScale = useCallback((targetScale: number, focalClientX?: number, focalClientY?: number) => {
     isCustomZoomRef.current = true;
     setScale((prevScale) => {
       const nextScale = Math.max(0.1, Math.min(2.5, targetScale));
       const stageEl = stageRef.current;
       if (nextScale === prevScale || !stageEl) return nextScale;
 
-      const focalX = stageEl.clientWidth / 2;
-      const focalY = stageEl.clientHeight / 2;
+      // Focal point defaults to viewport center (slider/+-/typed-%
+      // callers have no natural focal point of their own); pinch-zoom
+      // passes the actual midpoint between the two fingers so the canvas
+      // zooms around your fingers instead of jumping to re-center itself.
+      const rect = stageEl.getBoundingClientRect();
+      const focalX = focalClientX !== undefined ? focalClientX - rect.left : stageEl.clientWidth / 2;
+      const focalY = focalClientY !== undefined ? focalClientY - rect.top : stageEl.clientHeight / 2;
       const scrollX = stageEl.scrollLeft;
       const scrollY = stageEl.scrollTop;
       const scaleRatio = nextScale / prevScale;
 
-      requestAnimationFrame(() => {
-        if (!stageEl) return;
-        stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
-        stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
-      });
+      stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
+      stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
 
       return nextScale;
     });
@@ -910,11 +920,8 @@ function Index() {
       const scrollY = stageEl.scrollTop;
       const scaleRatio = nextScale / prevScale;
 
-      requestAnimationFrame(() => {
-        if (!stageEl) return;
-        stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
-        stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
-      });
+      stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
+      stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
 
       return nextScale;
     });
@@ -936,15 +943,33 @@ function Index() {
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
 
-  // Mobile Touch Pinch-to-Zoom support (60fps requestAnimationFrame)
+  // Mobile Touch Pinch-to-Zoom support (60fps requestAnimationFrame).
+  // Reads/writes `scale` through `scaleRef` rather than closing over the
+  // `scale` state value directly, specifically so this effect's deps don't
+  // need `scale` in them — the old version depended on [scale, zoomToScale],
+  // which re-ran (tearing down and re-registering all four touch listeners)
+  // on every single scale change, i.e. on every frame of an active pinch
+  // gesture. Removing/re-adding native listeners mid-gesture isn't free and
+  // could drop a touchmove landing exactly during the swap — a real
+  // contributor to "pinch feels slow", on top of the double-rAF latency
+  // fixed in zoomToScale above. `isMobile` replaces it as the dependency
+  // instead of dropping to `[zoomToScale]` alone: `canvasStage` (which owns
+  // this ref) lives in two different branches of this component's JSX
+  // (mobile vs desktop shells), so when `isMobile` resolves after mount and
+  // flips the rendered branch, the stage `<div>` is a genuinely new DOM node
+  // and this effect must re-run to attach to it — `scale` changing around
+  // the same time (via the `fit()` effect) was accidentally standing in for
+  // that signal before; `isMobile` is the real one.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
 
     let initialPinchDist: number | null = null;
-    let initialScale = scale;
+    let initialScale = scaleRef.current;
     let rafId: number | null = null;
     let pendingScale: number | null = null;
+    let pendingFocalX = 0;
+    let pendingFocalY = 0;
 
     const getTouchDist = (e: TouchEvent) => {
       if (e.touches.length < 2) return null;
@@ -954,12 +979,19 @@ function Index() {
       return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
     };
 
+    const getTouchMidpoint = (e: TouchEvent) => {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      if (!t1 || !t2) return null;
+      return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+    };
+
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length >= 2) {
         e.preventDefault();
         e.stopPropagation();
         initialPinchDist = getTouchDist(e);
-        initialScale = scale;
+        initialScale = scaleRef.current;
       }
     };
 
@@ -968,15 +1000,18 @@ function Index() {
         e.preventDefault();
         e.stopPropagation();
         const currentDist = getTouchDist(e);
-        if (currentDist) {
+        const midpoint = getTouchMidpoint(e);
+        if (currentDist && midpoint) {
           const ratio = currentDist / initialPinchDist;
           const targetScale = Math.max(0.1, Math.min(2.5, initialScale * ratio));
           pendingScale = Math.round(targetScale * 100) / 100;
+          pendingFocalX = midpoint.x;
+          pendingFocalY = midpoint.y;
 
           if (rafId === null) {
             rafId = requestAnimationFrame(() => {
               if (pendingScale !== null) {
-                zoomToScale(pendingScale);
+                zoomToScale(pendingScale, pendingFocalX, pendingFocalY);
               }
               rafId = null;
             });
@@ -1007,7 +1042,7 @@ function Index() {
       el.removeEventListener("touchcancel", onTouchEnd);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [scale, zoomToScale]);
+  }, [isMobile, zoomToScale]);
 
   // Templates and saved quotes (loaded the same way — see LeftPanel's
   // "My saved" tab) both come through here, so this is also the one place
@@ -1553,13 +1588,7 @@ function Index() {
       <div className="flex h-screen h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground">
         <header className="sticky top-0 z-50 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 py-2 sm:gap-4 sm:px-5">
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <span className="grid h-8 w-8 place-items-center rounded-xl bg-[image:var(--gradient-brand)] shadow-[var(--shadow-glow)] sm:h-9 sm:w-9">
-              <SparklesIcon size={17} className="text-primary-foreground" />
-            </span>
-            <div>
-              <h1 className="text-sm font-bold leading-none tracking-tight sm:text-base sm:font-semibold">Post In Seconds</h1>
-              <p className="mt-0.5 text-[10px] font-medium text-muted-foreground sm:mt-1 sm:text-[11px]">Studio Editor</p>
-            </div>
+            <img src="/logo.png" alt="Post In Seconds" className="h-8 w-auto sm:h-9" />
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* 1. + Icon (New Blank Post Action) */}

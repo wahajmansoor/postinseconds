@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Post In Seconds</string>
+    <string name="title_activity_main">Post In Seconds</string>
+    <string name="package_name">com.postinseconds.app</string>
+    <string name="custom_url_scheme">com.postinseconds.app</string>
+</resources>
