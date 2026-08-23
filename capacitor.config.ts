@@ -15,7 +15,24 @@ const config: CapacitorConfig = {
   appName: 'Post In Seconds',
   webDir: 'dist',
   server: {
-    url: 'https://post.buildinseconds.com',
+    // TEMP: local dev server for testing the native Google Sign-In change
+    // before it's deployed — switch back to 'https://post.buildinseconds.com'
+    // (and drop cleartext) once verified and pushed live.
+    url: 'http://192.168.18.20:8080',
+    cleartext: true,
+  },
+  plugins: {
+    // Only Google is actually used — disabling the other providers keeps
+    // their native dependencies (Facebook SDK, etc.) out of the APK
+    // entirely rather than just unused.
+    SocialLogin: {
+      providers: {
+        google: true,
+        facebook: false,
+        apple: false,
+        twitter: false,
+      },
+    },
   },
 };
 

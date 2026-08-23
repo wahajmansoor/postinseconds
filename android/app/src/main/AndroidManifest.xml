@@ -18,21 +18,6 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
-            <!-- OAuth deep-link callback (Google sign-in via Supabase) — the
-                 system browser opens this custom scheme after login
-                 completes, Android routes it back into this already-running
-                 activity (launchMode="singleTask" above), and the JS side
-                 (App.addListener('appUrlOpen', ...) in src/lib/auth.tsx)
-                 picks the tokens out of the URL. Must also be added to
-                 Supabase's Authentication > URL Configuration > Redirect
-                 URLs allowlist or Supabase will refuse the redirect. -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="postinseconds" android:host="auth-callback" />
-            </intent-filter>
         </activity>
 
         <provider

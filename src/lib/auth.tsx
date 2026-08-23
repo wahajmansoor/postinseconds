@@ -1,13 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { App as CapacitorApp } from "@capacitor/app";
+import { SocialLogin } from "@capgo/capacitor-social-login";
 import { supabase } from "@/lib/supabase";
 
-// Custom scheme the native app registers a deep-link intent-filter for (see
-// android/app/src/main/AndroidManifest.xml) — must also be added to
-// Supabase's Authentication > URL Configuration > Redirect URLs allowlist,
-// or Supabase rejects the redirect before it ever reaches the device.
-const NATIVE_OAUTH_REDIRECT = "postinseconds://auth-callback";
+// The OAuth Client ID registered as "Web application" in the same Google
+// Cloud project as the Android OAuth client (package name + signing SHA-1)
+// — Android's Credential Manager requires the *Web* client ID here (not the
+// Android one) as the ID token's audience; Supabase then verifies that same
+// token via supabase.auth.signInWithIdToken. Same value already configured
+// in Supabase's Authentication > Providers > Google settings, reused here.
+const GOOGLE_WEB_CLIENT_ID = import.meta.env["VITE_GOOGLE_WEB_CLIENT_ID"] as string;
 
 export interface AuthUser {
   id: string;
@@ -96,33 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Native-app-only: catches the deep-link the system browser is routed
-  // back to once Google OAuth completes (see NATIVE_OAUTH_REDIRECT above
-  // and the intent-filter in AndroidManifest.xml). The tokens travel as a
-  // URL hash fragment (#access_token=...&refresh_token=...), same shape
-  // supabase-js's browser code parses automatically from window.location on
-  // the web — here we parse it by hand off the deep-link URL and hand it to
-  // setSession(), which fires the same onAuthStateChange SIGNED_IN event as
-  // any other sign-in, so syncUserFromSession above picks it up for free.
-  // No-op on web (listener only registers on native platform).
+  // Native-app-only: Google sign-in there goes through Android's native
+  // Credential Manager UI (via SocialLogin) instead of a browser-based OAuth
+  // redirect — no deep link, no custom URL scheme needed. Just needs the
+  // Web Client ID registered up front before loginWithGoogle can call it.
+  // No-op on web (the plugin's login() there just wraps the same
+  // signInWithOAuth redirect flow, which doesn't need initializing).
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-
-    const sub = CapacitorApp.addListener("appUrlOpen", async ({ url }) => {
-      if (!url.startsWith(NATIVE_OAUTH_REDIRECT)) return;
-      const hash = url.split("#")[1];
-      if (!hash) return;
-      const params = new URLSearchParams(hash);
-      const access_token = params.get("access_token");
-      const refresh_token = params.get("refresh_token");
-      if (access_token && refresh_token) {
-        const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-        if (error) console.error("Failed to establish session from deep link:", error);
-      }
+    SocialLogin.initialize({ google: { webClientId: GOOGLE_WEB_CLIENT_ID } }).catch((err) => {
+      console.error("SocialLogin.initialize error:", err);
     });
-    return () => {
-      sub.then((s) => s.remove());
-    };
   }, []);
 
   // Helper to fetch user profile and role from Supabase
@@ -170,19 +156,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginWithGoogle = async () => {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          // In the native app, a plain http(s) redirectTo just reopens the
-          // system browser on that URL with nowhere to go — the browser has
-          // no way to hand control back to the app. The custom-scheme
-          // redirect is what Android recognizes as belonging to this app
-          // (via the deep-link intent-filter) and routes back in; the
-          // appUrlOpen listener below then picks the session out of it.
-          redirectTo: Capacitor.isNativePlatform() ? NATIVE_OAUTH_REDIRECT : window.location.origin,
-        },
-      });
-      if (error) throw error;
+      if (Capacitor.isNativePlatform()) {
+        // Native Android sign-in: opens the OS-level Credential Manager
+        // account picker (no browser, no deep link) and returns a Google ID
+        // token directly. Handing that to signInWithIdToken makes Supabase
+        // verify it and create the exact same kind of session
+        // signInWithOAuth used to — syncUserFromSession above and the
+        // onAuthStateChange listener pick it up identically either way.
+        //
+        // No explicit `scopes` here deliberately: the plugin already
+        // requests email/profile/openid by default, and passing a `scopes`
+        // array at all — even ones already covered by the default — makes
+        // it require MainActivity to implement
+        // ModifiedMainActivityForSocialLoginPlugin (an extra native step,
+        // only actually needed for scopes beyond the default three).
+        const login = await SocialLogin.login({
+          provider: "google",
+          options: {},
+        });
+        const idToken =
+          login.provider === "google" && login.result?.responseType === "online"
+            ? login.result.idToken
+            : null;
+        if (!idToken) throw new Error("Google sign-in did not return an ID token");
+        const { error } = await supabase.auth.signInWithIdToken({ provider: "google", token: idToken });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: { redirectTo: window.location.origin },
+        });
+        if (error) throw error;
+      }
       setIsLoginModalOpen(false);
     } catch (e: any) {
       console.error("Google Auth Error:", e);
@@ -196,6 +201,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await supabase.auth.signOut();
     } catch {}
+    if (Capacitor.isNativePlatform()) {
+      // Clears Credential Manager's own cached account-selection state too
+      // — without this, signing out in-app and signing back in could
+      // silently reuse the same cached credential instead of showing the
+      // account picker again.
+      try {
+        await SocialLogin.logout({ provider: "google" });
+      } catch {}
+    }
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);
   };
