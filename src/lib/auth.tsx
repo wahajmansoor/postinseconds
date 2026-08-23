@@ -139,6 +139,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const gisReadyRef = useRef(false);
   const pendingButtonContainerRef = useRef<HTMLDivElement | null>(null);
   const [isGoogleButtonReady, setIsGoogleButtonReady] = useState(false);
+  const [isGisReady, setIsGisReady] = useState(false);
+  const oneTapShownRef = useRef(false);
 
   const handleGisCredential = async (response: { credential?: string }) => {
     if (!response.credential) return;
@@ -187,6 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           callback: handleGisCredential,
         });
         gisReadyRef.current = true;
+        setIsGisReady(true);
         tryRenderGoogleButton();
       } catch (err) {
         console.error("GIS initialize error:", err);
@@ -215,6 +218,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     pendingButtonContainerRef.current = el;
     if (el) tryRenderGoogleButton();
   };
+
+  // "One Tap" — the small floating account card Google shows in the
+  // corner, offering sign-in with zero clicks if the browser already has
+  // an active Google session. This is the modern pattern most sites use
+  // alongside (not instead of) a regular button; fires once, only once we
+  // actually know the visitor isn't already signed in (waiting on the
+  // initial getSession() check above) and GIS has finished loading.
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) return;
+    if (!isGisReady || isLoading || user) return;
+    if (oneTapShownRef.current) return;
+    oneTapShownRef.current = true;
+    try {
+      (window as any).google.accounts.id.prompt();
+    } catch (err) {
+      console.error("GIS prompt error:", err);
+    }
+  }, [isGisReady, isLoading, user]);
 
   // Helper to fetch user profile and role from Supabase
   const syncUserFromSession = async (sbUser: any) => {
