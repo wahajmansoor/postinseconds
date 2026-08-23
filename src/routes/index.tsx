@@ -291,13 +291,17 @@ function CanvasScrollbar({
         // against white, black, and colored/photo backgrounds alike — the
         // same "readable on anything" approach already used for the
         // resize handles in QuoteCanvas.
-        className="rounded-full bg-[rgba(120,120,120,0.6)] shadow-[0_0_0_1px_rgba(255,255,255,0.55),0_1px_3px_rgba(0,0,0,0.4)] transition-colors hover:bg-[rgba(120,120,120,0.8)] active:bg-[rgba(120,120,120,0.9)]"
+        className="rounded-full bg-[rgba(120,120,120,0.6)] transition-colors hover:bg-[rgba(120,120,120,0.8)] active:bg-[rgba(120,120,120,0.9)]"
         style={{
           position: "absolute",
           left: isH ? thumbPos : 0,
           top: isH ? 0 : thumbPos,
           width: isH ? thumbLength : "100%",
           height: isH ? "100%" : thumbLength,
+          // Tailwind's shadow-[...] arbitrary value doesn't reliably apply
+          // a multi-layer (comma-separated) box-shadow — plain inline
+          // style avoids that entirely.
+          boxShadow: "0 0 0 1px rgba(255,255,255,0.55), 0 1px 3px rgba(0,0,0,0.4)",
           // Plain default cursor on hover/drag, not a resize cursor —
           // dragging a scrollbar thumb is a drag, not a resize, and
           // ew-resize/ns-resize wrongly implied the track itself could be
@@ -1053,6 +1057,37 @@ function Index() {
     [s.width, s.height, showRulers],
   );
 
+  // Keeps `pan` inside the range that's actually meaningful: when the
+  // canvas fits entirely within the stage at a given scale, there's
+  // nothing to scroll to at all, so pan is pinned to exactly {0,0}
+  // (centered) — no drifting the already-fully-visible canvas off into
+  // empty space. When the canvas IS bigger than the stage, pan is bounded
+  // to the range that keeps at least one edge of the canvas reachable
+  // (same convention as a native scrollbar: you can't scroll past the
+  // content). Derived by solving canvasOrigin's own formula for the pan
+  // values that put origin.x at its two extremes (0 = canvas's left edge
+  // at the stage's left edge, stageW - contentW = canvas's right edge at
+  // the stage's right edge), so this always agrees with what's actually
+  // on screen.
+  const clampPan = useCallback(
+    (rawPan: { x: number; y: number }, atScale: number, stageW: number, stageH: number) => {
+      if (stageW <= 0 || stageH <= 0) return rawPan;
+      const rOffset = showRulers ? RULER_SIZE / 2 : 0;
+      const scrollRangeX = s.width * atScale - stageW;
+      const scrollRangeY = s.height * atScale - stageH;
+      const x =
+        scrollRangeX > 0
+          ? Math.max(-scrollRangeX / 2 - rOffset, Math.min(scrollRangeX / 2 - rOffset, rawPan.x))
+          : 0;
+      const y =
+        scrollRangeY > 0
+          ? Math.max(-scrollRangeY / 2 - rOffset, Math.min(scrollRangeY / 2 - rOffset, rawPan.y))
+          : 0;
+      return { x, y };
+    },
+    [s.width, s.height, showRulers],
+  );
+
   // The one real zoom primitive — wheel, buttons, and the slider/typed-%
   // input all funnel through this (pinch has its own variant below, since
   // a pinch gesture also needs to pan by the fingers' own movement, which
@@ -1082,10 +1117,11 @@ function Index() {
       const contentX = (focalX - origin.x) / prevScale;
       const contentY = (focalY - origin.y) / prevScale;
 
-      setPan(panForFocal(nextScale, focalX, focalY, contentX, contentY, stageW, stageH));
+      const nextPan = panForFocal(nextScale, focalX, focalY, contentX, contentY, stageW, stageH);
+      setPan(clampPan(nextPan, nextScale, stageW, stageH));
       setScale(nextScale);
     },
-    [canvasOrigin, panForFocal],
+    [canvasOrigin, panForFocal, clampPan],
   );
 
   const zoomAt = useCallback(
@@ -1139,15 +1175,18 @@ function Index() {
       // Plain scroll pans instead — the stage has no native scrolling of
       // its own anymore (see the canvas transform below), so this is what
       // replaces it. Shift+wheel is the standard convention for turning a
-      // vertical-only mouse wheel into horizontal panning.
+      // vertical-only mouse wheel into horizontal panning. Clamped so this
+      // is a genuine no-op — not just a tiny nudge — once the canvas
+      // already fits inside the stage; there's nothing to scroll to.
       const dx = e.shiftKey ? e.deltaY : e.deltaX;
       const dy = e.shiftKey ? 0 : e.deltaY;
-      setPan((p) => ({ x: p.x - dx, y: p.y - dy }));
+      const { width: stageW, height: stageH } = stageSizeRef.current;
+      setPan((p) => clampPan({ x: p.x - dx, y: p.y - dy }, scaleRef.current, stageW, stageH));
       isCustomZoomRef.current = true;
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [zoomAt]);
+  }, [zoomAt, clampPan]);
 
   // Mobile touch: two fingers pinch-zoom AND pan together (Canva/Figma-
   // style — the midpoint moving pans, the distance changing zooms, both at
@@ -1242,12 +1281,21 @@ function Index() {
           setScale(pendingScale);
           // The zoom's own pan (keeping the stage center fixed) plus
           // however far the fingers have additionally dragged since the
-          // gesture started — see the state comment above.
-          setPan({ x: zoomPan.x + pendingDragX, y: zoomPan.y + pendingDragY });
+          // gesture started — see the state comment above. Clamped so a
+          // fast pinch can't fling the canvas past its actual bounds.
+          setPan(
+            clampPan(
+              { x: zoomPan.x + pendingDragX, y: zoomPan.y + pendingDragY },
+              pendingScale,
+              initialStageRect.width,
+              initialStageRect.height,
+            ),
+          );
           pendingScale = null;
         } else if (hasPendingPan) {
           isCustomZoomRef.current = true;
-          setPan((p) => ({ x: p.x + pendingPanDx, y: p.y + pendingPanDy }));
+          const { width: stageW, height: stageH } = stageSizeRef.current;
+          setPan((p) => clampPan({ x: p.x + pendingPanDx, y: p.y + pendingPanDy }, scaleRef.current, stageW, stageH));
           pendingPanDx = 0;
           pendingPanDy = 0;
           hasPendingPan = false;
@@ -1390,7 +1438,7 @@ function Index() {
       el.removeEventListener("touchcancel", onTouchEnd);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [isMobile, canvasOrigin, panForFocal]);
+  }, [isMobile, canvasOrigin, panForFocal, clampPan]);
 
   // Templates and saved quotes (loaded the same way — see LeftPanel's
   // "My saved" tab) both come through here, so this is also the one place
@@ -1933,14 +1981,18 @@ function Index() {
           stageLength={stageSize.width}
           contentLength={s.width * scale}
           origin={canvasWrapperOrigin.x}
-          onPanDelta={(delta) => setPan((p) => ({ ...p, x: p.x + delta }))}
+          onPanDelta={(delta) =>
+            setPan((p) => clampPan({ ...p, x: p.x + delta }, scale, stageSize.width, stageSize.height))
+          }
         />
         <CanvasScrollbar
           orientation="vertical"
           stageLength={stageSize.height}
           contentLength={s.height * scale}
           origin={canvasWrapperOrigin.y}
-          onPanDelta={(delta) => setPan((p) => ({ ...p, y: p.y + delta }))}
+          onPanDelta={(delta) =>
+            setPan((p) => clampPan({ ...p, y: p.y + delta }, scale, stageSize.width, stageSize.height))
+          }
         />
       </div>
     </div>
