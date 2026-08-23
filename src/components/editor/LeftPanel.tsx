@@ -104,6 +104,13 @@ type Props = {
   onSelectSavedQuote?: (quote: DbSavedQuote) => void;
   activeSavedQuote?: { id: string; title: string } | null;
   onCloseSavedQuoteEdit?: () => void;
+  // The canvas's own export DOM node (same ref index.tsx hands to
+  // html-to-image for downloads) — optional purely so this component still
+  // works if a caller doesn't have one handy; without it, newly added text
+  // just keeps withTextAdded's flat-background-only color guess instead of
+  // getting refined against the real rendered pixels. See
+  // refineTextColorFromCanvas below.
+  canvasRef?: React.RefObject<HTMLDivElement | null>;
 };
 
 const VERIFIED_ICONS = VERIFIED_PICKER_ICONS;
@@ -389,9 +396,18 @@ export function LeftPanel({
   onSelectSavedQuote,
   activeSavedQuote,
   onCloseSavedQuoteEdit,
+  canvasRef,
 }: Props) {
   const { user, isAdmin } = useAuth();
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  // Always-current mirror of the `s` prop, for the async color-refine below
+  // — that runs after an `await`, by which point the `s` this render closed
+  // over is stale (new layers/edits may have landed since), so it needs a
+  // way to read the latest state instead of the snapshot it started with.
+  const sRef = useRef(s);
+  useEffect(() => {
+    sRef.current = s;
+  }, [s]);
   const [croppingImage, setCroppingImage] = useState<ImageLayer | null>(null);
   const [userSavedQuotes, setUserSavedQuotes] = useState<DbSavedQuote[]>([]);
   const [platformTemplates, setPlatformTemplates] = useState<Template[]>(TEMPLATES);
@@ -798,12 +814,69 @@ export function LeftPanel({
         ? textLayersList[0]
         : null;
 
+    // withTextAdded's own color pick (see isDarkBg in types.ts) is a fast,
+    // instant guess against the canvas's flat `background` setting alone —
+    // it has no idea a background IMAGE, gradient, or another layer might
+    // actually sit under this text's specific (x, y) drop point. This
+    // renders the real canvas to a small offscreen bitmap right after
+    // (reusing the same html-to-image snapshot export already uses) and
+    // samples the actual pixels there, flipping the color if the fast
+    // guess turns out to have been wrong. New text still appears instantly
+    // either way — this only ever corrects it a moment later, and never
+    // touches a color the user has since picked by hand.
+    const DEFAULT_TEXT_COLORS = ["#ffffff", "#0d0d12"];
+    const refineTextColorFromCanvas = async (textId: string, x: number, y: number, guessedColor: string) => {
+      const node = canvasRef?.current;
+      if (!node) return;
+      try {
+        const mod = await import("html-to-image");
+        const canvas = await mod.toCanvas(node, {
+          pixelRatio: 0.25,
+          width: s.width,
+          height: s.height,
+          cacheBust: false,
+        });
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        const px = Math.round((x / 100) * canvas.width);
+        const py = Math.round((y / 100) * canvas.height);
+        const boxRadius = Math.max(4, Math.round(canvas.width * 0.04));
+        const sx = Math.max(0, Math.min(canvas.width - 1, px - boxRadius));
+        const sy = Math.max(0, Math.min(canvas.height - 1, py - boxRadius));
+        const sw = Math.min(canvas.width - sx, boxRadius * 2);
+        const sh = Math.min(canvas.height - sy, boxRadius * 2);
+        if (sw <= 0 || sh <= 0) return;
+        const { data } = ctx.getImageData(sx, sy, sw, sh);
+        let total = 0;
+        let count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] === 0) continue; // fully transparent — nothing visually there, ignore
+          total += ((data[i] ?? 0) * 299 + (data[i + 1] ?? 0) * 587 + (data[i + 2] ?? 0) * 114) / 1000;
+          count++;
+        }
+        if (count === 0) return;
+        const nextColor = total / count < 140 ? "#ffffff" : "#0d0d12";
+        if (nextColor === guessedColor) return;
+        const latest = sRef.current;
+        const stillDefault = getTextLayers(latest).some(
+          (t) => t.id === textId && DEFAULT_TEXT_COLORS.includes(t.color),
+        );
+        if (stillDefault) {
+          set("texts", withTextUpdated(latest, textId, { color: nextColor }));
+        }
+      } catch {
+        // Best-effort refinement only — keep the fast heuristic's guess on failure.
+      }
+    };
+
     const addPresetText = (preset: { text: string; size: number; weight: number }) => {
       const res = withTextAdded(s, preset);
       set("texts", res.list);
       set("layerOrder", res.layerOrder);
       if (res.newId) {
         onSelectLayer?.({ kind: "text", id: res.newId });
+        const added = res.list.find((t) => t.id === res.newId);
+        if (added) void refineTextColorFromCanvas(added.id, added.x, added.y, added.color);
       }
       onItemSelect?.();
     };

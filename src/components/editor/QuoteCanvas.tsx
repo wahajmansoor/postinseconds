@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Copy01Icon,
@@ -92,6 +92,15 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   // genuinely stable while still always acting on the latest state.
   const sRef = useRef(s);
   sRef.current = s;
+  // Same reasoning as sRef above, for `scale`: updateGroupDrag closed over
+  // it directly and listed it as a dependency, so it got a new identity on
+  // every single zoom-gesture frame — which, threaded down as every layer's
+  // onGroupDragMove prop, defeated DraggableTextLayer/DraggableImageLayer/
+  // DraggableShapeLayer's scale-aware React.memo (see scaleAwarePropsEqual)
+  // by looking like a changed prop on every one of them, every frame, zoom
+  // gesture or not.
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
 
   const [guides, setGuides] = useState<GuidesState>({ vCenter: false, hCenter: false });
   const [controlsOverlayEl, setControlsOverlayEl] = useState<HTMLDivElement | null>(null);
@@ -223,8 +232,8 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       const s = sRef.current;
       const g = groupDragRef.current;
       if (!g || !set) return;
-      let dxPct = ((clientX - g.startMouseX) / scale / s.width) * 100;
-      let dyPct = ((clientY - g.startMouseY) / scale / s.height) * 100;
+      let dxPct = ((clientX - g.startMouseX) / scaleRef.current / s.width) * 100;
+      let dyPct = ((clientY - g.startMouseY) / scaleRef.current / s.height) * 100;
 
       // Group alignment snapping calculation
       let showVCenter = false;
@@ -294,7 +303,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         set("shapes", next);
       }
     },
-    [set, scale],
+    [set],
   );
 
   const endGroupDrag = useCallback(() => {
@@ -1446,37 +1455,70 @@ type HandleId = (typeof HANDLE_POSITIONS)[number]["id"];
 // Corners render as small circles; edge handles as pill/bar shapes (a
 // stadium shape falls straight out of `rounded-full` once width != height,
 // no separate border-radius logic needed). These are the DESIGN-time sizes,
-// i.e. what renders at canvas zoom = 100% — see zoomedHandleDims below for
-// how they actually get rendered at other zoom levels.
+// i.e. what renders at canvas zoom = 100% — see `zoomed` below for how they
+// actually get rendered at other zoom levels.
+//
+// This is the small VISIBLE dot/pill only — see handleHitDims right below
+// for the (larger) actual pointer/touch hit target. Splitting the two
+// apart is what let this shrink from the old single-size 14 / 20×10: on a
+// small mobile canvas the previous size regularly sat close enough to a
+// layer's own text to cover it, and shrinking it outright (tried earlier)
+// just made it hard to grab. A small visible mark + a generous invisible
+// hit area (the Figma/Canva pattern) fixes both at once.
 function handleDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
   switch (kind) {
     case "corner":
-      return { width: 14, height: 14 };
+      return { width: 10, height: 10 };
     case "edge-h":
-      return { width: 20, height: 10 };
+      return { width: 16, height: 8 };
     case "edge-v":
-      return { width: 10, height: 20 };
+      return { width: 8, height: 16 };
+  }
+}
+
+// The actual pointer/touch hit target for each resize handle — deliberately
+// bigger than the visible dot/pill above so handles stay easy to grab
+// (especially on mobile touch) without the VISIBLE shape itself being large
+// enough to sit on top of, and hide, nearby text. This box is fully
+// transparent; see each render site below for how the small dot gets
+// centered inside it.
+function handleHitDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
+  switch (kind) {
+    case "corner":
+      return { width: 28, height: 28 };
+    case "edge-h":
+      return { width: 32, height: 22 };
+    case "edge-v":
+      return { width: 22, height: 32 };
   }
 }
 
 // Handles live inside the canvas stage's own `transform: scale(zoom)`
 // wrapper (see index.tsx), same as every layer — so left alone they'd
 // shrink/grow proportionally with every zoom change, same as the content
-// they're attached to. That's not what's wanted here: the dims above are a
+// they're attached to. That's not what's wanted here: dims are kept a
 // fixed, constant ON-SCREEN size regardless of zoom (same pattern as
 // LayerToolbar's invScale) — a canvas that's zoomed out to fit a big
 // design on screen shouldn't make the handles themselves harder to grab.
-function zoomedHandleDims(
-  kind: "corner" | "edge-h" | "edge-v",
-  scale: number,
-): { width: number; height: number } {
-  const dims = handleDims(kind);
+function zoomed(dims: { width: number; height: number }, scale: number): { width: number; height: number } {
   if (!scale || scale <= 0) return dims;
   return { width: dims.width / scale, height: dims.height / scale };
 }
 
+// Positions + sizes the (invisible) HIT box — see handleHitDims. Each
+// layer's render site nests the small visible dot (getHandleVisualStyle)
+// centered inside this, so the two always share the same on-screen center
+// point without any separate offset math for the inner element.
 function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): React.CSSProperties {
-  const dims = zoomedHandleDims(h.kind, scale);
+  const dims = zoomed(handleHitDims(h.kind), scale);
+  // Deliberately NOT counter-scaled like `dims` above — this is the gap
+  // between the selection outline and the handle, and keeping it flat (its
+  // on-screen size shrinking a bit at low mobile zoom, same as before) is
+  // what keeps the dot feeling anchored to the outline instead of floating
+  // away from it. A counter-scaled version was tried and made the gap
+  // balloon up at mobile's low default canvas zoom (~0.3–0.5), visibly
+  // detaching the handles from the selection outline — worse than the
+  // small-zoom shrink it was meant to fix.
   const outlineOffset = 5; // 4px outlineOffset + 1px stroke offset to center on outline line
 
   const offsetX = outlineOffset + dims.width / 2;
@@ -1514,11 +1556,73 @@ function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): Re
     position: "absolute",
     ...posStyle,
     ...dims,
-    boxShadow: "0 2px 10px 0 rgba(0,33,255,0.5), 0 0 0 2px rgba(255,255,255,0.9)",
     cursor: h.cursor,
     zIndex: 60,
     touchAction: "none",
   };
+}
+
+// The small visible dot/pill, centered inside its parent hit box (see
+// getHandleStyle) via plain 50%/50% + translate — no offset math needed
+// here since the hit box is already centered on the right on-screen point.
+function getHandleVisualStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): React.CSSProperties {
+  const dims = zoomed(handleDims(h.kind), scale);
+  return {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    transform: "translate(-50%, -50%)",
+    ...dims,
+    boxShadow: "0 2px 10px 0 rgba(0,33,255,0.5), 0 0 0 2px rgba(255,255,255,0.9)",
+  };
+}
+
+// A layer's own rendered output only depends on `scale` when it's actually
+// SELECTED — that's the only time it draws resize handles, the rotate/move
+// row, and the toolbar, all of which size themselves from `scale` (see
+// getHandleStyle/invScale above). A non-selected layer's content is
+// positioned purely in canvas-space (percentages/pixels of the unscaled
+// design), untouched by the canvas's own outer `transform: scale(zoom)` —
+// so it has nothing to redraw when only `scale` changes. Without this, a
+// live pinch/wheel zoom re-rendered and reconciled every single layer on
+// canvas on every animation frame regardless of selection, which was the
+// biggest remaining contributor to zoom feeling laggy with more than a
+// couple of layers on the canvas. Wrapped around DraggableTextLayer/
+// DraggableImageLayer/DraggableShapeLayer below via React.memo.
+function scaleAwarePropsEqual<P extends { scale: number; selected: boolean }>(
+  prev: Readonly<P>,
+  next: Readonly<P>,
+): boolean {
+  for (const key in next) {
+    if (key === "scale") continue;
+    if (!Object.is((prev as Record<string, unknown>)[key], (next as Record<string, unknown>)[key])) {
+      return false;
+    }
+  }
+  if (prev.scale === next.scale) return true;
+  // scale itself changed — only a selected layer needs to re-render for it.
+  return !next.selected;
+}
+
+// The lowest unified-stack position occupied by any text layer. Shapes/
+// images explicitly pinned "Behind Text" (see the toggle in
+// ShapeSelectionToolbar/ImageSelectionToolbar, and the shadow presets added
+// via withShadowAdded, which always set this) need to render below every
+// text layer no matter when they were added — but should still follow
+// normal add-order sequencing against every OTHER, non-text layer (e.g. an
+// image added, then a shadow added after it, should still stack the shadow
+// above that image). See the zIndex math in DraggableImageLayer/
+// DraggableShapeLayer below, which clamps a "behind"-tagged layer's index
+// to just under this floor instead of using a flat always-lowest tier.
+// Infinity when there's no text at all, so "Behind Text" items just fall
+// back to plain sequence order in that case.
+function textFloorIndex(s: EditorState): number {
+  const unified = getUnifiedLayers(s);
+  let min = Infinity;
+  for (let i = 0; i < unified.length; i++) {
+    if (unified[i]!.kind === "text") min = Math.min(min, i);
+  }
+  return min;
 }
 
 // Rotates a screen-space (dx, dy) vector by `degrees` clockwise — used both
@@ -1790,7 +1894,7 @@ function CurvedTextSvg({
 // selected enters edit mode) — dragging hangs off the same element but
 // only while NOT editing, so it can't fight with the browser's native
 // focus/selection/caret-placement behavior.
-function DraggableTextLayer({
+const DraggableTextLayer = memo(function DraggableTextLayer({
   t,
   index,
   s,
@@ -2608,10 +2712,15 @@ function DraggableTextLayer({
                       resizeRef.current = null;
                     }}
                     data-nopan=""
-                    className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                    className="group"
                     style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
                     title="Drag to resize text"
-                  />
+                  >
+                    <div
+                      className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                      style={getHandleVisualStyle(h, scale)}
+                    />
+                  </div>
                 ))}
                 <RotateMoveHandleRow
                   containerRef={containerRef}
@@ -2629,9 +2738,9 @@ function DraggableTextLayer({
         : null}
     </>
   );
-}
+}, scaleAwarePropsEqual);
 
-function DraggableImageLayer({
+const DraggableImageLayer = memo(function DraggableImageLayer({
   img,
   index,
   s,
@@ -2813,7 +2922,11 @@ function DraggableImageLayer({
               ? `${img.height}px`
               : undefined,
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-          zIndex: (selected ? 80 : img.layer === "behind" ? 2 : 10) + index,
+          zIndex: selected
+            ? 80 + index
+            : img.layer === "behind"
+              ? 10 + Math.min(index, textFloorIndex(s) - 1)
+              : 10 + index,
           touchAction: "none",
           userSelect: "none",
           outline: "none",
@@ -2954,10 +3067,15 @@ function DraggableImageLayer({
                       resizeRef.current = null;
                     }}
                     data-nopan=""
-                    className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                    className="group"
                     style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
                     title="Drag to resize image"
-                  />
+                  >
+                    <div
+                      className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                      style={getHandleVisualStyle(h, scale)}
+                    />
+                  </div>
                 ))}
                 <RotateMoveHandleRow
                   containerRef={containerRef}
@@ -2975,9 +3093,9 @@ function DraggableImageLayer({
         : null}
     </>
   );
-}
+}, scaleAwarePropsEqual);
 
-function DraggableShapeLayer({
+const DraggableShapeLayer = memo(function DraggableShapeLayer({
   shape,
   index,
   s,
@@ -3163,7 +3281,11 @@ function DraggableShapeLayer({
               ? effectiveHeight
               : 200,
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-          zIndex: (selected ? 80 : shape.layer === "behind" ? 2 : 10) + index,
+          zIndex: selected
+            ? 80 + index
+            : shape.layer === "behind"
+              ? 10 + Math.min(index, textFloorIndex(s) - 1)
+              : 10 + index,
           touchAction: "none",
           userSelect: "none",
           outline: "none",
@@ -3295,10 +3417,15 @@ function DraggableShapeLayer({
                       resizeRef.current = null;
                     }}
                     data-nopan=""
-                    className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                    className="group"
                     style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
                     title="Drag to resize shape"
-                  />
+                  >
+                    <div
+                      className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                      style={getHandleVisualStyle(h, scale)}
+                    />
+                  </div>
                 ))}
                 <RotateMoveHandleRow
                   containerRef={containerRef}
@@ -3317,4 +3444,4 @@ function DraggableShapeLayer({
         : null}
     </>
   );
-}
+}, scaleAwarePropsEqual);

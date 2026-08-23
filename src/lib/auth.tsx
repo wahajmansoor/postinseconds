@@ -44,6 +44,25 @@ interface AuthContextType {
 
 const STORAGE_KEY = "postinseconds_auth_user";
 
+// GIS (web) requires a nonce round-trip: the *hashed* nonce goes into
+// google.accounts.id.initialize(), Google bakes it into the ID token's
+// `nonce` claim, and the *raw* nonce then has to be handed back to
+// signInWithIdToken so Supabase can hash-and-compare it itself. Skipping
+// this (or only doing half of it) is exactly what produces Supabase's
+// "Passed nonce and nonce in id_token should either both exist or not."
+// error — the token ends up with a nonce claim but signInWithIdToken
+// wasn't told what raw value to check it against, or vice versa.
+function generateNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -141,6 +160,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isGoogleButtonReady, setIsGoogleButtonReady] = useState(false);
   const [isGisReady, setIsGisReady] = useState(false);
   const oneTapShownRef = useRef(false);
+  // The raw nonce handed to the current initialize() call — signInWithIdToken
+  // needs this exact value back to verify the hash Google embedded in the
+  // token. Re-generated on every initialize (i.e. every page load).
+  const gisNonceRef = useRef<string | null>(null);
 
   const handleGisCredential = async (response: { credential?: string }) => {
     if (!response.credential) return;
@@ -149,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signInWithIdToken({
         provider: "google",
         token: response.credential,
+        ...(gisNonceRef.current ? { nonce: gisNonceRef.current } : {}),
       });
       if (error) throw error;
       setIsLoginModalOpen(false);
@@ -182,11 +206,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (Capacitor.isNativePlatform()) return;
 
-    const initGis = () => {
+    const initGis = async () => {
       try {
+        const rawNonce = generateNonce();
+        const hashedNonce = await sha256Hex(rawNonce);
+        gisNonceRef.current = rawNonce;
         (window as any).google.accounts.id.initialize({
           client_id: GOOGLE_WEB_CLIENT_ID,
           callback: handleGisCredential,
+          nonce: hashedNonce,
         });
         gisReadyRef.current = true;
         setIsGisReady(true);

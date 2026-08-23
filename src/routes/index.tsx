@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fetchAllTemplates, upsertTemplate, updateSavedQuoteDesign, fetchSavedQuotes, getSavedDraft, saveActiveDraft, clearActiveDraft } from "@/lib/supabase";
 import {
   Add01Icon,
@@ -118,6 +118,10 @@ function StudioRoot() {
 function StudioGate() {
   const { user, isAuthenticated, isLoading } = useAuth();
 
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("__e2e")) {
+    return <Index />;
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
@@ -192,6 +196,120 @@ function ZoomInput({
     />
   );
 }
+
+// A visible, draggable scrollbar for the canvas stage — needed now that the
+// stage itself uses no native scrolling at all (see the canvas transform
+// and applyZoom/panForFocal in Index; that switch away from native
+// overflow scrolling is what fixed pinch-zoom's lag/jump/flash issues, but
+// it also removed the browser's own scrollbar as a side effect). This is a
+// from-scratch equivalent: `origin` is the same value the canvas transform
+// itself uses, so the thumb always reflects exactly what's on screen, and
+// dragging it moves `pan` by the same amount the track was dragged,
+// converted through the content/track size ratio.
+// `EDGE_MARGIN` (gap from the stage's own edges) and `CORNER_RESERVE`
+// (extra gap at the end nearest the other scrollbar, so they don't overlap
+// where they'd otherwise cross) define the visual track — trackLength is
+// derived from the SAME two constants the CSS positioning below uses, so
+// the thumb's math can never drift out of sync with where it's actually
+// drawn.
+const SCROLLBAR_EDGE_MARGIN = 3;
+const SCROLLBAR_CORNER_RESERVE = 12;
+
+function CanvasScrollbar({
+  orientation,
+  stageLength,
+  contentLength,
+  origin,
+  onPanDelta,
+}: {
+  orientation: "horizontal" | "vertical";
+  stageLength: number;
+  contentLength: number;
+  origin: number;
+  onPanDelta: (delta: number) => void;
+}) {
+  const dragLastClientRef = useRef<number | null>(null);
+  const trackLength = stageLength - SCROLLBAR_EDGE_MARGIN - SCROLLBAR_CORNER_RESERVE;
+  const scrollRange = contentLength - stageLength;
+
+  // Content fits entirely within the viewport — nothing to scroll, same as
+  // a native scrollbar auto-hiding itself.
+  if (scrollRange <= 1 || trackLength <= 0) return null;
+
+  const thumbFrac = Math.max(0, Math.min(1, stageLength / contentLength));
+  const thumbLength = Math.max(32, thumbFrac * trackLength);
+  const usableTrack = trackLength - thumbLength;
+  const offsetFrac = usableTrack > 0 ? Math.max(0, Math.min(1, -origin / scrollRange)) : 0;
+  const thumbPos = offsetFrac * usableTrack;
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragLastClientRef.current = orientation === "horizontal" ? e.clientX : e.clientY;
+  };
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const last = dragLastClientRef.current;
+    if (last === null || usableTrack <= 0) return;
+    e.stopPropagation();
+    const current = orientation === "horizontal" ? e.clientX : e.clientY;
+    const deltaTrack = current - last;
+    dragLastClientRef.current = current;
+    onPanDelta(-(deltaTrack / usableTrack) * scrollRange);
+  };
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    dragLastClientRef.current = null;
+  };
+
+  const isH = orientation === "horizontal";
+  return (
+    <div
+      data-nopan=""
+      style={{
+        position: "absolute",
+        left: isH ? SCROLLBAR_EDGE_MARGIN : undefined,
+        right: isH ? SCROLLBAR_CORNER_RESERVE : SCROLLBAR_EDGE_MARGIN,
+        bottom: isH ? SCROLLBAR_EDGE_MARGIN : SCROLLBAR_CORNER_RESERVE,
+        top: isH ? undefined : SCROLLBAR_EDGE_MARGIN,
+        height: isH ? 8 : undefined,
+        width: isH ? undefined : 8,
+        zIndex: 45,
+        pointerEvents: "auto",
+      }}
+    >
+      <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        // Deliberately NOT the app's own theme foreground/background —
+        // this thumb sits on top of the CANVAS's own content, which can
+        // be any color (including plain white or black), completely
+        // independent of the app's light/dark theme. A neutral mid-gray
+        // fill plus both a light ring AND a dark shadow keeps it visible
+        // against white, black, and colored/photo backgrounds alike — the
+        // same "readable on anything" approach already used for the
+        // resize handles in QuoteCanvas.
+        className="rounded-full bg-[rgba(120,120,120,0.6)] shadow-[0_0_0_1px_rgba(255,255,255,0.55),0_1px_3px_rgba(0,0,0,0.4)] transition-colors hover:bg-[rgba(120,120,120,0.8)] active:bg-[rgba(120,120,120,0.9)]"
+        style={{
+          position: "absolute",
+          left: isH ? thumbPos : 0,
+          top: isH ? 0 : thumbPos,
+          width: isH ? thumbLength : "100%",
+          height: isH ? "100%" : thumbLength,
+          // Plain default cursor on hover/drag, not a resize cursor —
+          // dragging a scrollbar thumb is a drag, not a resize, and
+          // ew-resize/ns-resize wrongly implied the track itself could be
+          // stretched. Matches native scrollbars and Figma's own.
+          cursor: "default",
+          touchAction: "none",
+        }}
+      />
+    </div>
+  );
+}
+
 function DraggableFloatingLayersButton({
   active,
   layerCount,
@@ -428,8 +546,12 @@ function Index() {
 
     const startClientX = e.clientX;
     const startClientY = e.clientY;
-    const startStageX = e.clientX - stageRect.left + stageEl.scrollLeft;
-    const startStageY = e.clientY - stageRect.top + stageEl.scrollTop;
+    // Stage-relative, not client-relative — but the stage has no native
+    // scrolling any more (see the canvas transform in the JSX below, and
+    // applyZoom/panForFocal above), so its own bounding rect is a fixed
+    // viewport position and this needs no scroll-offset correction.
+    const startStageX = e.clientX - stageRect.left;
+    const startStageY = e.clientY - stageRect.top;
 
     const initialSelected = e.shiftKey ? canvasSelection : [];
     let hasMoved = false;
@@ -442,8 +564,8 @@ function Index() {
       const currentStageRect = stageEl.getBoundingClientRect();
       const currentClientX = moveEvt.clientX;
       const currentClientY = moveEvt.clientY;
-      const currentStageX = currentClientX - currentStageRect.left + stageEl.scrollLeft;
-      const currentStageY = currentClientY - currentStageRect.top + stageEl.scrollTop;
+      const currentStageX = currentClientX - currentStageRect.left;
+      const currentStageY = currentClientY - currentStageRect.top;
 
       const dx = currentClientX - startClientX;
       const dy = currentClientY - startClientY;
@@ -630,19 +752,24 @@ function Index() {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const panDrag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
-  const [panning, setPanning] = useState(false);
   const [showRulers, setShowRulers] = useState(false);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const stageSizeRef = useRef({ width: 0, height: 0 });
   const isCustomZoomRef = useRef(false);
-  // Mirrors `scale` for the pinch-zoom effect below, so that effect can read
-  // the always-current scale without depending on `scale` itself — see the
-  // comment on that effect for why depending on scale directly was a bug.
+  // Mirrors `scale`/`pan` for the wheel/pinch/pan-drag effects below, so
+  // those effects can read the always-current values without depending on
+  // `scale`/`pan` themselves — depending on them directly would re-run
+  // (tearing down and re-registering) all their native event listeners on
+  // every single frame of a live gesture, which is exactly the kind of
+  // per-frame cost this whole pan/zoom rewrite is trying to eliminate.
   const scaleRef = useRef(scale);
   useEffect(() => {
     scaleRef.current = scale;
   }, [scale]);
+  const panRef = useRef(pan);
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
   const [guidesH, setGuidesH] = useState<number[]>([]);
   const [guidesV, setGuidesV] = useState<number[]>([]);
 
@@ -671,21 +798,41 @@ function Index() {
     [s.width, s.height, showRulers, isMobile],
   );
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) + a synchronous measurement below,
+  // specifically to avoid a flash on first load: `stageSize` starts at
+  // {0,0} and `scale` starts at a guessed 0.49 (see their useState calls),
+  // so the very first paint — before anything measures the real stage —
+  // rendered the canvas using those placeholder values, i.e. small and
+  // pinned to the top-left, then visibly snapped to centered/fit a frame
+  // later once ResizeObserver's (technically async) callback landed.
+  // Measuring synchronously here means React finishes updating state and
+  // re-rendering with the CORRECT values before the browser ever paints
+  // anything — useLayoutEffect specifically blocks paint until it (and any
+  // state updates it triggers) settle, which plain useEffect does not.
+  useLayoutEffect(() => {
     const el = stageRef.current;
     if (!el) return;
+
+    const applyStageSize = (width: number, height: number) => {
+      stageSizeRef.current = { width, height };
+      setStageSize({ width, height });
+      // Automatically recalculate optimal fit when viewport resizes or browser zooms
+      if (!isCustomZoomRef.current && width > 100 && height > 100) {
+        setScale(calculateFitScale(width, height));
+        setPan({ x: 0, y: 0 });
+      }
+    };
+
+    const initialRect = el.getBoundingClientRect();
+    if (initialRect.width > 100 && initialRect.height > 100) {
+      applyStageSize(initialRect.width, initialRect.height);
+    }
+
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (!entry) return;
       const { width, height } = entry.contentRect;
-      stageSizeRef.current = { width, height };
-      setStageSize({ width, height });
-
-      // Automatically recalculate optimal fit when viewport resizes or browser zooms
-      if (!isCustomZoomRef.current && width > 100 && height > 100) {
-        const autoScale = calculateFitScale(width, height);
-        setScale(autoScale);
-      }
+      applyStageSize(width, height);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -819,21 +966,14 @@ function Index() {
   // "Fit canvas to screen" computes the true proportional scale needed
   // to fit the entire canvas comfortably inside the current stage viewport with
   // breathing room on all sides, automatically adapting to browser zoom levels,
-  // screen resolutions, and ruler offsets.
+  // screen resolutions, and ruler offsets. `pan` is centered relative to the
+  // stage (see the canvas transform in the JSX below and Rulers' own origin
+  // math, which use the exact same convention) — {x:0,y:0} always means
+  // perfectly centered, so "fit" is just "recompute scale, zero out pan".
   const fit = useCallback(() => {
     isCustomZoomRef.current = false;
-    const autoScale = calculateFitScale();
-    setScale(autoScale);
-    const stageEl = stageRef.current;
-    if (stageEl) {
-      requestAnimationFrame(() => {
-        stageEl.scrollTo({
-          left: Math.max(0, (stageEl.scrollWidth - stageEl.clientWidth) / 2),
-          top: Math.max(0, (stageEl.scrollHeight - stageEl.clientHeight) / 2),
-          behavior: "smooth",
-        });
-      });
-    }
+    setScale(calculateFitScale());
+    setPan({ x: 0, y: 0 });
   }, [calculateFitScale]);
 
   useEffect(() => {
@@ -872,180 +1012,369 @@ function Index() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [fit, undo, redo]);
 
-  const zoomAt = useCallback((factor: number, clientX?: number, clientY?: number) => {
-    isCustomZoomRef.current = true;
-    setScale((prevScale) => {
-      const nextScale = Math.max(0.1, Math.min(2.5, Math.round(prevScale * factor * 100) / 100));
+  // Where a given (scale, pan) combination places the canvas's own top-left
+  // corner on screen — same convention as Rulers' own origin math (pan is
+  // an offset from a naturally-centered position, {x:0,y:0} = centered,
+  // not an absolute coordinate). Shared by applyZoom below and the pinch
+  // handler so both always agree with what's actually on screen.
+  const canvasOrigin = useCallback(
+    (atScale: number, atPan: { x: number; y: number }, stageW: number, stageH: number) => {
+      const rOffset = showRulers ? RULER_SIZE / 2 : 0;
+      return {
+        x: stageW / 2 + atPan.x + rOffset - (s.width * atScale) / 2,
+        y: stageH / 2 + atPan.y + rOffset - (s.height * atScale) / 2,
+      };
+    },
+    [s.width, s.height, showRulers],
+  );
+
+  // Solves the `pan` that puts a given CONTENT-space point (contentX,
+  // contentY) under a given screen-space focal point at a given scale —
+  // i.e. the inverse of canvasOrigin. This is the one piece of math the
+  // whole zoom/pinch system is built on: "zoom around a focal point" is
+  // just "find the content point under the focal point, then solve the pan
+  // that keeps it there at the new scale".
+  const panForFocal = useCallback(
+    (
+      atScale: number,
+      focalX: number,
+      focalY: number,
+      contentX: number,
+      contentY: number,
+      stageW: number,
+      stageH: number,
+    ) => {
+      const rOffset = showRulers ? RULER_SIZE / 2 : 0;
+      return {
+        x: focalX - contentX * atScale - stageW / 2 - rOffset + (s.width * atScale) / 2,
+        y: focalY - contentY * atScale - stageH / 2 - rOffset + (s.height * atScale) / 2,
+      };
+    },
+    [s.width, s.height, showRulers],
+  );
+
+  // The one real zoom primitive — wheel, buttons, and the slider/typed-%
+  // input all funnel through this (pinch has its own variant below, since
+  // a pinch gesture also needs to pan by the fingers' own movement, which
+  // this alone doesn't do — see the touch effect). No native scrolling
+  // involved at all: `pan` is plain state (see the canvas transform in the
+  // JSX below), so this is pure arithmetic via canvasOrigin/panForFocal —
+  // compositor-only (transform, not layout), so unlike the old
+  // scrollLeft/scrollTop approach there's no reflow to throttle and nothing
+  // that can desync from a debounce mid-gesture.
+  const applyZoom = useCallback(
+    (nextScaleRaw: number, focalClientX?: number, focalClientY?: number) => {
       const stageEl = stageRef.current;
-      if (nextScale === prevScale || !stageEl) return nextScale;
+      if (!stageEl) return;
+      const prevScale = scaleRef.current;
+      const nextScale = Math.max(0.1, Math.min(2.5, Math.round(nextScaleRaw * 100) / 100));
+      if (nextScale === prevScale) return;
+      isCustomZoomRef.current = true;
 
       const rect = stageEl.getBoundingClientRect();
-      const focalX = clientX !== undefined ? clientX - rect.left : stageEl.clientWidth / 2;
-      const focalY = clientY !== undefined ? clientY - rect.top : stageEl.clientHeight / 2;
+      const stageW = rect.width;
+      const stageH = rect.height;
+      const focalX = focalClientX !== undefined ? focalClientX - rect.left : stageW / 2;
+      const focalY = focalClientY !== undefined ? focalClientY - rect.top : stageH / 2;
+      const prevPan = panRef.current;
 
-      const scrollX = stageEl.scrollLeft;
-      const scrollY = stageEl.scrollTop;
-      const scaleRatio = nextScale / prevScale;
+      const origin = canvasOrigin(prevScale, prevPan, stageW, stageH);
+      const contentX = (focalX - origin.x) / prevScale;
+      const contentY = (focalY - origin.y) / prevScale;
 
-      // Written synchronously (not in a follow-up rAF) — scrollLeft/scrollTop
-      // are plain instant DOM writes, so there's nothing to wait a frame
-      // for, and deferring them used to add a full extra frame of lag on
-      // top of the caller's own rAF throttle (see the pinch-zoom effect
-      // below), which is exactly what made touch pinch-zoom feel a beat
-      // behind your fingers.
-      stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
-      stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
+      setPan(panForFocal(nextScale, focalX, focalY, contentX, contentY, stageW, stageH));
+      setScale(nextScale);
+    },
+    [canvasOrigin, panForFocal],
+  );
 
-      return nextScale;
-    });
-  }, []);
+  const zoomAt = useCallback(
+    (factor: number, clientX?: number, clientY?: number) => {
+      applyZoom(scaleRef.current * factor, clientX, clientY);
+    },
+    [applyZoom],
+  );
 
-  const zoomToScale = useCallback((targetScale: number, focalClientX?: number, focalClientY?: number) => {
-    isCustomZoomRef.current = true;
-    setScale((prevScale) => {
-      const nextScale = Math.max(0.1, Math.min(2.5, targetScale));
-      const stageEl = stageRef.current;
-      if (nextScale === prevScale || !stageEl) return nextScale;
-
-      // Focal point defaults to viewport center (slider/+-/typed-%
-      // callers have no natural focal point of their own); pinch-zoom
-      // passes the actual midpoint between the two fingers so the canvas
-      // zooms around your fingers instead of jumping to re-center itself.
-      const rect = stageEl.getBoundingClientRect();
-      const focalX = focalClientX !== undefined ? focalClientX - rect.left : stageEl.clientWidth / 2;
-      const focalY = focalClientY !== undefined ? focalClientY - rect.top : stageEl.clientHeight / 2;
-      const scrollX = stageEl.scrollLeft;
-      const scrollY = stageEl.scrollTop;
-      const scaleRatio = nextScale / prevScale;
-
-      stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
-      stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
-
-      return nextScale;
-    });
-  }, []);
+  // Focal point defaults to viewport center (slider/+-/typed-% callers have
+  // no natural focal point of their own); pinch-zoom passes the actual
+  // midpoint between the two fingers so the canvas zooms around your
+  // fingers instead of jumping to re-center itself.
+  const zoomToScale = useCallback(
+    (targetScale: number, focalClientX?: number, focalClientY?: number) => {
+      applyZoom(targetScale, focalClientX, focalClientY);
+    },
+    [applyZoom],
+  );
 
   // Zoom in/out buttons step by percentage points
-  const zoomBy = useCallback((deltaPercent: number) => {
-    isCustomZoomRef.current = true;
-    setScale((prevScale) => {
-      const nextScale = Math.max(0.1, Math.min(2.5, Math.round((prevScale + deltaPercent / 100) * 100) / 100));
-      const stageEl = stageRef.current;
-      if (!stageEl || nextScale === prevScale) return nextScale;
-
-      const focalX = stageEl.clientWidth / 2;
-      const focalY = stageEl.clientHeight / 2;
-      const scrollX = stageEl.scrollLeft;
-      const scrollY = stageEl.scrollTop;
-      const scaleRatio = nextScale / prevScale;
-
-      stageEl.scrollLeft = (scrollX + focalX) * scaleRatio - focalX;
-      stageEl.scrollTop = (scrollY + focalY) * scaleRatio - focalY;
-
-      return nextScale;
-    });
-  }, []);
+  const zoomBy = useCallback(
+    (deltaPercent: number) => {
+      applyZoom(scaleRef.current + deltaPercent / 100);
+    },
+    [applyZoom],
+  );
 
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      // Zoom with Ctrl/Cmd or trackpad pinch gesture
+      e.preventDefault();
+      // Zoom with Ctrl/Cmd (mouse wheel) or a trackpad pinch gesture
+      // (browsers report those as wheel events with ctrlKey set too).
+      // Scaled off the actual deltaY magnitude rather than a flat step —
+      // one discrete mouse-wheel notch (deltaY around ±100) now zooms a
+      // snappy ~16% instead of a flat 5%, while a trackpad's much smaller
+      // per-event deltas during a continuous scroll still add up smoothly
+      // instead of jumping — a flat step big enough to feel fast for a
+      // mouse notch would have made trackpad zoom feel jerky.
+      // No cursor position passed — always zooms around the stage's own
+      // center (applyZoom's default focal point) rather than the cursor,
+      // so the canvas grows/shrinks symmetrically instead of drifting
+      // toward wherever the mouse happens to be.
       if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
-        zoomAt(factor, e.clientX, e.clientY);
+        const factor = Math.exp(-e.deltaY * 0.0015);
+        zoomAt(factor);
+        return;
       }
-      // Otherwise natural vertical and horizontal scrolling happens!
+      // Plain scroll pans instead — the stage has no native scrolling of
+      // its own anymore (see the canvas transform below), so this is what
+      // replaces it. Shift+wheel is the standard convention for turning a
+      // vertical-only mouse wheel into horizontal panning.
+      const dx = e.shiftKey ? e.deltaY : e.deltaX;
+      const dy = e.shiftKey ? 0 : e.deltaY;
+      setPan((p) => ({ x: p.x - dx, y: p.y - dy }));
+      isCustomZoomRef.current = true;
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
 
-  // Mobile Touch Pinch-to-Zoom support (60fps requestAnimationFrame).
-  // Reads/writes `scale` through `scaleRef` rather than closing over the
-  // `scale` state value directly, specifically so this effect's deps don't
-  // need `scale` in them — the old version depended on [scale, zoomToScale],
-  // which re-ran (tearing down and re-registering all four touch listeners)
-  // on every single scale change, i.e. on every frame of an active pinch
-  // gesture. Removing/re-adding native listeners mid-gesture isn't free and
-  // could drop a touchmove landing exactly during the swap — a real
-  // contributor to "pinch feels slow", on top of the double-rAF latency
-  // fixed in zoomToScale above. `isMobile` replaces it as the dependency
-  // instead of dropping to `[zoomToScale]` alone: `canvasStage` (which owns
-  // this ref) lives in two different branches of this component's JSX
-  // (mobile vs desktop shells), so when `isMobile` resolves after mount and
-  // flips the rendered branch, the stage `<div>` is a genuinely new DOM node
-  // and this effect must re-run to attach to it — `scale` changing around
-  // the same time (via the `fit()` effect) was accidentally standing in for
-  // that signal before; `isMobile` is the real one.
+  // Mobile touch: two fingers pinch-zoom AND pan together (Canva/Figma-
+  // style — the midpoint moving pans, the distance changing zooms, both at
+  // once), one finger pans on its own (replacing the native touch-scroll
+  // lost by the stage no longer using native overflow scrolling at all —
+  // see the canvas transform in the JSX below). rAF-throttled to 60fps.
+  //
+  // Everything for an active gesture is computed fresh each frame from a
+  // FIXED snapshot taken once at touchstart (initialScale/initialPan/the
+  // content point under the very first touch), never by accumulating
+  // per-frame deltas — that's what keeps a long gesture drift-free and
+  // lets pinch and pan combine correctly in one pass instead of two
+  // updates fighting each other (see panForFocal above).
+  //
+  // Reads/writes scale/pan through scaleRef/panRef rather than closing over
+  // the state values directly, specifically so this effect's deps don't
+  // need them — depending on scale/pan directly would re-run (tearing down
+  // and re-registering all the touch listeners) on every single frame of
+  // an active gesture, dropping the touchmove landing exactly during the
+  // swap — a real contributor to "pinch feels slow". `isMobile` is the
+  // dependency instead: `canvasStage` (which owns this ref) lives in two
+  // different branches of this component's JSX (mobile vs desktop shells),
+  // so when `isMobile` resolves after mount and flips the rendered branch,
+  // the stage `<div>` is a genuinely new DOM node and this effect must
+  // re-run to attach to it.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
 
-    let initialPinchDist: number | null = null;
-    let initialScale = scaleRef.current;
     let rafId: number | null = null;
+
+    // Two-finger pinch+pan gesture state. Zoom always anchors at the
+    // stage's own fixed center (initialContentX/Y is the content point
+    // that was at center when the gesture started) — not the pinch
+    // midpoint — so the canvas grows/shrinks symmetrically instead of
+    // drifting toward wherever the fingers happen to be. The midpoint's
+    // own movement is tracked separately, as a total offset from where the
+    // gesture started (not accumulated frame-by-frame, same drift-free
+    // reasoning as everything else here), and added on top of the zoom's
+    // own pan — so two fingers dragging together while pinching still
+    // pans normally alongside the zoom.
+    let pinchActive = false;
+    let initialPinchDist = 0;
+    let initialScale = 1;
+    let initialStageRect: DOMRect | null = null;
+    let initialContentX = 0;
+    let initialContentY = 0;
+    let initialMidX = 0;
+    let initialMidY = 0;
     let pendingScale: number | null = null;
-    let pendingFocalX = 0;
-    let pendingFocalY = 0;
+    let pendingDragX = 0;
+    let pendingDragY = 0;
 
-    const getTouchDist = (e: TouchEvent) => {
-      if (e.touches.length < 2) return null;
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      if (!t1 || !t2) return null;
-      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-    };
+    // Single-finger pan gesture state. Only actually engages (and calls
+    // preventDefault, which is what suppresses the browser's normal
+    // touch→click synthesis) once movement clears a small threshold — a
+    // quick tap-without-drag needs to fall through untouched so
+    // handleStageClick's mobile deselect-on-tap still fires normally.
+    let panTouchId: number | null = null;
+    let panActive = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panLastX = 0;
+    let panLastY = 0;
+    let pendingPanDx = 0;
+    let pendingPanDy = 0;
+    let hasPendingPan = false;
 
-    const getTouchMidpoint = (e: TouchEvent) => {
-      const t1 = e.touches[0];
-      const t2 = e.touches[1];
-      if (!t1 || !t2) return null;
-      return { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+    const getTouchDist = (t1: Touch, t2: Touch) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    const getTouchMidpoint = (t1: Touch, t2: Touch) => ({
+      x: (t1.clientX + t2.clientX) / 2,
+      y: (t1.clientY + t2.clientY) / 2,
+    });
+
+    const scheduleFrame = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (pendingScale !== null && initialStageRect) {
+          isCustomZoomRef.current = true;
+          const centerX = initialStageRect.width / 2;
+          const centerY = initialStageRect.height / 2;
+          const zoomPan = panForFocal(
+            pendingScale,
+            centerX,
+            centerY,
+            initialContentX,
+            initialContentY,
+            initialStageRect.width,
+            initialStageRect.height,
+          );
+          setScale(pendingScale);
+          // The zoom's own pan (keeping the stage center fixed) plus
+          // however far the fingers have additionally dragged since the
+          // gesture started — see the state comment above.
+          setPan({ x: zoomPan.x + pendingDragX, y: zoomPan.y + pendingDragY });
+          pendingScale = null;
+        } else if (hasPendingPan) {
+          isCustomZoomRef.current = true;
+          setPan((p) => ({ x: p.x + pendingPanDx, y: p.y + pendingPanDy }));
+          pendingPanDx = 0;
+          pendingPanDy = 0;
+          hasPendingPan = false;
+        }
+      });
     };
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length >= 2) {
+        // Upgrading from a single-finger pan (or starting fresh) into a
+        // pinch — reset both gesture states cleanly from here.
+        panActive = false;
+        panTouchId = null;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        if (!t1 || !t2) return;
         e.preventDefault();
         e.stopPropagation();
-        initialPinchDist = getTouchDist(e);
+        const stageEl = stageRef.current;
+        if (!stageEl) return;
+        pinchActive = true;
+        initialPinchDist = getTouchDist(t1, t2);
         initialScale = scaleRef.current;
+        initialStageRect = stageEl.getBoundingClientRect();
+        const midpoint = getTouchMidpoint(t1, t2);
+        initialMidX = midpoint.x;
+        initialMidY = midpoint.y;
+        const centerX = initialStageRect.width / 2;
+        const centerY = initialStageRect.height / 2;
+        const origin = canvasOrigin(initialScale, panRef.current, initialStageRect.width, initialStageRect.height);
+        initialContentX = (centerX - origin.x) / initialScale;
+        initialContentY = (centerY - origin.y) / initialScale;
+        return;
+      }
+
+      if (e.touches.length === 1 && !pinchActive) {
+        const touch = e.touches[0];
+        if (!touch) return;
+        const target = touch.target as HTMLElement | null;
+        if (
+          target?.closest(
+            "button, input, textarea, [data-nopan], [data-layer-id], [contenteditable='true']",
+          )
+        ) {
+          return;
+        }
+        panTouchId = touch.identifier;
+        panActive = false;
+        panStartX = touch.clientX;
+        panStartY = touch.clientY;
+        panLastX = touch.clientX;
+        panLastY = touch.clientY;
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length >= 2 && initialPinchDist && initialPinchDist > 0) {
+      if (pinchActive && e.touches.length >= 2 && initialStageRect) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        if (!t1 || !t2) return;
         e.preventDefault();
         e.stopPropagation();
-        const currentDist = getTouchDist(e);
-        const midpoint = getTouchMidpoint(e);
-        if (currentDist && midpoint) {
+        const currentDist = getTouchDist(t1, t2);
+        if (currentDist > 0 && initialPinchDist > 0) {
           const ratio = currentDist / initialPinchDist;
-          const targetScale = Math.max(0.1, Math.min(2.5, initialScale * ratio));
-          pendingScale = Math.round(targetScale * 100) / 100;
-          pendingFocalX = midpoint.x;
-          pendingFocalY = midpoint.y;
+          const midpoint = getTouchMidpoint(t1, t2);
+          pendingScale = Math.max(0.1, Math.min(2.5, Math.round(initialScale * ratio * 100) / 100));
+          pendingDragX = midpoint.x - initialMidX;
+          pendingDragY = midpoint.y - initialMidY;
+          scheduleFrame();
+        }
+        return;
+      }
 
-          if (rafId === null) {
-            rafId = requestAnimationFrame(() => {
-              if (pendingScale !== null) {
-                zoomToScale(pendingScale, pendingFocalX, pendingFocalY);
-              }
-              rafId = null;
-            });
+      if (panTouchId !== null && !pinchActive) {
+        let touch: Touch | null = null;
+        for (let i = 0; i < e.touches.length; i++) {
+          const t = e.touches[i];
+          if (t && t.identifier === panTouchId) {
+            touch = t;
+            break;
           }
         }
+        if (!touch) return;
+
+        if (!panActive) {
+          if (Math.hypot(touch.clientX - panStartX, touch.clientY - panStartY) < 6) return;
+          panActive = true;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        pendingPanDx += touch.clientX - panLastX;
+        pendingPanDy += touch.clientY - panLastY;
+        hasPendingPan = true;
+        panLastX = touch.clientX;
+        panLastY = touch.clientY;
+        scheduleFrame();
       }
     };
 
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) {
-        initialPinchDist = null;
-        if (rafId !== null) {
-          cancelAnimationFrame(rafId);
-          rafId = null;
+        pinchActive = false;
+        initialStageRect = null;
+        pendingScale = null;
+        pendingDragX = 0;
+        pendingDragY = 0;
+      }
+      if (panTouchId !== null) {
+        let stillDown = false;
+        for (let i = 0; i < e.touches.length; i++) {
+          if (e.touches[i]?.identifier === panTouchId) {
+            stillDown = true;
+            break;
+          }
         }
+        if (!stillDown) {
+          panTouchId = null;
+          panActive = false;
+        }
+      }
+      if (e.touches.length === 0 && rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+        pendingPanDx = 0;
+        pendingPanDy = 0;
+        hasPendingPan = false;
       }
     };
 
@@ -1061,7 +1390,7 @@ function Index() {
       el.removeEventListener("touchcancel", onTouchEnd);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [isMobile, zoomToScale]);
+  }, [isMobile, canvasOrigin, panForFocal]);
 
   // Templates and saved quotes (loaded the same way — see LeftPanel's
   // "My saved" tab) both come through here, so this is also the one place
@@ -1243,6 +1572,11 @@ function Index() {
   // where the canvas actually renders.
   const rulerOffset = showRulers ? RULER_SIZE / 2 : 0;
   const effectivePan = { x: pan.x + rulerOffset, y: pan.y + rulerOffset };
+  // Where the canvas wrapper's transform actually places it on screen —
+  // canvasOrigin already folds the ruler offset in itself (given the raw
+  // `pan`, not effectivePan above), matching exactly what applyZoom and the
+  // pinch handler use to compute `pan` in the first place.
+  const canvasWrapperOrigin = canvasOrigin(scale, pan, stageSize.width, stageSize.height);
 
   const [onlySelected] = canvasSelection;
   const selectedTextLayer =
@@ -1456,10 +1790,13 @@ function Index() {
         }}
         onPointerDown={handleStagePointerDown}
         onClick={handleStageClick}
-        // Scrollbar visibility (visible-and-themed on desktop, fully
-        // hidden on touch) comes from the global pointer-aware rule in
-        // styles.css — no per-element scrollbar classes needed here.
-        className="relative h-full w-full overflow-auto"
+        // No native scrolling — panning is handled entirely as explicit
+        // `pan` state (wheel/pinch/one-finger-drag effects above), applied
+        // as a transform on the canvas wrapper below. That's what makes
+        // zoom purely compositor-driven with no layout reflow, and what
+        // keeps the canvas reliably centered instead of fighting a native
+        // scroll range that used to change size mid-gesture.
+        className="relative h-full w-full overflow-hidden"
       >
         {/* Marquee Selection Rectangle (Canva style) */}
         {stageMarquee && Math.hypot(stageMarquee.currentX - stageMarquee.startX, stageMarquee.currentY - stageMarquee.startY) > 4 ? (
@@ -1541,50 +1878,38 @@ function Index() {
           </div>
         ) : null}
 
-        {/* Scrollable Canvas Centering Area */}
+        {/* Canvas wrapper — a single translate+scale transform, computed by
+            canvasWrapperOrigin above (same formula applyZoom/the pinch
+            handler solve `pan` against, and Rulers uses for its own tick
+            marks). No layout-affecting width/height changes with zoom or
+            pan at all any more: this box is always the canvas's own fixed,
+            unscaled size, purely repositioned/resized on the compositor —
+            which is what makes zoom/pan smooth and reliably centered,
+            instead of fighting a native scroll range that used to resize
+            mid-gesture. */}
         <div
-          className="relative flex min-h-full min-w-full items-center justify-center p-6 md:p-8"
           style={{
-            width: "max-content",
-            height: "max-content",
-            minWidth: "100%",
-            minHeight: "100%",
-            margin: "auto",
+            position: "absolute",
+            left: 0,
+            top: 0,
+            width: s.width,
+            height: s.height,
+            transform: `translate(${canvasWrapperOrigin.x}px, ${canvasWrapperOrigin.y}px) scale(${scale})`,
+            transformOrigin: "0 0",
+            willChange: "transform",
           }}
+          className="shadow-[var(--shadow-panel)] ring-1 ring-border"
         >
-          <div
-            style={{
-              width: s.width * scale,
-              height: s.height * scale,
-              position: "relative",
-              flexShrink: 0,
-              transform: "translateZ(0)",
-              backfaceVisibility: "hidden",
-              willChange: "width, height, transform",
-            }}
-            className="shadow-[var(--shadow-panel)] ring-1 ring-border"
-          >
-            <div
-              style={{
-                width: s.width,
-                height: s.height,
-                transform: `scale(${scale}) translateZ(0)`,
-                transformOrigin: "top left",
-                backfaceVisibility: "hidden",
-              }}
-            >
-              <QuoteCanvas
-                ref={canvasRef}
-                s={s}
-                interactive
-                scale={scale}
-                set={set}
-                selection={canvasSelection}
-                onSelectionChange={setCanvasSelection}
-                registerTextLayerHandle={registerTextLayerHandle}
-              />
-            </div>
-          </div>
+          <QuoteCanvas
+            ref={canvasRef}
+            s={s}
+            interactive
+            scale={scale}
+            set={set}
+            selection={canvasSelection}
+            onSelectionChange={setCanvasSelection}
+            registerTextLayerHandle={registerTextLayerHandle}
+          />
         </div>
 
         {showRulers ? (
@@ -1602,6 +1927,21 @@ function Index() {
             dark={dark}
           />
         ) : null}
+
+        <CanvasScrollbar
+          orientation="horizontal"
+          stageLength={stageSize.width}
+          contentLength={s.width * scale}
+          origin={canvasWrapperOrigin.x}
+          onPanDelta={(delta) => setPan((p) => ({ ...p, x: p.x + delta }))}
+        />
+        <CanvasScrollbar
+          orientation="vertical"
+          stageLength={stageSize.height}
+          contentLength={s.height * scale}
+          origin={canvasWrapperOrigin.y}
+          onPanDelta={(delta) => setPan((p) => ({ ...p, y: p.y + delta }))}
+        />
       </div>
     </div>
   );
@@ -2005,6 +2345,7 @@ function Index() {
                     }}
                     activeSavedQuote={editingSavedQuoteTarget}
                     onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}
+                    canvasRef={canvasRef}
                   />
                 </div>
               </DrawerContent>
@@ -2089,6 +2430,7 @@ function Index() {
               onSelectSavedQuote={(quote) => setEditingSavedQuoteTarget({ id: quote.id, title: quote.title })}
               activeSavedQuote={editingSavedQuoteTarget}
               onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}
+              canvasRef={canvasRef}
             />
           </aside>
 
@@ -2188,8 +2530,8 @@ function Index() {
                     <span>Save Template</span>
                   </button>
                 </AppTooltip>
-                <AppTooltip content="Zoom out 1%" shortcut="-">
-                  <Chip onClick={() => zoomBy(-1)} className="flex h-7 w-7 items-center justify-center p-0">
+                <AppTooltip content="Zoom out 10%" shortcut="-">
+                  <Chip onClick={() => zoomBy(-10)} className="flex h-7 w-7 items-center justify-center p-0">
                     <MinusSignIcon size={13} />
                   </Chip>
                 </AppTooltip>
@@ -2210,8 +2552,8 @@ function Index() {
                     />
                   </div>
                 </AppTooltip>
-                <AppTooltip content="Zoom in 1%" shortcut="+">
-                  <Chip onClick={() => zoomBy(1)} className="flex h-7 w-7 items-center justify-center p-0">
+                <AppTooltip content="Zoom in 10%" shortcut="+">
+                  <Chip onClick={() => zoomBy(10)} className="flex h-7 w-7 items-center justify-center p-0">
                     <Add01Icon size={13} />
                   </Chip>
                 </AppTooltip>
