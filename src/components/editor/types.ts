@@ -232,6 +232,9 @@ export type ImageLayer = {
   shadowColor?: string | undefined;
   shadowOpacity?: number | undefined;
   objectFit?: "cover" | "contain" | "fill" | undefined;
+  // Degrees, clockwise, around the layer's own center. Unset means 0 — same
+  // optional/fallback pattern as everything else here.
+  rotation?: number | undefined;
 };
 
 export type TextEffectType =
@@ -300,6 +303,10 @@ export type TextLayer = {
   // Shape Effects
   shapeType?: TextShapeType;
   curveAmount?: number;
+
+  // Degrees, clockwise, around the layer's own center. Unset means 0 — same
+  // optional/fallback pattern as everything else here.
+  rotation?: number;
 };
 
 // The set of decorative silhouettes offered in the "Shapes" picker. A few
@@ -1058,6 +1065,9 @@ export type ShapeLayer = {
   shadowSpread?: number | undefined;
   shadowColor?: string | undefined;
   shadowOpacity?: number | undefined; // 0-100
+  // Degrees, clockwise, around the layer's own center. Unset means 0 — same
+  // optional/fallback pattern as everything else here.
+  rotation?: number | undefined;
 };
 
 export type EditorState = {

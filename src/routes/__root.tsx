@@ -8,6 +8,8 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { Capacitor } from "@capacitor/core";
+import { StatusBar } from "@capacitor/status-bar";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -122,6 +124,19 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+
+  // Native Android only: by default the WebView draws edge-to-edge behind
+  // the status bar, and CSS env(safe-area-inset-top) isn't reliably fed by
+  // Android's WebView the way it is on iOS Safari — so a sticky top-0
+  // header ends up rendered underneath the status bar with no way to avoid
+  // it from CSS alone. Telling the native layer not to overlay the WebView
+  // makes Android reserve real space for the status bar instead, so page
+  // content simply starts below it. No-op on web (and harmless if it fails
+  // before the native bridge is ready).
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

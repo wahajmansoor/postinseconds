@@ -13,7 +13,6 @@ import {
   Image01Icon,
   ArrowUp01Icon,
   ArrowDown01Icon,
-  SparklesIcon,
   TextAlignLeftIcon,
   TextAlignCenterIcon,
   TextAlignRightIcon,
@@ -860,7 +859,6 @@ export function LeftPanel({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <SparklesIcon size={14} className="text-primary" />
             <span>Effects</span>
           </button>
         </div>

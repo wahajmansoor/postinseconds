@@ -192,30 +192,51 @@
    * are the standardized properties (Firefox, and Chrome/Edge 121+); the
    * ::-webkit-scrollbar-* pseudo-elements cover older/other Chromium-based
    * and Safari, which don't (yet) honor the standard properties.
+   *
+   * Scoped to devices with a precise pointer (mouse/trackpad) — a draggable
+   * scrollbar thumb is a real affordance there. On touch (mobile/the
+   * Android app), a persistent scrollbar thumb just looks like desktop UI
+   * leaking through; the block below hides it everywhere, since touch
+   * scrolling doesn't need a visible bar to remain scrollable.
    */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-border) transparent;
+  @media (hover: hover) and (pointer: fine) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-border) transparent;
+    }
+
+    *::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    *::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      background-color: var(--color-border);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+      background-color: var(--color-muted-foreground);
+    }
   }
 
-  *::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
+  @media (hover: none), (pointer: coarse) {
+    * {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
 
-  *::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  *::-webkit-scrollbar-thumb {
-    background-color: var(--color-border);
-    border-radius: 999px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-  }
-
-  *::-webkit-scrollbar-thumb:hover {
-    background-color: var(--color-muted-foreground);
+    *::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
+    }
   }
 
   button,
@@ -236,6 +257,21 @@
   h2,
   h3 {
     font-family: "Sarabun", ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+/* Explicit opt-out for a specific scrollable element (e.g. the mobile
+   bottom toolbars), independent of the pointer-type media queries above —
+   was referenced in a couple of places already but never actually defined,
+   so those spots were silently falling back to the themed scrollbar. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 }
 

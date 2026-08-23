@@ -55,27 +55,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
 
     // 1. Fetch current active session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        await syncUserFromSession(session.user);
-      } else {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (!stored) setUser(null);
-      }
-      if (mounted) setIsLoading(false);
-    });
+    supabase.auth
+      .getSession()
+      .then(async ({ data: { session } }) => {
+        if (session?.user) {
+          await syncUserFromSession(session.user);
+        } else {
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (!stored) setUser(null);
+        }
+      })
+      .catch((err) => {
+        console.error("Supabase getSession error:", err);
+      })
+      .finally(() => {
+        if (mounted) setIsLoading(false);
+      });
 
     // 2. Listen to real-time auth changes (Sign in, Sign out, Token Refresh)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await syncUserFromSession(session.user);
-      } else {
-        setUser(null);
-        localStorage.removeItem(STORAGE_KEY);
+      try {
+        if (session?.user) {
+          await syncUserFromSession(session.user);
+        } else {
+          setUser(null);
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch (err) {
+        console.error("Auth state change error:", err);
+      } finally {
+        if (mounted) setIsLoading(false);
       }
-      if (mounted) setIsLoading(false);
     });
 
     return () => {
@@ -92,8 +104,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // the web — here we parse it by hand off the deep-link URL and hand it to
   // setSession(), which fires the same onAuthStateChange SIGNED_IN event as
   // any other sign-in, so syncUserFromSession above picks it up for free.
-  // No-op on web (listener just never fires there).
+  // No-op on web (listener only registers on native platform).
   useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
     const sub = CapacitorApp.addListener("appUrlOpen", async ({ url }) => {
       if (!url.startsWith(NATIVE_OAUTH_REDIRECT)) return;
       const hash = url.split("#")[1];

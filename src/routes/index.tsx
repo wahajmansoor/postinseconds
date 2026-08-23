@@ -543,6 +543,25 @@ function Index() {
     window.addEventListener("pointercancel", onPointerUp);
   };
 
+  // Mobile-only counterpart to handleStagePointerDown's deselect-on-blank-
+  // click above: that handler bails out entirely on mobile (marquee/drag-
+  // select competes with pinch-zoom there), so tapping empty stage space
+  // never cleared a selection on touch devices. A plain `click` doesn't fire
+  // for multi-touch/pinch gestures, so it's safe to use here without
+  // reintroducing that conflict — it only reacts to a genuine single tap.
+  const handleStageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isMobile) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest(
+        "button, input, textarea, [data-nopan], [data-layer-id], [contenteditable='true']",
+      )
+    ) {
+      return;
+    }
+    setCanvasSelection([]);
+  };
+
   // Platform templates state (synced with Supabase database & Admin dashboard)
   const [platformTemplates, setPlatformTemplates] = useState<Template[]>(TEMPLATES);
 
@@ -1436,7 +1455,11 @@ function Index() {
           }
         }}
         onPointerDown={handleStagePointerDown}
-        className="relative h-full w-full overflow-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 hover:[&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full"
+        onClick={handleStageClick}
+        // Scrollbar visibility (visible-and-themed on desktop, fully
+        // hidden on touch) comes from the global pointer-aware rule in
+        // styles.css — no per-element scrollbar classes needed here.
+        className="relative h-full w-full overflow-auto"
       >
         {/* Marquee Selection Rectangle (Canva style) */}
         {stageMarquee && Math.hypot(stageMarquee.currentX - stageMarquee.startX, stageMarquee.currentY - stageMarquee.startY) > 4 ? (
@@ -1586,7 +1609,10 @@ function Index() {
   return (
     <TooltipProvider delayDuration={120}>
       <div className="flex h-screen h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground">
-        <header className="sticky top-0 z-50 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 py-2 sm:gap-4 sm:px-5">
+        <header
+          className="sticky top-0 z-50 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 pb-2 sm:gap-4 sm:px-5"
+          style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.5rem)" }}
+        >
           <div className="flex items-center gap-2.5 sm:gap-3">
             <img src="/logo.png" alt="Post In Seconds" className="h-8 w-auto sm:h-9" />
           </div>
@@ -1753,7 +1779,10 @@ function Index() {
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when user did changes */}
             {(historyIdx.current > 0 || historyIdx.current < history.current.length - 1) ? (
-              <div className="pointer-events-none fixed top-16 left-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl">
+              <div
+                className="pointer-events-none fixed left-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+                style={{ top: "calc(env(safe-area-inset-top) + 4rem)" }}
+              >
                 <AppTooltip content="Undo">
                   <button
                     type="button"
@@ -1782,7 +1811,10 @@ function Index() {
 
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
             {(selectedTextLayer || selectedImageLayer || selectedShapeLayer) ? (
-              <div className="pointer-events-none fixed top-16 right-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl">
+              <div
+                className="pointer-events-none fixed right-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+                style={{ top: "calc(env(safe-area-inset-top) + 4rem)" }}
+              >
                 {/* Lock Toggle Button */}
                 <AppTooltip content={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked) ? "Unlock Layer" : "Lock Layer"}>
                   <button

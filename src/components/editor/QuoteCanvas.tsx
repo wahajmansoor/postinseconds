@@ -3,8 +3,11 @@ import { createPortal } from "react-dom";
 import {
   Copy01Icon,
   Delete02Icon,
+  MoveIcon,
+  RotateClockwiseIcon,
   SquareLock02Icon,
   SquareUnlock02Icon,
+  ReloadIcon
 } from "hugeicons-react";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import {
@@ -1254,6 +1257,163 @@ function LayerToolbar({
   );
 }
 
+// The two circular handles docked below (or above, to dodge LayerToolbar
+// when it's flipped down near the top of the canvas) a selected layer's
+// bounding box — rotate on the left, move on the right, matching Canva's
+// mobile gizmo. Move just re-wires the exact same pointer handlers already
+// driving drag-from-the-layer-body (passed in from the caller) onto a
+// dedicated, easier-to-grab target; rotate is new — it recomputes the
+// layer's absolute rotation on every pointermove directly from the angle
+// between the box's own screen-space center and the current pointer
+// position (not a relative delta from the drag's start), which stays
+// correct with no extra bookkeeping regardless of where exactly the user
+// grabbed the handle or how the box has already rotated. Lives inside the
+// same rotated overlay div as the selection outline/resize handles in each
+// layer component below, so it naturally swings around with the box.
+function RotateMoveHandleRow({
+  containerRef,
+  onRotate,
+  onMovePointerDown,
+  onMovePointerMove,
+  onMovePointerUp,
+  scale = 1,
+  placement = "bottom",
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  onRotate: (deg: number) => void;
+  onMovePointerDown: ((e: React.PointerEvent) => void) | undefined;
+  onMovePointerMove: ((e: React.PointerEvent) => void) | undefined;
+  onMovePointerUp: ((e: React.PointerEvent) => void) | undefined;
+  scale?: number | undefined;
+  placement?: "top" | "bottom" | undefined;
+}) {
+  const rotatingRef = useRef(false);
+  const invScale = scale > 0 ? 1 / scale : 1;
+  // Only populated while actively dragging the rotate handle — drives the
+  // little "-17°"-style badge below. Kept local (not read from the layer's
+  // own rotation prop) since it needs to update live on every pointermove,
+  // one render ahead of the parent's own state actually committing.
+  const [liveAngle, setLiveAngle] = useState<number | null>(null);
+
+  const handleRotatePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    rotatingRef.current = true;
+  };
+
+  const handleRotatePointerMove = (e: React.PointerEvent) => {
+    if (!rotatingRef.current || !containerRef.current) return;
+    e.stopPropagation();
+    const rect = containerRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    // atan2 with a pointer straight below center (this handle's resting
+    // spot at rotation 0) reads 90° — subtracting that lines up "handle
+    // hasn't moved" with "rotation hasn't changed".
+    let angle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI) - 90;
+    angle = ((angle + 180) % 360 + 360) % 360 - 180; // normalize to (-180, 180]
+    const SNAP_TARGETS = [-180, -135, -90, -45, 0, 45, 90, 135, 180];
+    for (const target of SNAP_TARGETS) {
+      if (Math.abs(angle - target) < 4) {
+        angle = target;
+        break;
+      }
+    }
+    const rounded = Math.round(angle);
+    setLiveAngle(rounded);
+    onRotate(rounded);
+  };
+
+  const handleRotatePointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch { }
+    rotatingRef.current = false;
+    setLiveAngle(null);
+  };
+
+  const btn =
+    "grid h-7 w-7 place-items-center rounded-full bg-white text-[#394660] shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-background hover:text-white active:scale-95";
+
+  return (
+    <>
+      <div
+        data-nopan=""
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: placement === "bottom" ? "100%" : undefined,
+          bottom: placement === "top" ? "100%" : undefined,
+          transform: `translateX(-50%) scale(${invScale})`,
+          transformOrigin: placement === "bottom" ? "top center" : "bottom center",
+          marginTop: placement === "bottom" ? 14 * invScale : undefined,
+          marginBottom: placement === "top" ? 14 * invScale : undefined,
+          zIndex: 80,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          touchAction: "none",
+          pointerEvents: "auto",
+        }}
+      >
+        <button
+          type="button"
+          title="Drag to rotate"
+          onPointerDown={handleRotatePointerDown}
+          onPointerMove={handleRotatePointerMove}
+          onPointerUp={handleRotatePointerUp}
+          onPointerCancel={handleRotatePointerUp}
+          className={btn}
+          style={{ cursor: "grab" }}
+        >
+          <ReloadIcon size={14} />
+        </button>
+        <button
+          type="button"
+          title="Drag to move"
+          onPointerDown={onMovePointerDown}
+          onPointerMove={onMovePointerMove}
+          onPointerUp={onMovePointerUp}
+          onPointerCancel={onMovePointerUp}
+          className={btn}
+          style={{ cursor: "grab" }}
+        >
+          <MoveIcon size={14} />
+        </button>
+      </div>
+
+      {/* Live angle readout, shown only while actively dragging the rotate
+          handle. Lives inside the same rotated overlay as everything else
+          here, so it needs its own counter-rotation (by the in-progress
+          angle) to stay upright and readable no matter how far the layer
+          has been turned — a tilted number is much harder to read at a
+          glance than the tilt itself. */}
+      {liveAngle !== null ? (
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: placement === "bottom" ? "100%" : undefined,
+            bottom: placement === "top" ? "100%" : undefined,
+            transform: `translateX(-50%) rotate(${-liveAngle}deg)`,
+            marginTop: placement === "bottom" ? (44 + 14) * invScale : undefined,
+            marginBottom: placement === "top" ? (44 + 14) * invScale : undefined,
+            zIndex: 90,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{ transform: `scale(${invScale})` }}
+            className="rounded-full bg-[#15161c]/95 px-2.5 py-1 text-xs font-semibold text-white shadow-2xl backdrop-blur-md whitespace-nowrap"
+          >
+            {liveAngle}°
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 // The 8 handle positions around a selection box — 4 round corners plus 4
 // pill-shaped edge midpoints (wide/short on top+bottom, narrow/tall on
@@ -1285,20 +1445,38 @@ type HandleId = (typeof HANDLE_POSITIONS)[number]["id"];
 
 // Corners render as small circles; edge handles as pill/bar shapes (a
 // stadium shape falls straight out of `rounded-full` once width != height,
-// no separate border-radius logic needed).
+// no separate border-radius logic needed). These are the DESIGN-time sizes,
+// i.e. what renders at canvas zoom = 100% — see zoomedHandleDims below for
+// how they actually get rendered at other zoom levels.
 function handleDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
   switch (kind) {
     case "corner":
-      return { width: 32, height: 32 };
+      return { width: 14, height: 14 };
     case "edge-h":
-      return { width: 44, height: 12 };
+      return { width: 20, height: 10 };
     case "edge-v":
-      return { width: 12, height: 44 };
+      return { width: 10, height: 20 };
   }
 }
 
-function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number]): React.CSSProperties {
-  const dims = handleDims(h.kind);
+// Handles live inside the canvas stage's own `transform: scale(zoom)`
+// wrapper (see index.tsx), same as every layer — so left alone they'd
+// shrink/grow proportionally with every zoom change, same as the content
+// they're attached to. That's not what's wanted here: the dims above are a
+// fixed, constant ON-SCREEN size regardless of zoom (same pattern as
+// LayerToolbar's invScale) — a canvas that's zoomed out to fit a big
+// design on screen shouldn't make the handles themselves harder to grab.
+function zoomedHandleDims(
+  kind: "corner" | "edge-h" | "edge-v",
+  scale: number,
+): { width: number; height: number } {
+  const dims = handleDims(kind);
+  if (!scale || scale <= 0) return dims;
+  return { width: dims.width / scale, height: dims.height / scale };
+}
+
+function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): React.CSSProperties {
+  const dims = zoomedHandleDims(h.kind, scale);
   const outlineOffset = 5; // 4px outlineOffset + 1px stroke offset to center on outline line
 
   const offsetX = outlineOffset + dims.width / 2;
@@ -1341,6 +1519,20 @@ function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number]): React.CSSProperti
     zIndex: 60,
     touchAction: "none",
   };
+}
+
+// Rotates a screen-space (dx, dy) vector by `degrees` clockwise — used both
+// to map a resize-drag's raw pointer delta into a rotated layer's own local
+// (unrotated) axes before feeding it to the resize math below, and to map
+// that math's resulting center-shift back out into screen space afterward.
+// Without this, dragging a corner/edge handle on a rotated layer would
+// resize along screen axes instead of the layer's own rotated edges.
+function rotateVector(dx: number, dy: number, degrees: number): { dx: number; dy: number } {
+  if (!degrees) return { dx, dy };
+  const rad = (degrees * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return { dx: dx * cos - dy * sin, dy: dx * sin + dy * cos };
 }
 
 function resizeDelta(handleId: HandleId, dx: number, dy: number): number {
@@ -1703,6 +1895,7 @@ function DraggableTextLayer({
 
   const canInteract = interactive && !!set;
   const locked = t.locked ?? false;
+  const rotation = t.rotation ?? 0;
   const sRef = useRef(s);
   sRef.current = s;
   const update = useCallback(
@@ -1710,6 +1903,47 @@ function DraggableTextLayer({
     [set, t.id],
   );
   const remove = () => set?.("texts", withTextRemoved(s, t.id));
+
+  // Dedicated drag state/handlers for the overlay's Move handle — kept
+  // separate from editableNode's memoized handlePointerDown above (which
+  // doubles as the click-to-select/shift-toggle/alt-duplicate handler for
+  // the text body itself, and is disabled entirely while isEditing) since
+  // the Move handle only ever needs the plain "drag repositions the
+  // already-selected layer" behavior, unconditionally.
+  const moveDragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
+  const handleMovePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    moveDragRef.current = { px: t.x, py: t.y, x: e.clientX, y: e.clientY };
+  };
+  const handleMovePointerMove = (e: React.PointerEvent) => {
+    const d = moveDragRef.current;
+    if (!d) return;
+    e.stopPropagation();
+    const dx = ((e.clientX - d.x) / scale / s.width) * 100;
+    const dy = ((e.clientY - d.y) / scale / s.height) * 100;
+    const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
+    const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
+    const otherElements = getAllCanvasElements(sRef.current);
+    const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+      currentId: t.id,
+      rawX: d.px + dx,
+      rawY: d.py + dy,
+      width,
+      height,
+      s: sRef.current,
+      otherElements,
+    });
+    onGuides(snapGuides);
+    set?.("texts", withTextUpdated(sRef.current, t.id, { x: nextX, y: nextY }));
+  };
+  const handleMovePointerUp = (e: React.PointerEvent) => {
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch { }
+    moveDragRef.current = null;
+    onGuides({ vCenter: false, hCenter: false });
+  };
 
   const applyFormat = (cmd: RichFormatCmd) => {
     const el = editableRef.current;
@@ -1900,15 +2134,24 @@ function DraggableTextLayer({
     update({ text: newText, html: newHtml });
   };
 
-  const setFontFamily = (v: string) => applyStyleSmart({ fontFamily: v }, { fontFamily: v });
-
-  const stripInlineFontSize = (html: string): string => {
+  // Font size and font family deliberately always apply to the WHOLE layer
+  // now, ignoring any highlighted range — they used to try to apply just to
+  // a highlighted sub-range via applyStyleSmart (DOM Range surgery), but a
+  // real device's native text-selection (long-press handles, OS-level
+  // selection UI) doesn't reliably survive long enough to reach the click
+  // handler no matter how early it's snapshotted, so that path frequently
+  // resulted in nothing visibly changing at all. A plain whole-layer
+  // `update()` is simple, synchronous, and always visibly does something —
+  // color still gets the highlighted-range treatment via applyStyleSmart
+  // below since partial-color-on-a-miss is far less confusing than
+  // partial-size/font on a miss.
+  const stripInlineStyleProps = (html: string, props: string[]): string => {
     if (!html || typeof window === "undefined") return html;
     try {
       const tmp = document.createElement("div");
       tmp.innerHTML = html;
       tmp.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
-        el.style.removeProperty("font-size");
+        props.forEach((p) => el.style.removeProperty(p));
         if (!el.getAttribute("style")?.trim()) el.removeAttribute("style");
       });
       return sanitizeTextHtml(tmp.innerHTML);
@@ -1917,33 +2160,27 @@ function DraggableTextLayer({
     }
   };
 
+  const setFontFamily = (v: string) => {
+    // Clear out any font-family left over on individual spans from before
+    // this change, so the whole layer visibly and uniformly reflects v —
+    // otherwise a more-specific inline span from an earlier edit would keep
+    // overriding the new layer-level font on just that stretch of text.
+    const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["font-family"]) : undefined;
+    update({ fontFamily: v, ...(cleanHtml !== undefined ? { html: cleanHtml } : {}) });
+  };
+
   const setSize = (v: number) => {
     const currentSize = t.size || 32;
     const ratio = v / currentSize;
     const nextWidth = typeof t.width === "number" && t.width > 0 ? Math.round(Math.max(40, t.width * ratio)) : undefined;
     const nextMinHeight = typeof t.minHeight === "number" && t.minHeight > 0 ? Math.round(t.minHeight * ratio) : undefined;
-
-    const liveRange = hasLiveSelection() ? window.getSelection()?.getRangeAt(0) : null;
-    const range = liveRange ?? selectionSnapshotRef.current;
-
-    if (range) {
-      applyStyleSmart(
-        { fontSize: `${v}px` },
-        {
-          size: v,
-          ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-          ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-        },
-      );
-    } else {
-      const cleanHtml = t.html ? stripInlineFontSize(t.html) : undefined;
-      update({
-        size: v,
-        ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-        ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-        ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
-      });
-    }
+    const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["font-size"]) : undefined;
+    update({
+      size: v,
+      ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+      ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+      ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+    });
   };
   const setColor = (v: string) => applyStyleSmart({ color: v }, { color: v });
   const setAlign = (v: "left" | "center" | "right" | "justify") => {
@@ -2242,7 +2479,7 @@ function DraggableTextLayer({
           position: "absolute",
           left: `${t.x}%`,
           top: `${t.y}%`,
-          transform: "translate(-50%, -50%)",
+          transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
           width: validTextWidth ?? "fit-content",
           maxWidth: validTextWidth ? undefined : Math.min(s.width * 0.92, 900),
           minWidth: 40,
@@ -2266,119 +2503,129 @@ function DraggableTextLayer({
 
       {canInteract && selected && selectedCount === 1 && controlsOverlayEl
         ? createPortal(
+          <div
+            style={{
+              position: "absolute",
+              left: `${t.x}%`,
+              top: `${t.y}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              width: containerRef.current?.offsetWidth ?? (validTextWidth ?? 200),
+              height: containerRef.current?.offsetHeight ?? (t.minHeight ?? 40),
+              zIndex: 80 + index,
+              pointerEvents: "none",
+            }}
+          >
             <div
               style={{
                 position: "absolute",
-                left: `${t.x}%`,
-                top: `${t.y}%`,
-                transform: "translate(-50%, -50%)",
-                width: containerRef.current?.offsetWidth ?? (validTextWidth ?? 200),
-                height: containerRef.current?.offsetHeight ?? (t.minHeight ?? 40),
-                zIndex: 80 + index,
+                inset: -4,
+                border: "2px solid #0021ff",
+                borderRadius: 4,
                 pointerEvents: "none",
               }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  inset: -4,
-                  border: "2px solid #0021ff",
-                  borderRadius: 4,
-                  pointerEvents: "none",
-                }}
+            />
+            <div style={{ pointerEvents: "auto" }}>
+              <LayerToolbar
+                locked={locked}
+                onToggleLock={() => update({ locked: !locked })}
+                onDuplicate={duplicate}
+                onDelete={remove}
+                scale={scale}
               />
-              <div style={{ pointerEvents: "auto" }}>
-                <LayerToolbar
-                  locked={locked}
-                  onToggleLock={() => update({ locked: !locked })}
-                  onDuplicate={duplicate}
-                  onDelete={remove}
-                  scale={scale}
-                />
-              </div>
+            </div>
 
-              {!locked ? (
-                <>
-                  {HANDLE_POSITIONS.map((h) => (
-                    <div
-                      key={h.id}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        resizeRef.current = {
-                          startSize: t.size,
-                          startWidth: t.width ?? containerRef.current?.offsetWidth ?? 520,
-                          startMinHeight: t.minHeight ?? containerRef.current?.offsetHeight ?? 0,
-                          startPosX: t.x,
-                          startPosY: t.y,
-                          startMouseX: e.clientX,
-                          startMouseY: e.clientY,
-                          handle: h.id,
-                        };
-                      }}
-                      onPointerMove={(e) => {
-                        const r = resizeRef.current;
-                        if (!r || r.handle !== h.id) return;
-                        e.stopPropagation();
-                        const dx = (e.clientX - r.startMouseX) / scale;
-                        const dy = (e.clientY - r.startMouseY) / scale;
-                        if (h.kind === "corner") {
-                          const delta = resizeDelta(h.id, dx, dy);
-                          const nextSize = Math.round(Math.max(10, Math.min(300, r.startSize + delta / 2)));
-                          const scaleRatio = nextSize / r.startSize;
-                          const nextWidth = r.startWidth ? Math.round(Math.max(40, r.startWidth * scaleRatio)) : undefined;
-                          const nextMinHeight = r.startMinHeight ? Math.round(r.startMinHeight * scaleRatio) : undefined;
-                          const cleanHtml = t.html ? (() => {
-                            try {
-                              const tmp = document.createElement("div");
-                              tmp.innerHTML = t.html;
-                              tmp.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
-                                el.style.removeProperty("font-size");
-                                if (!el.getAttribute("style")?.trim()) el.removeAttribute("style");
-                              });
-                              return sanitizeTextHtml(tmp.innerHTML);
-                            } catch { return t.html; }
-                          })() : undefined;
-                          update({
-                            size: nextSize,
-                            ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                            ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-                            ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
-                          });
-                        } else {
-                          const dw = widthDeltaFor(h.id, dx);
-                          const dh = heightDeltaFor(h.id, dy);
-                          const nextWidth = Math.round(Math.max(40, r.startWidth + dw));
-                          const nextMinHeight = Math.round(Math.max(0, r.startMinHeight + dh));
-                          const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextMinHeight - r.startMinHeight;
-                          update({
-                            width: nextWidth,
-                            minHeight: nextMinHeight,
-                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                          });
-                        }
-                      }}
-                      onPointerUp={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                      }}
-                      onPointerCancel={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                      }}
-                      data-nopan=""
-                      className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
-                      style={{ ...getHandleStyle(h), pointerEvents: "auto" }}
-                      title="Drag to resize text"
-                    />
-                  ))}
-                </>
-              ) : null}
-            </div>,
-            controlsOverlayEl,
-          )
+            {!locked ? (
+              <>
+                {HANDLE_POSITIONS.map((h) => (
+                  <div
+                    key={h.id}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      resizeRef.current = {
+                        startSize: t.size,
+                        startWidth: t.width ?? containerRef.current?.offsetWidth ?? 520,
+                        startMinHeight: t.minHeight ?? containerRef.current?.offsetHeight ?? 0,
+                        startPosX: t.x,
+                        startPosY: t.y,
+                        startMouseX: e.clientX,
+                        startMouseY: e.clientY,
+                        handle: h.id,
+                      };
+                    }}
+                    onPointerMove={(e) => {
+                      const r = resizeRef.current;
+                      if (!r || r.handle !== h.id) return;
+                      e.stopPropagation();
+                      const rawDx = (e.clientX - r.startMouseX) / scale;
+                      const rawDy = (e.clientY - r.startMouseY) / scale;
+                      const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                      if (h.kind === "corner") {
+                        const delta = resizeDelta(h.id, dx, dy);
+                        const nextSize = Math.round(Math.max(10, Math.min(300, r.startSize + delta / 2)));
+                        const scaleRatio = nextSize / r.startSize;
+                        const nextWidth = r.startWidth ? Math.round(Math.max(40, r.startWidth * scaleRatio)) : undefined;
+                        const nextMinHeight = r.startMinHeight ? Math.round(r.startMinHeight * scaleRatio) : undefined;
+                        const cleanHtml = t.html ? (() => {
+                          try {
+                            const tmp = document.createElement("div");
+                            tmp.innerHTML = t.html;
+                            tmp.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
+                              el.style.removeProperty("font-size");
+                              if (!el.getAttribute("style")?.trim()) el.removeAttribute("style");
+                            });
+                            return sanitizeTextHtml(tmp.innerHTML);
+                          } catch { return t.html; }
+                        })() : undefined;
+                        update({
+                          size: nextSize,
+                          ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+                          ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+                          ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+                        });
+                      } else {
+                        const dw = widthDeltaFor(h.id, dx);
+                        const dh = heightDeltaFor(h.id, dy);
+                        const nextWidth = Math.round(Math.max(40, r.startWidth + dw));
+                        const nextMinHeight = Math.round(Math.max(0, r.startMinHeight + dh));
+                        const appliedDw = nextWidth - r.startWidth;
+                        const appliedDh = nextMinHeight - r.startMinHeight;
+                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                        update({
+                          width: nextWidth,
+                          minHeight: nextMinHeight,
+                          x: r.startPosX + (shift.dx / s.width) * 100,
+                          y: r.startPosY + (shift.dy / s.height) * 100,
+                        });
+                      }
+                    }}
+                    onPointerUp={(e) => {
+                      e.stopPropagation();
+                      resizeRef.current = null;
+                    }}
+                    onPointerCancel={(e) => {
+                      e.stopPropagation();
+                      resizeRef.current = null;
+                    }}
+                    data-nopan=""
+                    className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                    style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+                    title="Drag to resize text"
+                  />
+                ))}
+                <RotateMoveHandleRow
+                  containerRef={containerRef}
+                  scale={scale}
+                  onRotate={(deg) => update({ rotation: deg })}
+                  onMovePointerDown={handleMovePointerDown}
+                  onMovePointerMove={handleMovePointerMove}
+                  onMovePointerUp={handleMovePointerUp}
+                />
+              </>
+            ) : null}
+          </div>,
+          controlsOverlayEl,
+        )
         : null}
     </>
   );
@@ -2440,6 +2687,7 @@ function DraggableImageLayer({
   const canInteract = interactive && !!set && !s.locked;
   const locked = img.locked ?? false;
   const hasExplicitHeight = img.height !== undefined;
+  const rotation = img.rotation ?? 0;
   const update = (patch: Partial<Omit<ImageLayer, "id">>) => set?.("images", withImageUpdated(s, img.id, patch));
   const remove = () => set?.("images", withImageRemoved(s, img.id));
   const duplicate = () => {
@@ -2534,7 +2782,7 @@ function DraggableImageLayer({
   const handlePointerUp = (e: React.PointerEvent) => {
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
     dragRef.current = null;
     if (groupDraggingRef.current) {
       groupDraggingRef.current = false;
@@ -2558,7 +2806,7 @@ function DraggableImageLayer({
           position: "absolute",
           left: `${img.x}%`,
           top: `${img.y}%`,
-          transform: "translate(-50%, -50%)",
+          transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
           width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
           height:
             hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
@@ -2598,112 +2846,132 @@ function DraggableImageLayer({
 
       {canInteract && selected && selectedCount === 1 && controlsOverlayEl
         ? createPortal(
+          <div
+            style={{
+              position: "absolute",
+              left: `${img.x}%`,
+              top: `${img.y}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
+              height:
+                hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
+                  ? `${img.height}px`
+                  : `${containerRef.current?.offsetHeight ?? img.size}px`,
+              zIndex: 80 + index,
+              pointerEvents: "none",
+            }}
+          >
             <div
               style={{
                 position: "absolute",
-                left: `${img.x}%`,
-                top: `${img.y}%`,
-                transform: "translate(-50%, -50%)",
-                width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
-                height:
-                  hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
-                    ? `${img.height}px`
-                    : `${containerRef.current?.offsetHeight ?? img.size}px`,
-                zIndex: 80 + index,
+                inset: -4,
+                border: "2px solid #0021ff",
+                // Fixed, not tied to img.radius — a circularly-cropped
+                // image should still get the same plain rectangular
+                // selection outline every other layer type gets (see the
+                // matching Text/Shape outlines below), not one that
+                // curves around to hug the crop shape.
+                borderRadius: 4,
                 pointerEvents: "none",
               }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  inset: -4,
-                  border: "2px solid #0021ff",
-                  borderRadius: Math.max(0, (img.radius ?? 0) + 4),
-                  pointerEvents: "none",
-                }}
+            />
+            <div style={{ pointerEvents: "auto" }}>
+              <LayerToolbar
+                locked={locked}
+                onToggleLock={() => update({ locked: !locked })}
+                onDuplicate={duplicate}
+                onDelete={remove}
+                scale={scale}
               />
-              <div style={{ pointerEvents: "auto" }}>
-                <LayerToolbar
-                  locked={locked}
-                  onToggleLock={() => update({ locked: !locked })}
-                  onDuplicate={duplicate}
-                  onDelete={remove}
-                  scale={scale}
-                />
-              </div>
+            </div>
 
-              {!locked ? (
-                <>
-                  {HANDLE_POSITIONS.map((h) => (
-                    <div
-                      key={h.id}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        const startHeight = img.height ?? containerRef.current?.offsetHeight ?? img.size;
-                        resizeRef.current = {
-                          startWidth: img.size,
-                          startHeight,
-                          startPosX: img.x,
-                          startPosY: img.y,
-                          startMouseX: e.clientX,
-                          startMouseY: e.clientY,
-                          handle: h.id,
-                        };
-                      }}
-                      onPointerMove={(e) => {
-                        const r = resizeRef.current;
-                        if (!r || r.handle !== h.id) return;
-                        e.stopPropagation();
-                        const dx = (e.clientX - r.startMouseX) / scale;
-                        const dy = (e.clientY - r.startMouseY) / scale;
-                        if (h.kind === "corner") {
-                          const delta = resizeDelta(h.id, dx, dy);
-                          const nextWidth = Math.round(Math.max(20, r.startWidth + delta));
-                          const ratio = r.startHeight > 0 ? r.startHeight / r.startWidth : 1;
-                          const nextHeight = Math.round(Math.max(20, nextWidth * ratio));
-                          const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextHeight - r.startHeight;
-                          update({
-                            size: nextWidth,
-                            height: nextHeight,
-                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                          });
-                        } else {
-                          const dw = widthDeltaFor(h.id, dx);
-                          const dh = heightDeltaFor(h.id, dy);
-                          const nextWidth = Math.round(Math.max(20, r.startWidth + dw));
-                          const nextHeight = Math.round(Math.max(20, r.startHeight + dh));
-                          const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextHeight - r.startHeight;
-                          update({
-                            size: nextWidth,
-                            height: nextHeight,
-                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                          });
-                        }
-                      }}
-                      onPointerUp={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                      }}
-                      onPointerCancel={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                      }}
-                      data-nopan=""
-                      className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
-                      style={{ ...getHandleStyle(h), pointerEvents: "auto" }}
-                      title="Drag to resize image"
-                    />
-                  ))}
-                </>
-              ) : null}
-            </div>,
-            controlsOverlayEl,
-          )
+            {!locked ? (
+              <>
+                {HANDLE_POSITIONS.map((h) => (
+                  <div
+                    key={h.id}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      const startHeight = img.height ?? containerRef.current?.offsetHeight ?? img.size;
+                      resizeRef.current = {
+                        startWidth: img.size,
+                        startHeight,
+                        startPosX: img.x,
+                        startPosY: img.y,
+                        startMouseX: e.clientX,
+                        startMouseY: e.clientY,
+                        handle: h.id,
+                      };
+                    }}
+                    onPointerMove={(e) => {
+                      const r = resizeRef.current;
+                      if (!r || r.handle !== h.id) return;
+                      e.stopPropagation();
+                      const rawDx = (e.clientX - r.startMouseX) / scale;
+                      const rawDy = (e.clientY - r.startMouseY) / scale;
+                      // Map the screen-space drag into the box's own
+                      // (unrotated) local axes so a corner/edge still
+                      // resizes along the box's actual rotated edges
+                      // instead of the screen's — see rotateVector.
+                      const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                      if (h.kind === "corner") {
+                        const delta = resizeDelta(h.id, dx, dy);
+                        const nextWidth = Math.round(Math.max(20, r.startWidth + delta));
+                        const ratio = r.startHeight > 0 ? r.startHeight / r.startWidth : 1;
+                        const nextHeight = Math.round(Math.max(20, nextWidth * ratio));
+                        const appliedDw = nextWidth - r.startWidth;
+                        const appliedDh = nextHeight - r.startHeight;
+                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                        update({
+                          size: nextWidth,
+                          height: nextHeight,
+                          x: r.startPosX + (shift.dx / s.width) * 100,
+                          y: r.startPosY + (shift.dy / s.height) * 100,
+                        });
+                      } else {
+                        const dw = widthDeltaFor(h.id, dx);
+                        const dh = heightDeltaFor(h.id, dy);
+                        const nextWidth = Math.round(Math.max(20, r.startWidth + dw));
+                        const nextHeight = Math.round(Math.max(20, r.startHeight + dh));
+                        const appliedDw = nextWidth - r.startWidth;
+                        const appliedDh = nextHeight - r.startHeight;
+                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                        update({
+                          size: nextWidth,
+                          height: nextHeight,
+                          x: r.startPosX + (shift.dx / s.width) * 100,
+                          y: r.startPosY + (shift.dy / s.height) * 100,
+                        });
+                      }
+                    }}
+                    onPointerUp={(e) => {
+                      e.stopPropagation();
+                      resizeRef.current = null;
+                    }}
+                    onPointerCancel={(e) => {
+                      e.stopPropagation();
+                      resizeRef.current = null;
+                    }}
+                    data-nopan=""
+                    className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                    style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+                    title="Drag to resize image"
+                  />
+                ))}
+                <RotateMoveHandleRow
+                  containerRef={containerRef}
+                  scale={scale}
+                  onRotate={(deg) => update({ rotation: deg })}
+                  onMovePointerDown={handlePointerDown}
+                  onMovePointerMove={handlePointerMove}
+                  onMovePointerUp={handlePointerUp}
+                />
+              </>
+            ) : null}
+          </div>,
+          controlsOverlayEl,
+        )
         : null}
     </>
   );
@@ -2765,6 +3033,12 @@ function DraggableShapeLayer({
   const canInteract = interactive && !!set && !s.locked;
   const locked = shape.locked ?? false;
   const effectiveHeight = shape.height ?? shape.size;
+  const rotation = shape.rotation ?? 0;
+  // LayerToolbar normally docks above the box; flipped below when the box
+  // sits too close to the canvas's top edge for that to fit on-screen. The
+  // rotate/move handle row mirrors this flip in reverse (see its usage
+  // below) so the two never land on top of each other.
+  const isNearTop = (shape.y / 100) * s.height - effectiveHeight / 2 < 45;
   const update = (patch: Partial<Omit<ShapeLayer, "id" | "kind">>) =>
     set?.("shapes", withShapeUpdated(s, shape.id, patch));
   const remove = () => set?.("shapes", withShapeRemoved(s, shape.id));
@@ -2775,6 +3049,97 @@ function DraggableShapeLayer({
     onSelect(dup.newId);
   };
 
+  const handlePointerDown = canInteract
+    ? (e: React.PointerEvent) => {
+      e.stopPropagation();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      if (e.shiftKey) {
+        onSelect(shape.id, { toggle: true });
+        return;
+      }
+      if (locked) return;
+      if (!selected) {
+        onSelect(shape.id);
+      }
+      if (e.altKey && set) {
+        const dup = withShapeDuplicated(sRef.current, shape.id);
+        set("shapes", dup.list);
+        onSelect(dup.newId);
+        dragRef.current = {
+          px: shape.x,
+          py: shape.y,
+          x: e.clientX,
+          y: e.clientY,
+          activeId: dup.newId,
+          hasDuplicated: true,
+        };
+        return;
+      }
+      if (selected && selectedCount > 1) {
+        groupDraggingRef.current = true;
+        onGroupDragStart(e.clientX, e.clientY);
+      } else {
+        dragRef.current = {
+          px: shape.x,
+          py: shape.y,
+          x: e.clientX,
+          y: e.clientY,
+          activeId: shape.id,
+          hasDuplicated: false,
+        };
+      }
+    }
+    : undefined;
+
+  const handlePointerMove = canInteract && !locked
+    ? (e: React.PointerEvent) => {
+      if (groupDraggingRef.current) {
+        e.stopPropagation();
+        onGroupDragMove(e.clientX, e.clientY);
+        return;
+      }
+      const d = dragRef.current;
+      if (!d) return;
+      e.stopPropagation();
+      if (e.altKey && !d.hasDuplicated && set) {
+        const dup = withShapeDuplicated(sRef.current, shape.id);
+        set("shapes", dup.list);
+        onSelect(dup.newId);
+        d.activeId = dup.newId;
+        d.hasDuplicated = true;
+      }
+      const dx = ((e.clientX - d.x) / scale / sRef.current.width) * 100;
+      const dy = ((e.clientY - d.y) / scale / sRef.current.height) * 100;
+      const width = shape.size;
+      const height = effectiveHeight;
+      const otherElements = getAllCanvasElements(sRef.current);
+      const targetId = d.activeId || shape.id;
+      const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+        currentId: targetId,
+        rawX: d.px + dx,
+        rawY: d.py + dy,
+        width,
+        height,
+        s: sRef.current,
+        otherElements,
+      });
+      onGuides(snapGuides);
+      set?.("shapes", withShapeUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
+    }
+    : undefined;
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch { }
+    dragRef.current = null;
+    if (groupDraggingRef.current) {
+      groupDraggingRef.current = false;
+      onGroupDragEnd();
+    }
+    onGuides({ vCenter: false, hCenter: false });
+  };
+
   if (shape.hidden) return null;
 
   return (
@@ -2782,115 +3147,16 @@ function DraggableShapeLayer({
       <div
         ref={containerRef}
         data-layer-id={shape.id}
-        onPointerDown={
-          canInteract
-            ? (e) => {
-              e.stopPropagation();
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              if (e.shiftKey) {
-                onSelect(shape.id, { toggle: true });
-                return;
-              }
-              if (locked) return;
-              if (!selected) {
-                onSelect(shape.id);
-              }
-              if (e.altKey && set) {
-                const dup = withShapeDuplicated(sRef.current, shape.id);
-                set("shapes", dup.list);
-                onSelect(dup.newId);
-                dragRef.current = {
-                  px: shape.x,
-                  py: shape.y,
-                  x: e.clientX,
-                  y: e.clientY,
-                  activeId: dup.newId,
-                  hasDuplicated: true,
-                };
-                return;
-              }
-              if (selected && selectedCount > 1) {
-                groupDraggingRef.current = true;
-                onGroupDragStart(e.clientX, e.clientY);
-              } else {
-                dragRef.current = {
-                  px: shape.x,
-                  py: shape.y,
-                  x: e.clientX,
-                  y: e.clientY,
-                  activeId: shape.id,
-                  hasDuplicated: false,
-                };
-              }
-            }
-            : undefined
-        }
-        onPointerMove={
-          canInteract && !locked
-            ? (e) => {
-              if (groupDraggingRef.current) {
-                e.stopPropagation();
-                onGroupDragMove(e.clientX, e.clientY);
-                return;
-              }
-              const d = dragRef.current;
-              if (!d) return;
-              e.stopPropagation();
-              if (e.altKey && !d.hasDuplicated && set) {
-                const dup = withShapeDuplicated(sRef.current, shape.id);
-                set("shapes", dup.list);
-                onSelect(dup.newId);
-                d.activeId = dup.newId;
-                d.hasDuplicated = true;
-              }
-              const dx = ((e.clientX - d.x) / scale / sRef.current.width) * 100;
-              const dy = ((e.clientY - d.y) / scale / sRef.current.height) * 100;
-              const width = shape.size;
-              const height = effectiveHeight;
-              const otherElements = getAllCanvasElements(sRef.current);
-              const targetId = d.activeId || shape.id;
-              const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
-                currentId: targetId,
-                rawX: d.px + dx,
-                rawY: d.py + dy,
-                width,
-                height,
-                s: sRef.current,
-                otherElements,
-              });
-              onGuides(snapGuides);
-              set?.("shapes", withShapeUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
-            }
-            : undefined
-        }
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         data-nopan=""
-        onPointerUp={(e) => {
-          try {
-            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-          } catch {}
-          dragRef.current = null;
-          if (groupDraggingRef.current) {
-            groupDraggingRef.current = false;
-            onGroupDragEnd();
-          }
-          onGuides({ vCenter: false, hCenter: false });
-        }}
-        onPointerCancel={(e) => {
-          try {
-            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-          } catch {}
-          dragRef.current = null;
-          if (groupDraggingRef.current) {
-            groupDraggingRef.current = false;
-            onGroupDragEnd();
-          }
-          onGuides({ vCenter: false, hCenter: false });
-        }}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         style={{
           position: "absolute",
           left: `${shape.x}%`,
           top: `${shape.y}%`,
-          transform: "translate(-50%, -50%)",
+          transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
           width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
           height:
             typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
@@ -2923,124 +3189,131 @@ function DraggableShapeLayer({
 
       {canInteract && selected && selectedCount === 1 && controlsOverlayEl
         ? createPortal(
+          <div
+            style={{
+              position: "absolute",
+              left: `${shape.x}%`,
+              top: `${shape.y}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
+              height:
+                typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
+                  ? effectiveHeight
+                  : 200,
+              zIndex: 80 + index,
+              pointerEvents: "none",
+            }}
+          >
             <div
               style={{
                 position: "absolute",
-                left: `${shape.x}%`,
-                top: `${shape.y}%`,
-                transform: "translate(-50%, -50%)",
-                width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
-                height:
-                  typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
-                    ? effectiveHeight
-                    : 200,
-                zIndex: 80 + index,
+                inset: -4,
+                border: "2px solid #0021ff",
+                borderRadius: 4,
                 pointerEvents: "none",
               }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  inset: -4,
-                  border: "2px solid #0021ff",
-                  borderRadius: 4,
-                  pointerEvents: "none",
-                }}
+            />
+            <div style={{ pointerEvents: "auto" }}>
+              <LayerToolbar
+                locked={locked}
+                onToggleLock={() => update({ locked: !locked })}
+                onDuplicate={duplicate}
+                onDelete={remove}
+                scale={scale}
+                placement={isNearTop ? "bottom" : "top"}
               />
-              <div style={{ pointerEvents: "auto" }}>
-                {(() => {
-                  const isNearTop = (shape.y / 100) * s.height - effectiveHeight / 2 < 45;
-                  return (
-                    <LayerToolbar
-                      locked={locked}
-                      onToggleLock={() => update({ locked: !locked })}
-                      onDuplicate={duplicate}
-                      onDelete={remove}
-                      scale={scale}
-                      placement={isNearTop ? "bottom" : "top"}
-                    />
-                  );
-                })()}
-              </div>
+            </div>
 
-              {!locked ? (
-                <>
-                  {HANDLE_POSITIONS.map((h) => (
-                    <div
-                      key={h.id}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        resizeRef.current = {
-                          startWidth: shape.size,
-                          startHeight: effectiveHeight,
-                          startPosX: shape.x,
-                          startPosY: shape.y,
-                          startMouseX: e.clientX,
-                          startMouseY: e.clientY,
-                          handle: h.id,
-                        };
-                      }}
-                      onPointerMove={(e) => {
-                        const r = resizeRef.current;
-                        if (!r || r.handle !== h.id) return;
-                        e.stopPropagation();
-                        const dx = (e.clientX - r.startMouseX) / scale;
-                        const dy = (e.clientY - r.startMouseY) / scale;
-                        const maxBound = Math.max(s.width, s.height, 4000);
+            {!locked ? (
+              <>
+                {HANDLE_POSITIONS.map((h) => (
+                  <div
+                    key={h.id}
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      resizeRef.current = {
+                        startWidth: shape.size,
+                        startHeight: effectiveHeight,
+                        startPosX: shape.x,
+                        startPosY: shape.y,
+                        startMouseX: e.clientX,
+                        startMouseY: e.clientY,
+                        handle: h.id,
+                      };
+                    }}
+                    onPointerMove={(e) => {
+                      const r = resizeRef.current;
+                      if (!r || r.handle !== h.id) return;
+                      e.stopPropagation();
+                      const rawDx = (e.clientX - r.startMouseX) / scale;
+                      const rawDy = (e.clientY - r.startMouseY) / scale;
+                      const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                      const maxBound = Math.max(s.width, s.height, 4000);
 
-                        if (h.kind === "corner") {
-                          const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
-                            h.id,
-                            dx,
-                            dy,
-                            r.startWidth,
-                            r.startHeight,
-                            10,
-                            maxBound,
-                          );
-                          const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextHeight - r.startHeight;
-                          update({
-                            size: nextWidth,
-                            height: nextHeight,
-                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                          });
-                        } else {
-                          const dw = widthDeltaFor(h.id, dx);
-                          const dh = heightDeltaFor(h.id, dy);
-                          const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
-                          const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
-                          const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextHeight - r.startHeight;
-                          update({
-                            size: nextWidth,
-                            height: nextHeight,
-                            x: r.startPosX + (centerShiftX(h.id, appliedDw) / s.width) * 100,
-                            y: r.startPosY + (centerShiftY(h.id, appliedDh) / s.height) * 100,
-                          });
-                        }
-                      }}
-                      onPointerUp={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                      }}
-                      onPointerCancel={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                      }}
-                      data-nopan=""
-                      className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
-                      style={{ ...getHandleStyle(h), pointerEvents: "auto" }}
-                      title="Drag to resize shape"
-                    />
-                  ))}
-                </>
-              ) : null}
-            </div>,
-            controlsOverlayEl,
-          )
+                      if (h.kind === "corner") {
+                        const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
+                          h.id,
+                          dx,
+                          dy,
+                          r.startWidth,
+                          r.startHeight,
+                          10,
+                          maxBound,
+                        );
+                        const appliedDw = nextWidth - r.startWidth;
+                        const appliedDh = nextHeight - r.startHeight;
+                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                        update({
+                          size: nextWidth,
+                          height: nextHeight,
+                          x: r.startPosX + (shift.dx / s.width) * 100,
+                          y: r.startPosY + (shift.dy / s.height) * 100,
+                        });
+                      } else {
+                        const dw = widthDeltaFor(h.id, dx);
+                        const dh = heightDeltaFor(h.id, dy);
+                        const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
+                        const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
+                        const appliedDw = nextWidth - r.startWidth;
+                        const appliedDh = nextHeight - r.startHeight;
+                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                        update({
+                          size: nextWidth,
+                          height: nextHeight,
+                          x: r.startPosX + (shift.dx / s.width) * 100,
+                          y: r.startPosY + (shift.dy / s.height) * 100,
+                        });
+                      }
+                    }}
+                    onPointerUp={(e) => {
+                      e.stopPropagation();
+                      resizeRef.current = null;
+                    }}
+                    onPointerCancel={(e) => {
+                      e.stopPropagation();
+                      resizeRef.current = null;
+                    }}
+                    data-nopan=""
+                    className="rounded-full bg-white transition-all duration-150 hover:scale-125 hover:bg-[#0021FF] active:scale-135 active:bg-[#0021FF] active:ring-4 active:ring-[#0021FF]/40"
+                    style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+                    title="Drag to resize shape"
+                  />
+                ))}
+                <RotateMoveHandleRow
+                  containerRef={containerRef}
+                  scale={scale}
+                  placement={isNearTop ? "top" : "bottom"}
+                  onRotate={(deg) => update({ rotation: deg })}
+                  onMovePointerDown={handlePointerDown}
+                  onMovePointerMove={handlePointerMove}
+                  onMovePointerUp={handlePointerUp}
+                />
+              </>
+            ) : null}
+          </div>,
+          controlsOverlayEl,
+        )
         : null}
     </>
   );

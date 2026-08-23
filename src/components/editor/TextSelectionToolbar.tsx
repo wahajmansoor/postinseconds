@@ -1,9 +1,9 @@
 import {
   Add01Icon,
+  ExpandParagraphIcon,
   LeftToRightListBulletIcon,
   LeftToRightListNumberIcon,
   MinusSignIcon,
-  SparklesIcon,
   TextAlignCenterIcon,
   TextAlignJustifyCenterIcon,
   TextAlignLeftIcon,
@@ -14,8 +14,9 @@ import {
   TextUnderlineIcon,
 } from "hugeicons-react";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AppTooltip } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
 import { FONTS, type TextLayer } from "./types";
@@ -45,7 +46,6 @@ export function TextSelectionToolbar({
   onOpenEffectsTab?: () => void;
 }) {
   const [spacingOpen, setSpacingOpen] = useState(false);
-  const spacingPopoverRef = useRef<HTMLDivElement>(null);
 
   const btn = "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl p-0 text-xs";
   // Every plain button here needs to NOT steal focus from the text layer's
@@ -76,22 +76,9 @@ export function TextSelectionToolbar({
   const [activeFormat, setActiveFormat] = useState<LiveTextFormat>(() => handle.getActiveFormat());
   useEffect(() => handle.subscribeActiveFormat(setActiveFormat), [handle]);
 
-  // Click outside to close spacing popover
-  useEffect(() => {
-    if (!spacingOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (spacingPopoverRef.current && !spacingPopoverRef.current.contains(e.target as Node)) {
-        setSpacingOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [spacingOpen]);
-
-
   return (
     <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md">
-      <div className="w-32 shrink-0" onMouseDown={() => handle.snapshotSelection()}>
+      <div className="w-32 shrink-0">
         <Select
           value={layer.fontFamily}
           onChange={handle.setFontFamily}
@@ -106,7 +93,7 @@ export function TextSelectionToolbar({
             title="Decrease size"
             onPointerDown={preserveSelection}
             onMouseDown={preserveSelection}
-            onClick={() => handle.setSize(Math.max(8, layer.size - 2))}
+            onClick={() => handle.setSize(Math.max(8, layer.size - 1))}
             className="flex h-7 w-7 items-center justify-center rounded-lg p-0"
           >
             <MinusSignIcon size={14} />
@@ -118,7 +105,7 @@ export function TextSelectionToolbar({
             title="Increase size"
             onPointerDown={preserveSelection}
             onMouseDown={preserveSelection}
-            onClick={() => handle.setSize(layer.size + 2)}
+            onClick={() => handle.setSize(layer.size + 1)}
             className="flex h-7 w-7 items-center justify-center rounded-lg p-0"
           >
             <Add01Icon size={14} />
@@ -126,7 +113,7 @@ export function TextSelectionToolbar({
         </AppTooltip>
       </div>
 
-      <div onMouseDown={() => handle.snapshotSelection()} className="flex shrink-0 items-center">
+      <div onPointerDown={() => handle.snapshotSelection()} className="flex shrink-0 items-center">
         <ColorInput
           value={layer.color}
           onChange={handle.setColor}
@@ -241,40 +228,38 @@ export function TextSelectionToolbar({
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
-      {/* Spacing Popover Button & Dropdown */}
-      <div className="relative">
+      {/* Spacing Popover Button & Dropdown — on mobile this toolbar lives
+          inside a 60px-tall `overflow-x-auto` bar pinned to the bottom of
+          the screen, so a plain `position: absolute` popover either got
+          clipped by that ancestor's overflow or, positioned `top-full`
+          below an already-bottom-pinned button, rendered off the bottom of
+          the viewport entirely — it "opened" (state and all) but was never
+          visible. Radix's Popover portals the content straight to
+          document.body (escaping the clipping) and auto-flips to whichever
+          side actually has room (so it renders above the button here),
+          which a manual position never accounted for. */}
+      <Popover open={spacingOpen} onOpenChange={setSpacingOpen}>
         <AppTooltip content="Spacing">
-          <Chip
-            title="Spacing"
-            active={spacingOpen}
-            onPointerDown={preserveSelection}
-            onMouseDown={preserveSelection}
-            onClick={() => setSpacingOpen((prev) => !prev)}
-            className={btn}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <PopoverTrigger asChild>
+            <Chip
+              title="Spacing"
+              active={spacingOpen}
+              onPointerDown={preserveSelection}
+              onMouseDown={preserveSelection}
+              className={btn}
             >
-              <path d="M4 5h16M12 5v9" />
-              <path d="M4 19h16M7 16l-3 3 3 3M17 16l3 3-3 3" />
-            </svg>
-          </Chip>
+              <ExpandParagraphIcon size={16} />
+            </Chip>
+          </PopoverTrigger>
         </AppTooltip>
 
-        {spacingOpen ? (
-          <div
-            ref={spacingPopoverRef}
-            onPointerDown={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="absolute left-1/2 top-full z-50 mt-2.5 w-64 -translate-x-1/2 space-y-4 rounded-2xl border border-border bg-[#18191d] p-4 text-white shadow-2xl backdrop-blur-xl"
-          >
+        <PopoverContent
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          sideOffset={10}
+          collisionPadding={12}
+          className="z-50 w-64 space-y-4 rounded-2xl border border-border bg-[#18191d] p-4 text-white shadow-2xl backdrop-blur-xl"
+        >
             {/* Letter spacing */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -390,9 +375,8 @@ export function TextSelectionToolbar({
                 </button>
               </div>
             </div>
-          </div>
-        ) : null}
-      </div>
+        </PopoverContent>
+      </Popover>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
@@ -404,9 +388,8 @@ export function TextSelectionToolbar({
           onPointerDown={preserveSelection}
           onMouseDown={preserveSelection}
           onClick={() => onOpenEffectsTab?.()}
-          className="flex h-8 gap-1.5 px-2.5 text-xs font-semibold"
+          className="flex h-8 items-center px-2.5 text-xs font-semibold"
         >
-          <SparklesIcon size={15} />
           <span>Effects</span>
         </Chip>
       </AppTooltip>

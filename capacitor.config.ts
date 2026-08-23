@@ -20,7 +20,7 @@ const config: CapacitorConfig = {
   appName: 'Post In Seconds',
   webDir: 'dist',
   server: {
-    url: 'http://10.0.2.2:8080',
+    url: 'http://192.168.18.20:8080',
     cleartext: true,
   },
 };
