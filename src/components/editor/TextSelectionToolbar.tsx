@@ -1,9 +1,11 @@
 import {
   Add01Icon,
+  ArrowDown01Icon,
   ExpandParagraphIcon,
   LeftToRightListBulletIcon,
   LeftToRightListNumberIcon,
   MinusSignIcon,
+  Search01Icon,
   TextAlignCenterIcon,
   TextAlignJustifyCenterIcon,
   TextAlignLeftIcon,
@@ -12,15 +14,17 @@ import {
   TextItalicIcon,
   TextStrikethroughIcon,
   TextUnderlineIcon,
+  Tick02Icon,
 } from "hugeicons-react";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
+import { loadGoogleFont } from "@/lib/fontLoader";
 import { AppTooltip } from "@/components/ui/tooltip";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
 import { FONTS, type TextLayer } from "./types";
-import { Chip, ColorInput, Select } from "./ui";
+import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, useDraggableOffset, useStableAnchor } from "./ui";
 
 // Canva-style top-docked toolbar: appears the instant a single free-floating
 // text layer is selected (a plain click — well before, or entirely without,
@@ -40,12 +44,89 @@ export function TextSelectionToolbar({
   layer,
   handle,
   onOpenEffectsTab,
+  detached = false,
+  onAnyPopoverOpenChange,
 }: {
   layer: TextLayer;
   handle: TextLayerHandle;
   onOpenEffectsTab?: () => void;
+  // True once this layer is no longer the live canvas selection (e.g. the
+  // user clicked the canvas background, or selected something else) but one
+  // of this toolbar's own popovers was still open at that moment — see the
+  // long comment on the row wrapper's ref below for how that popover
+  // survives the swap instead of closing with it.
+  detached?: boolean;
+  // Fires whenever ANY popover in this toolbar opens/closes (aggregated,
+  // not per-popover) — index.tsx uses this to know which single layer to
+  // keep "pinned" (and thus keep this whole component mounted, `detached`
+  // or not) for as long as at least one of its popovers is still open.
+  onAnyPopoverOpenChange?: (open: boolean) => void;
 }) {
   const [spacingOpen, setSpacingOpen] = useState(false);
+  const spacingDrag = useDraggableOffset();
+  const spacingTriggerRef = useRef<HTMLButtonElement>(null);
+  const spacingAnchor = useStableAnchor(spacingOpen, spacingTriggerRef);
+
+  // Text Color — a hand-rolled popover (rather than the packaged
+  // ColorPicker export, which owns its own un-draggable Popover internally)
+  // so it can share the same moveable/X-to-close treatment as every other
+  // popover in this toolbar. Uses ColorPickerContent directly, same as the
+  // Background toolbar's own Solid swatch.
+  const [textColorOpen, setTextColorOpen] = useState(false);
+  const textColorDrag = useDraggableOffset();
+  const textColorTriggerRef = useRef<HTMLButtonElement>(null);
+  const textColorAnchor = useStableAnchor(textColorOpen, textColorTriggerRef);
+
+  // Text Font — a searchable, moveable popover replacing the old plain
+  // <select>. Every font's actual glyphs render in the list (not just its
+  // name) the instant the popover opens, not lazily on hover — a search
+  // list is only useful if every visible row already looks like its own
+  // font. loadGoogleFont dedupes internally (module-level Set), so
+  // reopening / re-filtering costs nothing once loaded.
+  const [fontOpen, setFontOpen] = useState(false);
+  const [fontSearch, setFontSearch] = useState("");
+  const fontDrag = useDraggableOffset();
+  const fontTriggerRef = useRef<HTMLButtonElement>(null);
+  const fontAnchor = useStableAnchor(fontOpen, fontTriggerRef);
+  const currentFontLabel = FONTS.find((f) => f.value === layer.fontFamily)?.label ?? "Text Font";
+  const filteredFonts = useMemo(() => {
+    const q = fontSearch.trim().toLowerCase();
+    return q ? FONTS.filter((f) => f.label.toLowerCase().includes(q)) : FONTS;
+  }, [fontSearch]);
+  useEffect(() => {
+    if (!fontOpen) return;
+    FONTS.forEach((f) => loadGoogleFont(f.value));
+  }, [fontOpen]);
+
+  // Reports "is any popover in this toolbar open" up to index.tsx (see the
+  // `detached`/`onAnyPopoverOpenChange` comments above) so it knows whether
+  // to keep this whole component mounted — and thus keep every popover's
+  // own state (search text, drag position, which one is open) intact —
+  // even after `layer` stops being the live canvas selection.
+  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen;
+  useEffect(() => {
+    onAnyPopoverOpenChange?.(anyPopoverOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyPopoverOpen]);
+
+  // While detached, this row itself renders invisible and inert (nothing in
+  // it is clickable — there's nothing sensible left to click since it isn't
+  // the live selection anymore) at a FIXED position pinned to wherever it
+  // last was on screen while still live, taken clean out of the toolbar
+  // slot's normal flex flow so it can't shove the newly-live toolbar
+  // (e.g. Background's) off-center. Any popover that was open keeps
+  // rendering — Radix portals popover content straight to document.body,
+  // so it's a separate DOM subtree unaffected by the trigger row's own
+  // visibility/position — anchored correctly to that now-invisible trigger,
+  // fully interactive, until its own X is clicked.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const lastLiveRectRef = useRef<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!detached && rowRef.current) {
+      const r = rowRef.current.getBoundingClientRect();
+      lastLiveRectRef.current = { top: r.top, left: r.left };
+    }
+  });
 
   const btn = "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl p-0 text-xs";
   // Every plain button here needs to NOT steal focus from the text layer's
@@ -55,11 +136,14 @@ export function TextSelectionToolbar({
   // gets to see it, so it'd always fall back to "toggle the whole layer"
   // instead of formatting just the highlighted range. (Same class of bug,
   // same fix, as the highlight-to-style popover earlier in this file's
-  // history — see the comment on TextLayerHandle above.) The font-family
-  // <select> and color <input type=color> below can't get this same
-  // treatment — preventDefault on their mousedown would stop them from
-  // opening at all — so those use handle.snapshotSelection() instead (see
-  // selectionSnapshotRef in QuoteCanvas.tsx).
+  // history — see the comment on TextLayerHandle above.) The color
+  // <input type=color> below can't get this same treatment — preventDefault
+  // on its mousedown would stop it from opening at all — so it uses
+  // handle.snapshotSelection() instead (see selectionSnapshotRef in
+  // QuoteCanvas.tsx). Font family itself always applies to the whole layer
+  // now regardless of any highlighted range (see setFontFamily's own
+  // comment in QuoteCanvas.tsx), so its trigger button needs no such
+  // special-casing.
   const preserveSelection = (e: React.SyntheticEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -77,15 +161,103 @@ export function TextSelectionToolbar({
   useEffect(() => handle.subscribeActiveFormat(setActiveFormat), [handle]);
 
   return (
-    <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md">
-      <div className="w-32 shrink-0">
-        <Select
-          value={layer.fontFamily}
-          onChange={handle.setFontFamily}
-          options={FONTS.map((f) => ({ label: f.label, value: f.value }))}
-          className="h-8 rounded-xl px-2.5 py-0 text-xs font-medium"
-        />
-      </div>
+    <div
+      ref={rowRef}
+      style={
+        detached
+          ? {
+              position: "fixed",
+              top: lastLiveRectRef.current?.top ?? 0,
+              left: lastLiveRectRef.current?.left ?? 0,
+              visibility: "hidden",
+              pointerEvents: "none",
+            }
+          : undefined
+      }
+      className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
+    >
+      <AppTooltip content="Text font">
+        <button
+          ref={fontTriggerRef}
+          type="button"
+          onPointerDown={preserveSelection}
+          onMouseDown={preserveSelection}
+          onClick={() => {
+            setFontOpen((wasOpen) => {
+              // Reset lives on the OPEN edge, not the close edge: resetting
+              // on close would snap the panel back to its anchor position
+              // right as the close happens, making it visibly jump instead
+              // of just disappearing from wherever the user left it.
+              if (!wasOpen) {
+                fontDrag.reset();
+                setFontSearch("");
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(
+            "flex h-8 w-32 shrink-0 items-center gap-1.5 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary",
+            fontOpen && "border-primary text-primary",
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate text-left" style={{ fontFamily: layer.fontFamily }}>
+            {currentFontLabel}
+          </span>
+          <ArrowDown01Icon size={12} className="shrink-0 text-muted-foreground" />
+        </button>
+      </AppTooltip>
+      <FloatingDropdown anchor={fontAnchor} offset={fontDrag.offset} align="start">
+        <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+          <DragHandle label="Text Font" {...fontDrag.dragHandleProps} onClose={() => setFontOpen(false)} />
+          <div className="space-y-2 p-2.5">
+            <div className="relative">
+              <Search01Icon
+                size={13}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <input
+                type="text"
+                autoFocus
+                value={fontSearch}
+                onChange={(e) => setFontSearch(e.target.value)}
+                placeholder="Search fonts…"
+                className="w-full rounded-xl border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
+              />
+            </div>
+            <div className="max-h-72 space-y-0.5 overflow-y-auto pr-0.5">
+              {filteredFonts.length ? (
+                filteredFonts.map((f) => {
+                  const active = f.value === layer.fontFamily;
+                  return (
+                    <button
+                      key={f.value}
+                      type="button"
+                      // Deliberately does NOT close the popover — picking
+                      // a font is something people want to do several
+                      // times in a row while comparing options live on
+                      // the canvas, not a one-shot action. It only closes
+                      // via the X button or re-clicking the trigger.
+                      onClick={() => handle.setFontFamily(f.value)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
+                        active ? "bg-primary/15 text-primary" : "text-foreground hover:bg-secondary",
+                      )}
+                      style={{ fontFamily: f.value }}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{f.label}</span>
+                      {active ? <Tick02Icon size={13} className="shrink-0 text-primary" /> : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
+                  No fonts match "{fontSearch}"
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </FloatingDropdown>
 
       <div className="flex h-8 items-center gap-0.5 rounded-xl bg-secondary/50 p-0.5">
         <AppTooltip content="Decrease size">
@@ -113,15 +285,26 @@ export function TextSelectionToolbar({
         </AppTooltip>
       </div>
 
-      <div onPointerDown={() => handle.snapshotSelection()} className="flex shrink-0 items-center">
-        <ColorInput
-          value={layer.color}
-          onChange={handle.setColor}
-          showHex={false}
-          swatchClassName="h-7 w-7 rounded-xl border-border/80"
-          align="center"
-        />
-      </div>
+      <button
+        ref={textColorTriggerRef}
+        type="button"
+        onPointerDown={() => handle.snapshotSelection()}
+        onClick={() => {
+          setTextColorOpen((wasOpen) => {
+            if (!wasOpen) textColorDrag.reset();
+            return !wasOpen;
+          });
+        }}
+        title="Text color"
+        className="h-7 w-7 shrink-0 overflow-hidden rounded-xl border border-border/80 shadow-sm transition-transform hover:scale-105"
+        style={{ backgroundColor: layer.color || "#000000" }}
+      />
+      <FloatingDropdown anchor={textColorAnchor} offset={textColorDrag.offset} align="center">
+        <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl">
+          <DragHandle label="Text Color" {...textColorDrag.dragHandleProps} onClose={() => setTextColorOpen(false)} />
+          <ColorPickerContent value={layer.color} onChange={handle.setColor} />
+        </div>
+      </FloatingDropdown>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
@@ -234,37 +417,40 @@ export function TextSelectionToolbar({
           clipped by that ancestor's overflow or, positioned `top-full`
           below an already-bottom-pinned button, rendered off the bottom of
           the viewport entirely — it "opened" (state and all) but was never
-          visible. Radix's Popover portals the content straight to
-          document.body (escaping the clipping) and auto-flips to whichever
-          side actually has room (so it renders above the button here),
-          which a manual position never accounted for. */}
-      <Popover open={spacingOpen} onOpenChange={setSpacingOpen}>
-        <AppTooltip content="Spacing">
-          <PopoverTrigger asChild>
-            <Chip
-              title="Spacing"
-              active={spacingOpen}
-              onPointerDown={preserveSelection}
-              onMouseDown={preserveSelection}
-              className={btn}
-            >
-              <ExpandParagraphIcon size={16} />
-            </Chip>
-          </PopoverTrigger>
-        </AppTooltip>
-
-        <PopoverContent
-          onPointerDown={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          sideOffset={10}
-          collisionPadding={12}
-          className="z-50 w-64 space-y-4 rounded-2xl border border-border bg-[#18191d] p-4 text-white shadow-2xl backdrop-blur-xl"
+          visible. FloatingDropdown portals the content straight to
+          document.body (escaping the clipping) and flips above the button
+          when there isn't room below (so it renders above the button
+          here) — see its own collision-check comment in ui.tsx. */}
+      <AppTooltip content="Spacing">
+        <Chip
+          ref={spacingTriggerRef}
+          title="Spacing"
+          active={spacingOpen}
+          onPointerDown={preserveSelection}
+          onMouseDown={preserveSelection}
+          onClick={() => {
+            setSpacingOpen((wasOpen) => {
+              // Reset on the OPEN edge, not the close edge — see the
+              // matching comment on the font popover above.
+              if (!wasOpen) spacingDrag.reset();
+              return !wasOpen;
+            });
+          }}
+          className={btn}
         >
+          <ExpandParagraphIcon size={16} />
+        </Chip>
+      </AppTooltip>
+
+      <FloatingDropdown anchor={spacingAnchor} offset={spacingDrag.offset} align="start">
+        <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-xl">
+          <DragHandle label="Spacing" {...spacingDrag.dragHandleProps} onClose={() => setSpacingOpen(false)} />
+          <div className="space-y-4 p-4">
             {/* Letter spacing */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-200">Letter spacing</span>
-                <span className="flex h-6 min-w-[36px] items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800/80 px-2 font-mono text-xs font-medium text-zinc-200">
+                <span className="text-xs font-semibold text-foreground">Letter spacing</span>
+                <span className="flex h-6 min-w-[36px] items-center justify-center rounded-lg border border-border bg-secondary/70 px-2 font-mono text-xs font-medium text-foreground">
                   {layer.letterSpacing ?? 0}
                 </span>
               </div>
@@ -275,15 +461,15 @@ export function TextSelectionToolbar({
                 step={5}
                 value={layer.letterSpacing ?? 0}
                 onChange={(e) => handle.setLetterSpacing(Number(e.target.value))}
-                className="h-1.5 w-full cursor-grab appearance-none rounded-lg bg-zinc-700 accent-primary"
+                className="h-1.5 w-full cursor-grab appearance-none rounded-lg bg-secondary accent-primary"
               />
             </div>
 
             {/* Line spacing */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-200">Line spacing</span>
-                <span className="flex h-6 min-w-[36px] items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800/80 px-2 font-mono text-xs font-medium text-zinc-200">
+                <span className="text-xs font-semibold text-foreground">Line spacing</span>
+                <span className="flex h-6 min-w-[36px] items-center justify-center rounded-lg border border-border bg-secondary/70 px-2 font-mono text-xs font-medium text-foreground">
                   {Number(layer.lineHeight ?? 1.4).toFixed(1)}
                 </span>
               </div>
@@ -294,15 +480,15 @@ export function TextSelectionToolbar({
                 step={0.05}
                 value={layer.lineHeight ?? 1.4}
                 onChange={(e) => handle.setLineHeight(Number(e.target.value))}
-                className="h-1.5 w-full cursor-grab appearance-none rounded-lg bg-zinc-700 accent-primary"
+                className="h-1.5 w-full cursor-grab appearance-none rounded-lg bg-secondary accent-primary"
               />
             </div>
 
-            <div className="h-px w-full bg-zinc-800" />
+            <div className="h-px w-full bg-border" />
 
             {/* Anchor text box */}
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-zinc-200">Anchor text box</span>
+              <span className="text-xs font-semibold text-foreground">Anchor text box</span>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -311,7 +497,7 @@ export function TextSelectionToolbar({
                   className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
                     (layer.verticalAlign ?? "top") === "top"
                       ? "bg-primary text-primary-foreground"
-                      : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   }`}
                 >
                   <svg
@@ -334,7 +520,7 @@ export function TextSelectionToolbar({
                   className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
                     layer.verticalAlign === "middle"
                       ? "bg-primary text-primary-foreground"
-                      : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   }`}
                 >
                   <svg
@@ -357,7 +543,7 @@ export function TextSelectionToolbar({
                   className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
                     layer.verticalAlign === "bottom"
                       ? "bg-primary text-primary-foreground"
-                      : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   }`}
                 >
                   <svg
@@ -375,8 +561,9 @@ export function TextSelectionToolbar({
                 </button>
               </div>
             </div>
-        </PopoverContent>
-      </Popover>
+          </div>
+        </div>
+      </FloatingDropdown>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

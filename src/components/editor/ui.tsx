@@ -1,11 +1,241 @@
-import { forwardRef, useEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
-import { Add01Icon, ArrowDown01Icon, MinusSignIcon, Upload01Icon } from "hugeicons-react";
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
+import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, Upload01Icon } from "hugeicons-react";
 import { cn } from "@/lib/utils";
 import { AppTooltip, InfoTooltip } from "@/components/ui/tooltip";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker } from "@/components/ui/color-picker";
 
 export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker };
+
+// Shared by every floating toolbar's Popover dropdowns (Text/Shape/Image/
+// Background selection toolbars) so all of them can be dragged to wherever
+// the user wants — handy once a popover holds real controls (sliders, a
+// live preview, a search box) worth seeing alongside the canvas instead of
+// stuck wherever Radix's own anchor-relative positioning first placed it.
+// Apply the returned `offset` as a `transform` on an INNER wrapper inside
+// PopoverContent, never on PopoverContent itself: Radix's Popper
+// positioning imperatively writes its own `transform` directly onto that
+// exact element outside React's normal render cycle, so a transform passed
+// as a style prop there would just get overwritten on the next reposition.
+// Resets to {0,0} whenever the popover closes (call `reset()` from
+// `onOpenChange`), so reopening it starts back at the normal anchored
+// position rather than wherever it was last dragged to.
+export function useDraggableOffset() {
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; startOffsetX: number; startOffsetY: number } | null>(
+    null,
+  );
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startOffsetX: offset.x, startOffsetY: offset.y };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    e.stopPropagation();
+    setOffset({ x: d.startOffsetX + (e.clientX - d.startX), y: d.startOffsetY + (e.clientY - d.startY) });
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    dragRef.current = null;
+  };
+
+  return {
+    offset,
+    reset: () => setOffset({ x: 0, y: 0 }),
+    dragHandleProps: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp,
+      onPointerCancel: onPointerUp,
+    },
+  };
+}
+
+// `label`, when passed, names the popover right in its own drag bar ("Text
+// Font", "Corner Radius", ...) so with several of these things floating
+// around the canvas at once, each one is identifiable at a glance instead
+// of just being an anonymous grip. The grip line itself always renders too
+// (absolutely centered, independent of the label/close button's widths on
+// either side) — it's the visual cue that this whole bar is draggable, not
+// just a plain title bar, so it stays even once a label is doing most of
+// that identifying work. `onClose`, when passed, renders a small X button
+// at the right end of the bar so the popover has an explicit, unmissable
+// way to dismiss it — every popover that uses this now blocks Radix's own
+// click/focus-outside auto-dismiss (see the `onPointerDownOutside`/
+// `onInteractOutside` props set wherever this is used), since that
+// auto-dismiss was firing mid-drag: once setPointerCapture redirects
+// pointermove/up to the handle, a fast drag can still cross over the canvas
+// or another control on the way, and Radix was reading that as an outside
+// interaction and closing the popover out from under the user while they
+// were still moving it.
+export function DragHandle({
+  label,
+  onClose,
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & { label?: string; onClose?: () => void }) {
+  return (
+    <div
+      {...props}
+      data-nopan=""
+      title="Drag to move"
+      className={cn(
+        "relative flex cursor-grab items-center justify-between gap-2 rounded-t-2xl py-2 pl-3 pr-1.5 active:cursor-grabbing",
+        className,
+      )}
+      style={{ touchAction: "none" }}
+    >
+      {label ? (
+        <span className="relative truncate text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+      ) : (
+        <span />
+      )}
+      <div className="pointer-events-none absolute left-1/2 top-1/2 h-1 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border" />
+      {onClose ? (
+        <button
+          type="button"
+          data-nopan=""
+          title="Close"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onClose}
+          className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        >
+          <MultiplicationSignIcon size={12} />
+        </button>
+      ) : (
+        <span />
+      )}
+    </div>
+  );
+}
+
+// Captures a dropdown's trigger's on-screen position ONCE, the instant it
+// opens — and never updates it again for as long as it stays open, no
+// matter what else changes elsewhere on the page. This is what makes a
+// dropdown hold completely still once open: something as small as another
+// control's own label changing width (e.g. a "Radius: 0px" trigger
+// becoming "Radius: Circle") reflows its toolbar row and would otherwise
+// nudge Radix's own live anchor-tracking Popover by a few px even though
+// the user never touched the dropdown — this sidesteps that class of bug
+// entirely by never re-measuring after the initial open. Combined with the
+// user's own drag offset (see useDraggableOffset), the anchor captured
+// here is the ONLY thing that determines where a dropdown renders — reopen
+// it and it recomputes fresh, anchored to wherever its trigger is then.
+export function useStableAnchor(open: boolean, triggerRef: React.RefObject<HTMLElement | null>) {
+  const [anchor, setAnchor] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    if (open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setAnchor({ top: r.top, left: r.left, width: r.width, height: r.height });
+    } else if (!open) {
+      setAnchor(null);
+    }
+    // Deliberately only re-runs when `open` itself flips — see the comment
+    // above for why re-measuring on any other change would defeat the point.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  return anchor;
+}
+
+// Portals a dropdown's content straight to <body>, positioned via
+// `position: fixed` purely from the frozen `anchor` (see useStableAnchor)
+// plus the caller's own drag `offset` — never from a live-tracked trigger
+// ref the way Radix's own Popper positioning works, which is the point:
+// nothing else on the page can nudge it once it's open. Replaces Radix's
+// Popover/PopoverContent for these dropdowns entirely (not just its
+// positioning) — that also drops the need for the onPointerDownOutside/
+// onInteractOutside dismiss-prevention these used to need, since a plain
+// portaled div has no built-in "close on outside click" behavior to fight
+// in the first place; closing is purely up to the caller (the trigger's
+// own toggle, or the drag handle's X).
+export function FloatingDropdown({
+  anchor,
+  offset,
+  align = "start",
+  gap = 10,
+  className,
+  children,
+}: {
+  anchor: { top: number; left: number; width: number; height: number } | null;
+  offset: { x: number; y: number };
+  align?: "start" | "center";
+  gap?: number;
+  className?: string;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  // One-time collision check, the instant a fresh anchor shows up (i.e.
+  // every time this opens) — Radix used to give this for free (flipping
+  // above the trigger, or nudging sideways, whenever there wasn't room),
+  // and some of these dropdowns genuinely depend on it: the mobile bottom
+  // toolbar sits right at the bottom edge of the screen, so a dropdown that
+  // always opened downward from it would render mostly or entirely
+  // off-screen. Measures the panel's natural (undragged) size at its
+  // default position and picks whichever of above/below actually has more
+  // room, THEN clamps the result to the viewport regardless — flipping
+  // above isn't automatically better if there isn't much room up there
+  // either (a viewport short enough that neither side fully fits), so the
+  // clamp is what guarantees it never renders mostly off-screen either way,
+  // the same safety net Radix's own "shift" behavior gave for free.
+  // Deliberately only reacts to `anchor` changing (a fresh open) — once the
+  // user has dragged it, this never runs again and never fights them.
+  const [correction, setCorrection] = useState<{ flip: boolean; nudgeX: number; nudgeY: number } | null>(null);
+  useLayoutEffect(() => {
+    setCorrection(null);
+    if (!anchor || !panelRef.current) return;
+    const r = panelRef.current.getBoundingClientRect();
+    const margin = 8;
+    const panelHeight = r.height;
+    const spaceBelow = window.innerHeight - (anchor.top + anchor.height + gap);
+    const spaceAbove = anchor.top - gap;
+    const flip = panelHeight > spaceBelow - margin && spaceAbove > spaceBelow;
+
+    let nudgeX = 0;
+    if (r.right > window.innerWidth - margin) nudgeX -= r.right - (window.innerWidth - margin);
+    if (r.left + nudgeX < margin) nudgeX = margin - r.left;
+
+    const naturalTop = flip ? anchor.top - gap - panelHeight : anchor.top + anchor.height + gap;
+    const clampedTop = Math.max(margin, Math.min(naturalTop, window.innerHeight - panelHeight - margin));
+    const nudgeY = clampedTop - naturalTop;
+
+    if (flip || nudgeX !== 0 || nudgeY !== 0) setCorrection({ flip, nudgeX, nudgeY });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor]);
+
+  if (!anchor || typeof document === "undefined") return null;
+  const flip = correction?.flip ?? false;
+  const nudgeX = correction?.nudgeX ?? 0;
+  const nudgeY = correction?.nudgeY ?? 0;
+  const top = (flip ? anchor.top - gap : anchor.top + anchor.height + gap) + offset.y + nudgeY;
+  const left = (align === "center" ? anchor.left + anchor.width / 2 : anchor.left) + offset.x + nudgeX;
+  return createPortal(
+    <div
+      ref={panelRef}
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        position: "fixed",
+        top,
+        left,
+        transform:
+          [align === "center" ? "translateX(-50%)" : "", flip ? "translateY(-100%)" : ""]
+            .filter(Boolean)
+            .join(" ") || undefined,
+        zIndex: 50,
+      }}
+      className={className}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
 
 export function Panel({
   title,
@@ -106,13 +336,13 @@ export function Field({
   );
 }
 
-export function Chip({
-  active,
-  className,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
+export const Chip = forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }
+>(({ active, className, ...props }, ref) => {
   return (
     <button
+      ref={ref}
       type="button"
       className={cn(
         "rounded-full border border-border bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:border-primary/60 hover:text-foreground",
@@ -122,7 +352,8 @@ export function Chip({
       {...props}
     />
   );
-}
+});
+Chip.displayName = "Chip";
 
 export function Toggle({
   checked,

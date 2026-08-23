@@ -74,10 +74,39 @@ type Props = {
   /** Registers/unregisters a text layer's imperative formatting handle
    * under its id as it mounts/unmounts — see TextLayerHandle. */
   registerTextLayerHandle?: (id: string, handle: TextLayerHandle | null) => void;
+  /** Fires when the canvas's own background (empty space, not any layer) is
+   * clicked directly — lets index.tsx show a background-properties toolbar
+   * the same way selecting a layer shows one. Only fires for a genuine
+   * click landing directly on the background div itself (checked via
+   * e.target === e.currentTarget below) — a click that bubbled up through
+   * a layer doesn't count, and a marquee-select drag never fires a click
+   * at all (browsers suppress the click when the pointerdown→up sequence
+   * involved real movement), so this can't misfire during either. */
+  onSelectBackground?: () => void;
+  /** True for as long as a second touch is also down (a pinch gesture in
+   * progress) — every layer's own drag-to-move checks this and bails out
+   * immediately rather than starting/continuing a drag. Without this, one
+   * finger of a two-finger pinch landing on a layer fired that layer's own
+   * pointerdown/pointermove (pointer events are independent of, and fire
+   * alongside, the touch events the pinch/pan handler in index.tsx reads),
+   * dragging the layer out from under the pinch at the same time the
+   * canvas itself was zooming/panning underneath it. A ref, not state —
+   * this flips mid-gesture and must never trigger a re-render. */
+  suppressDragRef?: React.RefObject<boolean> | undefined;
 };
 
 export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanvas(
-  { s, interactive = false, scale = 1, set, selection, onSelectionChange, registerTextLayerHandle },
+  {
+    s,
+    interactive = false,
+    scale = 1,
+    set,
+    selection,
+    onSelectionChange,
+    registerTextLayerHandle,
+    suppressDragRef,
+    onSelectBackground,
+  },
   ref,
 ) {
   // Always-current `s` without being a captured closure value — `s`
@@ -101,6 +130,11 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   // gesture or not.
   const scaleRef = useRef(scale);
   scaleRef.current = scale;
+  // Counter-scale for the multi-selection "N Layers Selected / Delete All"
+  // pill below — same technique as LayerToolbar's own `invScale`, since
+  // that pill renders inside the canvas's `scale(${scale})` transform too
+  // and would otherwise shrink to the point of being unreadable at low zoom.
+  const multiSelectInvScale = scale > 0 ? 1 / scale : 1;
 
   const [guides, setGuides] = useState<GuidesState>({ vCenter: false, hCenter: false });
   const [controlsOverlayEl, setControlsOverlayEl] = useState<HTMLDivElement | null>(null);
@@ -412,6 +446,9 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       {/* 1. CLIPPED CANVAS VISUAL CONTENT VIEWPORT (overflow: hidden) */}
       {/* Clips images, shapes, text, and shadows strictly at the canvas border like Canva */}
       <div
+        onClick={(e) => {
+          if (interactive && e.target === e.currentTarget) onSelectBackground?.();
+        }}
         style={{
           position: "absolute",
           inset: 0,
@@ -433,7 +470,16 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
               height: "100%",
               objectFit: "cover",
               objectPosition: `${s.bgImagePosX ?? 50}% ${s.bgImagePosY ?? 50}%`,
-              transform: `scale(${((s.bgImageZoom ?? 100) / 100) * (s.bgBlur > 0 ? 1.06 : 1)})`,
+              // Clamped to never go below 1 (100%) — object-fit: cover
+              // already sizes the image to exactly fill the canvas at
+              // zoom=100%; scaling it any smaller than that shrinks it
+              // BELOW that fill size, exposing the canvas's own background
+              // color/gradient around it instead of "zooming out" the
+              // photo the way the slider implies. A stored value below
+              // 100% (from before this fix, or the Range's own min) is
+              // clamped visually here regardless of what's saved, so it
+              // self-heals without needing the slider touched again.
+              transform: `scale(${Math.max(1, (s.bgImageZoom ?? 100) / 100) * (s.bgBlur > 0 ? 1.06 : 1)})`,
               transformOrigin: `${s.bgImagePosX ?? 50}% ${s.bgImagePosY ?? 50}%`,
               filter: s.bgBlur > 0 ? `blur(${s.bgBlur}px)` : "none",
               zIndex: 1,
@@ -476,6 +522,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGroupDragEnd={endGroupDrag}
                 onGuides={setGuides}
                 controlsOverlayEl={controlsOverlayEl}
+                suppressDragRef={suppressDragRef}
               />
             );
           }
@@ -500,6 +547,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGroupDragEnd={endGroupDrag}
                 onGuides={setGuides}
                 controlsOverlayEl={controlsOverlayEl}
+                suppressDragRef={suppressDragRef}
               />
             );
           }
@@ -525,6 +573,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGuides={setGuides}
                 registerHandle={registerTextLayerHandle}
                 controlsOverlayEl={controlsOverlayEl}
+                suppressDragRef={suppressDragRef}
               />
             );
           }
@@ -826,27 +875,33 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
           <div className="absolute -left-1.5 -bottom-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
           <div className="absolute -right-1.5 -bottom-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
 
-          {/* Group Info Badge & Interactive Multi-Delete Toolbar */}
+          {/* Group Info Badge & Interactive Multi-Delete Toolbar — this
+              whole subtree lives inside the canvas's own `scale(${scale})`
+              transform, so without a counter-scale here this pill (and its
+              text/icons) would shrink right along with it at low zoom,
+              becoming unreadably tiny — same fix as LayerToolbar's own
+              invScale above. */}
           <div
             data-nopan=""
             onPointerDown={(e) => e.stopPropagation()}
             style={{
               position: "absolute",
               left: "50%",
-              top: -34,
-              transform: "translateX(-50%)",
+              top: -34 * multiSelectInvScale,
+              transformOrigin: "top center",
+              transform: `translateX(-50%) scale(${multiSelectInvScale})`,
               background: "#0f172a",
               border: "1px solid rgba(255,255,255,0.15)",
               color: "#ffffff",
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 600,
-              padding: "3px 10px",
+              padding: "6px 14px",
               borderRadius: 20,
               boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
               whiteSpace: "nowrap",
               display: "flex",
               alignItems: "center",
-              gap: 8,
+              gap: 10,
               pointerEvents: "auto",
             }}
           >
@@ -867,19 +922,19 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 4,
+                gap: 5,
                 color: "#ef4444",
                 background: "rgba(239, 68, 68, 0.15)",
                 border: "none",
                 borderRadius: 12,
-                padding: "2px 8px",
+                padding: "4px 10px",
                 cursor: "pointer",
                 fontWeight: 600,
-                fontSize: 10,
+                fontSize: 12,
               }}
               title="Delete all selected layers"
             >
-              <Delete02Icon size={12} />
+              <Delete02Icon size={14} />
               Delete All
             </button>
           </div>
@@ -1211,22 +1266,22 @@ function LayerToolbar({
 }) {
   const invScale = scale > 0 ? 1 / scale : 1;
   const btn =
-    "flex h-7 w-7 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white";
+    "flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white";
   return (
     <div
       data-nopan=""
       onPointerDown={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
-        top: placement === "top" ? -12 * invScale : undefined,
-        bottom: placement === "bottom" ? -12 * invScale : undefined,
+        top: placement === "top" ? -16 * invScale : undefined,
+        bottom: placement === "bottom" ? -16 * invScale : undefined,
         left: "50%",
         transformOrigin: placement === "top" ? "bottom center" : "top center",
         transform: `translateX(-50%) translateY(${placement === "top" ? "-100%" : "100%"}) scale(${invScale})`,
         zIndex: 80,
         touchAction: "none",
       }}
-      className="flex items-center gap-0.5 whitespace-nowrap rounded-full border border-white/15 bg-[#15161c]/95 px-1.5 py-1 shadow-2xl backdrop-blur-md"
+      className="flex items-center gap-1 whitespace-nowrap rounded-full border border-white/15 bg-[#15161c]/95 px-2 py-1.5 shadow-2xl backdrop-blur-md"
     >
       <button
         type="button"
@@ -1237,7 +1292,7 @@ function LayerToolbar({
         title={locked ? "Unlock layer" : "Lock layer"}
         className={btn}
       >
-        {locked ? <SquareLock02Icon size={14} /> : <SquareUnlock02Icon size={14} />}
+        {locked ? <SquareLock02Icon size={18} /> : <SquareUnlock02Icon size={18} />}
       </button>
       <button
         type="button"
@@ -1248,9 +1303,9 @@ function LayerToolbar({
         title="Duplicate"
         className={btn}
       >
-        <Copy01Icon size={14} />
+        <Copy01Icon size={18} />
       </button>
-      <div className="mx-0.5 h-3.5 w-px bg-white/15" />
+      <div className="mx-0.5 h-5 w-px bg-white/15" />
       <button
         type="button"
         onClick={(e) => {
@@ -1258,9 +1313,9 @@ function LayerToolbar({
           onDelete();
         }}
         title="Delete"
-        className="flex h-7 w-7 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400"
+        className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400"
       >
-        <Delete02Icon size={14} />
+        <Delete02Icon size={18} />
       </button>
     </div>
   );
@@ -1910,6 +1965,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   onGuides,
   registerHandle,
   controlsOverlayEl,
+  suppressDragRef,
 }: {
   t: TextLayer;
   index: number;
@@ -1926,6 +1982,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   onGuides: (g: GuidesState) => void;
   registerHandle?: ((id: string, handle: TextLayerHandle | null) => void) | undefined;
   controlsOverlayEl?: HTMLDivElement | null;
+  suppressDragRef?: React.RefObject<boolean> | undefined;
 }) {
   const dragRef = useRef<{
     px: number;
@@ -2016,11 +2073,18 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   // already-selected layer" behavior, unconditionally.
   const moveDragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   const handleMovePointerDown = (e: React.PointerEvent) => {
+    // A second touch is also down — this is a pinch, not a drag (see
+    // suppressDragRef's own comment on QuoteCanvas's Props).
+    if (suppressDragRef?.current) return;
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     moveDragRef.current = { px: t.x, py: t.y, x: e.clientX, y: e.clientY };
   };
   const handleMovePointerMove = (e: React.PointerEvent) => {
+    if (suppressDragRef?.current) {
+      moveDragRef.current = null;
+      return;
+    }
     const d = moveDragRef.current;
     if (!d) return;
     e.stopPropagation();
@@ -2351,6 +2415,9 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             e.stopPropagation();
           }
           : (e: React.PointerEvent) => {
+            // A second touch is also down — this is a pinch, not a drag
+            // (see suppressDragRef's own comment on QuoteCanvas's Props).
+            if (suppressDragRef?.current) return;
             e.stopPropagation();
             if (e.shiftKey) {
               onSelect(t.id, { toggle: true });
@@ -2396,6 +2463,13 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       const handlePointerMove =
         canInteract && !locked && !isEditing
           ? (e: React.PointerEvent) => {
+            // A second finger joined mid-drag — cancel cleanly (see
+            // handlePointerDown's own check above).
+            if (suppressDragRef?.current) {
+              dragRef.current = null;
+              groupDraggingRef.current = false;
+              return;
+            }
             if (groupDraggingRef.current) {
               e.stopPropagation();
               onGroupDragMove(e.clientX, e.clientY);
@@ -2755,6 +2829,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   onGroupDragEnd,
   onGuides,
   controlsOverlayEl,
+  suppressDragRef,
 }: {
   img: ImageLayer;
   index: number;
@@ -2770,6 +2845,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
   controlsOverlayEl?: HTMLDivElement | null;
+  suppressDragRef?: React.RefObject<boolean> | undefined;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -2808,6 +2884,9 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
 
   const handlePointerDown = canInteract
     ? (e: React.PointerEvent) => {
+      // A second touch is also down — this is a pinch, not a drag (see
+      // suppressDragRef's own comment on QuoteCanvas's Props).
+      if (suppressDragRef?.current) return;
       e.stopPropagation();
       if (e.shiftKey) {
         onSelect(img.id, { toggle: true });
@@ -2851,6 +2930,13 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
 
   const handlePointerMove = canInteract && !locked
     ? (e: React.PointerEvent) => {
+      // A second finger joined mid-drag — cancel cleanly (see
+      // handlePointerDown's own check above).
+      if (suppressDragRef?.current) {
+        dragRef.current = null;
+        groupDraggingRef.current = false;
+        return;
+      }
       if (groupDraggingRef.current) {
         e.stopPropagation();
         onGroupDragMove(e.clientX, e.clientY);
@@ -3110,6 +3196,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   onGroupDragEnd,
   onGuides,
   controlsOverlayEl,
+  suppressDragRef,
 }: {
   shape: ShapeLayer;
   index: number;
@@ -3125,6 +3212,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
   controlsOverlayEl?: HTMLDivElement | null;
+  suppressDragRef?: React.RefObject<boolean> | undefined;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -3169,6 +3257,11 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
 
   const handlePointerDown = canInteract
     ? (e: React.PointerEvent) => {
+      // A second touch is also down — this is a pinch, not a drag (see
+      // suppressDragRef's own comment on QuoteCanvas's Props). Bail before
+      // even selecting, so a pinch starting with one finger over a
+      // different layer doesn't change the selection either.
+      if (suppressDragRef?.current) return;
       e.stopPropagation();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       if (e.shiftKey) {
@@ -3211,6 +3304,14 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
 
   const handlePointerMove = canInteract && !locked
     ? (e: React.PointerEvent) => {
+      // A second finger joined mid-drag (drag started before the pinch was
+      // detected) — cancel cleanly rather than let the layer keep
+      // reacting to this finger while the canvas is also being pinched.
+      if (suppressDragRef?.current) {
+        dragRef.current = null;
+        groupDraggingRef.current = false;
+        return;
+      }
       if (groupDraggingRef.current) {
         e.stopPropagation();
         onGroupDragMove(e.clientX, e.clientY);

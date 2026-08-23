@@ -2142,9 +2142,13 @@ export function LeftPanel({
                 </div>
 
                 <Field label={`Zoom — ${s.bgImageZoom ?? 100}%`}>
+                  {/* min is 100, not 50 — anything lower shrinks the image
+                      below its own "fills the canvas" size, exposing the
+                      background behind it instead of zooming out (see the
+                      clamp in QuoteCanvas.tsx's own render). */}
                   <Range
                     value={s.bgImageZoom ?? 100}
-                    min={50}
+                    min={100}
                     max={300}
                     onChange={(v) => set("bgImageZoom", v)}
                   />

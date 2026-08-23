@@ -39,6 +39,7 @@ import { QuoteCanvas, type TextLayerHandle } from "@/components/editor/QuoteCanv
 import { LeftPanel } from "@/components/editor/LeftPanel";
 import { RightPanel } from "@/components/editor/RightPanel";
 import { TextSelectionToolbar } from "@/components/editor/TextSelectionToolbar";
+import { BackgroundSelectionToolbar } from "@/components/editor/BackgroundSelectionToolbar";
 import { ImageSelectionToolbar } from "@/components/editor/ImageSelectionToolbar";
 import { ImageCropDialog } from "@/components/editor/ImageCropDialog";
 import { ShapeSelectionToolbar } from "@/components/editor/ShapeSelectionToolbar";
@@ -65,10 +66,9 @@ import {
   type ImageLayer,
   type Template,
 } from "@/components/editor/types";
-import { AppTooltip, Chip, Panel, Range } from "@/components/editor/ui";
+import { AppTooltip, Chip, Range } from "@/components/editor/ui";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ExportPreviewDialog } from "@/components/editor/ExportPreviewDialog";
-import { TemplatePreview } from "@/components/editor/TemplatePreview";
 import { Rulers, RULER_SIZE } from "@/components/editor/Rulers";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { UserMenu } from "@/components/auth/UserMenu";
@@ -562,6 +562,7 @@ function Index() {
 
     if (!e.shiftKey) {
       setCanvasSelection([]);
+      setIsBackgroundSelected(false);
     }
 
     const onPointerMove = (moveEvt: PointerEvent) => {
@@ -686,6 +687,7 @@ function Index() {
       return;
     }
     setCanvasSelection([]);
+    setIsBackgroundSelected(false);
   };
 
   // Platform templates state (synced with Supabase database & Admin dashboard)
@@ -708,20 +710,6 @@ function Index() {
     window.addEventListener("postinseconds:template-saved", handleTemplateSaved);
     return () => window.removeEventListener("postinseconds:template-saved", handleTemplateSaved);
   }, [loadTemplates, tab, saveTemplateOpen]);
-
-  const starterTemplates = useMemo(() => {
-    return platformTemplates.filter(
-      (t) =>
-        (t as any).category === "starter" ||
-        (!t.id.includes("founder") &&
-          !t.id.includes("hormozi") &&
-          !t.id.includes("jasmin") &&
-          !t.id.includes("viral") &&
-          !t.id.includes("cyber") &&
-          !t.id.includes("creator") &&
-          !t.id.includes("luxury")),
-    );
-  }, [platformTemplates]);
 
   const premiumTemplates = useMemo(() => {
     return platformTemplates.filter(
@@ -748,6 +736,19 @@ function Index() {
   const [canvasSelection, setCanvasSelection] = useState<
     { kind: "image" | "text" | "shape"; id: string }[]
   >([]);
+  // A separate flag rather than a 4th canvasSelection "kind" — canvasSelection's
+  // type is threaded through QuoteCanvas, the marquee, group-drag, and every
+  // per-layer toolbar, all of which only ever expect image/text/shape; adding
+  // a "canvas" kind there would mean auditing all of them for a case that
+  // isn't really a layer at all. Mutually exclusive with a non-empty
+  // canvasSelection by construction: onSelectBackground below only fires
+  // for a background click (which clears canvasSelection first), and the
+  // effect right after this state clears it back out the moment any real
+  // layer becomes selected through any of those other paths instead.
+  const [isBackgroundSelected, setIsBackgroundSelected] = useState(false);
+  useEffect(() => {
+    if (canvasSelection.length > 0) setIsBackgroundSelected(false);
+  }, [canvasSelection]);
   const textLayerHandlesRef = useRef<Map<string, TextLayerHandle>>(new Map());
   const registerTextLayerHandle = useCallback((id: string, handle: TextLayerHandle | null) => {
     if (handle) textLayerHandlesRef.current.set(id, handle);
@@ -774,6 +775,15 @@ function Index() {
   useEffect(() => {
     panRef.current = pan;
   }, [pan]);
+  // True for as long as a second touch is also down — a pinch gesture in
+  // progress. Passed to QuoteCanvas as suppressDragRef, which every layer's
+  // own drag-to-move checks and bails out on: pointer events fire
+  // independently of (and alongside) the touch events the pinch/pan effect
+  // below reads, so without this, one finger of a two-finger pinch landing
+  // on a layer dragged that layer at the same time the canvas itself was
+  // being zoomed/panned underneath it. A ref, not state — flips mid-
+  // gesture and must never trigger a re-render.
+  const suppressDragRef = useRef(false);
   const [guidesH, setGuidesH] = useState<number[]>([]);
   const [guidesV, setGuidesV] = useState<number[]>([]);
 
@@ -783,9 +793,18 @@ function Index() {
       const stH = stageH ?? (stageSizeRef.current.height > 0 ? stageSizeRef.current.height : stageRef.current?.clientHeight ?? 600);
 
       const rulerOffset = showRulers ? RULER_SIZE : 0;
-      // Exact padding matching stage padding (16px on mobile, 64px on desktop)
+      // Exact padding matching stage padding (16px on mobile, 64px on desktop).
+      // paddingY is bigger than paddingX on desktop specifically: the
+      // floating text/image/shape selection toolbar (sticky top-4, ~68px
+      // including its own height) floats independently of the canvas, near
+      // the stage's own top edge — at fit scale a canvas tall enough to
+      // nearly fill the stage left too little clearance up there and the
+      // toolbar visibly overlapped the canvas's own top edge. Centering
+      // splits this budget evenly top+bottom, so reserving enough for the
+      // toolbar means doubling it (some of that ends up as harmless extra
+      // breathing room at the bottom too, a fine trade for "never overlaps").
       const paddingX = isMobile ? 16 : 64;
-      const paddingY = isMobile ? 16 : 64;
+      const paddingY = isMobile ? 16 : 160;
 
       const availW = Math.max(100, stW - rulerOffset - paddingX);
       const availH = Math.max(100, stH - rulerOffset - paddingY);
@@ -1317,6 +1336,7 @@ function Index() {
         const stageEl = stageRef.current;
         if (!stageEl) return;
         pinchActive = true;
+        suppressDragRef.current = true;
         initialPinchDist = getTouchDist(t1, t2);
         initialScale = scaleRef.current;
         initialStageRect = stageEl.getBoundingClientRect();
@@ -1399,6 +1419,7 @@ function Index() {
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) {
         pinchActive = false;
+        suppressDragRef.current = false;
         initialStageRect = null;
         pendingScale = null;
         pendingDragX = 0;
@@ -1449,6 +1470,7 @@ function Index() {
   const applyTemplate = useCallback((templateState: Partial<EditorState>) => {
     setEditingSavedQuoteTarget(null);
     setCanvasSelection([]);
+    setIsBackgroundSelected(false);
     commit((prev) => {
       const hasLayers =
         (templateState.shapes && templateState.shapes.length > 0) ||
@@ -1573,6 +1595,7 @@ function Index() {
   const openExportPreview = async () => {
     if (!canvasRef.current || busy) return;
     setCanvasSelection([]);
+    setIsBackgroundSelected(false);
     (document.activeElement as HTMLElement | null)?.blur();
     window.getSelection()?.removeAllRanges();
 
@@ -1702,6 +1725,60 @@ function Index() {
       ? getShapeLayers(s).find((sh) => sh.id === onlySelected.id)
       : undefined;
 
+  // Keeps a floating toolbar popover (font, color, shadow, gradient, ...)
+  // open and fully usable even after the layer it belongs to stops being
+  // the live canvas selection — e.g. the user clicked the canvas background
+  // to check a color against it, or selected a different layer, while that
+  // popover was still open. Each of the four selection toolbars reports up
+  // via onAnyPopoverOpenChange whenever ANY of its own popovers opens or
+  // closes. Tracked per KIND (one slot each for text/image/shape/
+  // background, not a single shared value) so opening a popover in one
+  // toolbar can never clobber another toolbar's still-open, now-detached
+  // one — e.g. a Text popover left floating after a background click stays
+  // put even if the user goes on to select an image and opens one of ITS
+  // popovers too; several can be detached at once. "background" doesn't
+  // need a real per-instance id — there's only ever one, so its slot just
+  // holds a constant. While a kind's toolbar is no longer what live
+  // selection would show, the toolbar's own render slot below falls back
+  // to this pin to keep the SAME component instance mounted (`detached`)
+  // instead of unmounting it — a fresh instance in a new slot would lose
+  // the popover's own state (search text, drag position, which one is
+  // open) the instant it detached, which defeats the point.
+  const [pinnedOwners, setPinnedOwners] = useState<{
+    text: string | null;
+    image: string | null;
+    shape: string | null;
+    background: string | null;
+  }>({ text: null, image: null, shape: null, background: null });
+  const handlePinnedPopoverChange = useCallback(
+    (kind: "text" | "image" | "shape" | "background", id: string, open: boolean) => {
+      setPinnedOwners((prev) =>
+        open
+          ? { ...prev, [kind]: id }
+          : prev[kind] === id
+            ? { ...prev, [kind]: null }
+            : prev,
+      );
+    },
+    [],
+  );
+  const textDetached = !selectedTextLayer && !!pinnedOwners.text;
+  const imageDetached = !selectedImageLayer && !!pinnedOwners.image;
+  const shapeDetached = !selectedShapeLayer && !!pinnedOwners.shape;
+  const backgroundDetached = !isBackgroundSelected && !!pinnedOwners.background;
+  const pinnedTextLayer = textDetached
+    ? getTextLayers(s).find((t) => t.id === pinnedOwners.text)
+    : undefined;
+  const pinnedTextLayerHandle = pinnedTextLayer
+    ? textLayerHandlesRef.current.get(pinnedTextLayer.id)
+    : undefined;
+  const pinnedImageLayer = imageDetached
+    ? getImageLayers(s).find((img) => img.id === pinnedOwners.image)
+    : undefined;
+  const pinnedShapeLayer = shapeDetached
+    ? getShapeLayers(s).find((sh) => sh.id === pinnedOwners.shape)
+    : undefined;
+
   const handleSelectLayer = useCallback(
     (
       layer: { kind: "image" | "text" | "shape"; id: string },
@@ -1749,19 +1826,23 @@ function Index() {
       {/*
         Two stacked, always-mounted gradient layers crossfaded via
         opacity instead of one element whose background-image swaps
-        on the .dark class.
-        - Removed/hidden on mobile (md:block) for a clean native background.
-        - Fixed in the viewport frame on desktop so the gradient stays static
-          and never shifts or tears as the user pans, zooms, or scrolls the canvas.
+        on the .dark class. Shown on every viewport width — the toolbar
+        floats above the canvas via an overlay (not reserved space), and
+        with the canvas centered rather than filling the stage, a plain
+        flat bg-background fallback (previously used below the md
+        breakpoint) left a visible flat gray/dark box in that gap instead
+        of reading as an intentional backdrop. Fixed in the viewport frame
+        so the gradient stays static and never shifts or tears as the user
+        pans, zooms, or scrolls the canvas.
       */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 hidden md:block transition-opacity duration-500 ease-in-out"
+        className="pointer-events-none absolute inset-0 transition-opacity duration-500 ease-in-out"
         style={{ background: "var(--gradient-stage-light)", opacity: dark ? 0 : 1 }}
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 hidden md:block transition-opacity duration-500 ease-in-out"
+        className="pointer-events-none absolute inset-0 transition-opacity duration-500 ease-in-out"
         style={{ background: "var(--gradient-stage-dark)", opacity: dark ? 1 : 0 }}
       />
 
@@ -1867,8 +1948,25 @@ function Index() {
 
         {/* Floating Selection Toolbar — sticky-top on desktop, docked just
             above the bottom tab bar (Canva-mobile pattern) and horizontally
-            scrollable on mobile since its contents don't wrap. */}
-        {!isMobile && !stageMarquee && canvasSelection.length === 1 ? (
+            scrollable on mobile since its contents don't wrap.
+
+            Four independent slots below (not one ternary picking a single
+            winner) so a toolbar whose layer stopped being the live
+            selection can keep rendering — invisibly, `detached` — purely to
+            keep hosting whichever of its own popovers is still open (see
+            the pinnedOwners comment above). Each slot only ever
+            mounts ONE component instance across a live→detached transition
+            (same slot, same element type, just different props), which is
+            what lets that popover's own state survive the transition
+            instead of resetting. */}
+        {!isMobile &&
+        !stageMarquee &&
+        (canvasSelection.length === 1 ||
+          isBackgroundSelected ||
+          textDetached ||
+          imageDetached ||
+          shapeDetached ||
+          backgroundDetached) ? (
           <div
             className="pointer-events-none z-40 flex justify-center overflow-visible sticky top-4 h-0 w-full"
             style={{ margin: "0 auto" }}
@@ -1879,47 +1977,73 @@ function Index() {
               style={{ maxWidth: "calc(100% - 24px)", width: "fit-content" }}
               className="pointer-events-auto relative"
             >
-              {selectedTextLayer && selectedTextLayerHandle ? (
+              {(selectedTextLayer && selectedTextLayerHandle) || (textDetached && pinnedTextLayer && pinnedTextLayerHandle) ? (
                 <TextSelectionToolbar
-                  layer={selectedTextLayer}
-                  handle={selectedTextLayerHandle}
+                  layer={(selectedTextLayer ?? pinnedTextLayer)!}
+                  handle={(selectedTextLayerHandle ?? pinnedTextLayerHandle)!}
+                  detached={textDetached}
+                  onAnyPopoverOpenChange={(open) =>
+                    handlePinnedPopoverChange("text", (selectedTextLayer ?? pinnedTextLayer)!.id, open)
+                  }
                   onOpenEffectsTab={() => {
                     setTab("text");
                     setTextSubTab("effects");
                     setLeftPanelCollapsed(false);
                   }}
                 />
-              ) : selectedImageLayer ? (
+              ) : null}
+              {selectedImageLayer || (imageDetached && pinnedImageLayer) ? (
                 <ImageSelectionToolbar
-                  layer={selectedImageLayer}
-                  onUpdate={(patch) =>
-                    set("images", withImageUpdated(s, selectedImageLayer.id, patch))
+                  layer={(selectedImageLayer ?? pinnedImageLayer)!}
+                  detached={imageDetached}
+                  onAnyPopoverOpenChange={(open) =>
+                    handlePinnedPopoverChange("image", (selectedImageLayer ?? pinnedImageLayer)!.id, open)
                   }
-                  onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
-                />
-              ) : selectedShapeLayer ? (
-                <ShapeSelectionToolbar
-                  layer={selectedShapeLayer}
                   onUpdate={(patch) =>
-                    set("shapes", withShapeUpdated(s, selectedShapeLayer.id, patch))
+                    set("images", withImageUpdated(s, (selectedImageLayer ?? pinnedImageLayer)!.id, patch))
+                  }
+                  onOpenCrop={() => setCroppingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)}
+                />
+              ) : null}
+              {selectedShapeLayer || (shapeDetached && pinnedShapeLayer) ? (
+                <ShapeSelectionToolbar
+                  layer={(selectedShapeLayer ?? pinnedShapeLayer)!}
+                  detached={shapeDetached}
+                  onAnyPopoverOpenChange={(open) =>
+                    handlePinnedPopoverChange("shape", (selectedShapeLayer ?? pinnedShapeLayer)!.id, open)
+                  }
+                  onUpdate={(patch) =>
+                    set("shapes", withShapeUpdated(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id, patch))
                   }
                   onDuplicate={() => {
-                    const dup = withShapeDuplicated(s, selectedShapeLayer.id);
+                    const dup = withShapeDuplicated(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id);
                     set("shapes", dup.list);
                     setCanvasSelection([{ kind: "shape", id: dup.newId }]);
                   }}
                   onDelete={() => {
-                    set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                    set("shapes", withShapeRemoved(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id));
                     setCanvasSelection([]);
                   }}
                   onToggleLock={() =>
                     set(
                       "shapes",
-                      withShapeUpdated(s, selectedShapeLayer.id, {
-                        locked: !selectedShapeLayer.locked,
+                      withShapeUpdated(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id, {
+                        locked: !(selectedShapeLayer ?? pinnedShapeLayer)!.locked,
                       }),
                     )
                   }
+                />
+              ) : null}
+              {isBackgroundSelected || backgroundDetached ? (
+                <BackgroundSelectionToolbar
+                  s={s}
+                  set={set}
+                  detached={backgroundDetached}
+                  onAnyPopoverOpenChange={(open) => handlePinnedPopoverChange("background", "background", open)}
+                  onOpenBackgroundTab={() => {
+                    setTab("background");
+                    setLeftPanelCollapsed(false);
+                  }}
                 />
               ) : null}
             </div>
@@ -1944,7 +2068,12 @@ function Index() {
             height: s.height,
             transform: `translate(${canvasWrapperOrigin.x}px, ${canvasWrapperOrigin.y}px) scale(${scale})`,
             transformOrigin: "0 0",
-            willChange: "transform",
+            // Counter-scaled like every other selection indicator in the
+            // app (resize handles, layer outlines) — this div sits inside
+            // the same transform: scale(${scale}) as the canvas content,
+            // so a flat "3px" here would render thinner at low zoom and
+            // thicker at high zoom instead of a true, constant 3px.
+            outline: isBackgroundSelected ? `${3 / (scale || 1)}px solid #0021ff` : "none",
           }}
           className="shadow-[var(--shadow-panel)] ring-1 ring-border"
         >
@@ -1957,6 +2086,11 @@ function Index() {
             selection={canvasSelection}
             onSelectionChange={setCanvasSelection}
             registerTextLayerHandle={registerTextLayerHandle}
+            suppressDragRef={suppressDragRef}
+            onSelectBackground={() => {
+              setCanvasSelection([]);
+              setIsBackgroundSelected(true);
+            }}
           />
         </div>
 
@@ -2640,21 +2774,6 @@ function Index() {
             </div>
 
             {canvasStage}
-
-            <div className="shrink-0">
-              <Panel title="Free Templates" defaultOpen={false}>
-                <div className="flex gap-3 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden">
-                  {starterTemplates.map((t) => (
-                    <TemplatePreview
-                      key={t.id}
-                      template={t}
-                      width={120}
-                      onClick={() => applyTemplate(t.state)}
-                    />
-                  ))}
-                </div>
-              </Panel>
-            </div>
           </main>
 
           <aside

@@ -1,5 +1,5 @@
 import type React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   CropIcon,
   EyeIcon,
@@ -7,9 +7,18 @@ import {
   Upload01Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { ImageLayer } from "./types";
-import { Chip, ColorInput, Field, Range, Toggle } from "./ui";
+import {
+  Chip,
+  ColorInput,
+  DragHandle,
+  Field,
+  FloatingDropdown,
+  Range,
+  Toggle,
+  useDraggableOffset,
+  useStableAnchor,
+} from "./ui";
 import { cn } from "@/lib/utils";
 import { ImageCropDialog } from "./ImageCropDialog";
 
@@ -17,18 +26,63 @@ interface ImageSelectionToolbarProps {
   layer: ImageLayer;
   onUpdate: (patch: Partial<Omit<ImageLayer, "id">>) => void;
   onOpenCrop?: () => void;
+  // See the matching props' comments in TextSelectionToolbar.tsx.
+  detached?: boolean;
+  onAnyPopoverOpenChange?: (open: boolean) => void;
 }
 
 export function ImageSelectionToolbar({
   layer,
   onUpdate,
   onOpenCrop,
+  detached = false,
+  onAnyPopoverOpenChange,
 }: ImageSelectionToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
+
+  // Every popover below can be dragged to wherever the user wants — see
+  // useDraggableOffset's own comment in ui.tsx for why the offset applies
+  // to an inner wrapper rather than PopoverContent itself.
+  const radiusDrag = useDraggableOffset();
+  const opacityDrag = useDraggableOffset();
+  const shadowDrag = useDraggableOffset();
+
+  const radiusTriggerRef = useRef<HTMLButtonElement>(null);
+  const opacityTriggerRef = useRef<HTMLButtonElement>(null);
+  const shadowTriggerRef = useRef<HTMLButtonElement>(null);
+  const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
+  const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
+  const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
+
+  // Each popover blocks Radix's own click/focus-outside auto-dismiss (see
+  // onPointerDownOutside/onInteractOutside below) — a fast drag was tripping
+  // it mid-move — so the only paths that close one now are the trigger's
+  // own toggle and the drag handle's X button (both just flip the local
+  // open state directly). The drag offset resets on the OPEN edge, not the
+  // close edge — resetting on close would snap the panel back to its
+  // anchor position in the same instant the close animation starts, making
+  // it visibly jump before it fades out instead of disappearing from
+  // wherever the user actually left it.
+
+  // See the matching block's comment in TextSelectionToolbar.tsx.
+  const anyPopoverOpen = radiusOpen || opacityOpen || shadowOpen;
+  useEffect(() => {
+    onAnyPopoverOpenChange?.(anyPopoverOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyPopoverOpen]);
+
+  const rowRef = useRef<HTMLDivElement>(null);
+  const lastLiveRectRef = useRef<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!detached && rowRef.current) {
+      const r = rowRef.current.getBoundingClientRect();
+      lastLiveRectRef.current = { top: r.top, left: r.left };
+    }
+  });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -49,8 +103,20 @@ export function ImageSelectionToolbar({
 
   return (
     <div
+      ref={rowRef}
       data-nopan=""
       data-keep-text-editing=""
+      style={
+        detached
+          ? {
+              position: "fixed",
+              top: lastLiveRectRef.current?.top ?? 0,
+              left: lastLiveRectRef.current?.left ?? 0,
+              visibility: "hidden",
+              pointerEvents: "none",
+            }
+          : undefined
+      }
       className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
     >
       {/* Hidden file input for Replace Image */}
@@ -104,218 +170,236 @@ export function ImageSelectionToolbar({
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
       {/* 2. Corner Radius Popover */}
-      <Popover open={radiusOpen} onOpenChange={setRadiusOpen}>
-        <AppTooltip content="Adjust corner radius">
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                btnClass,
-                radiusOpen && "bg-secondary text-primary",
-                layer.radius > 0 ? "text-primary" : "text-muted-foreground",
-              )}
-            >
-              <span className="text-[11px] font-semibold">
-                Radius: {layer.radius === 999 ? "Circle" : `${layer.radius}px`}
-              </span>
-            </button>
-          </PopoverTrigger>
-        </AppTooltip>
-        <PopoverContent
-          align="center"
-          sideOffset={8}
-          className="w-64 space-y-3 p-3 shadow-xl"
+      <AppTooltip content="Adjust corner radius">
+        <button
+          ref={radiusTriggerRef}
+          type="button"
+          onClick={() => {
+            setRadiusOpen((wasOpen) => {
+              if (!wasOpen) radiusDrag.reset();
+              return !wasOpen;
+            });
+          }}
+          className={cn(
+            btnClass,
+            radiusOpen && "bg-secondary text-primary",
+            layer.radius > 0 ? "text-primary" : "text-muted-foreground",
+          )}
+        >
+          <span className="text-[11px] font-semibold">
+            Radius: {layer.radius === 999 ? "Circle" : `${layer.radius}px`}
+          </span>
+        </button>
+      </AppTooltip>
+      <FloatingDropdown anchor={radiusAnchor} offset={radiusDrag.offset} align="center">
+        <div
           data-nopan=""
           data-keep-text-editing=""
+          className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-foreground">Corner Radius</span>
-            <span className="text-[11px] font-medium text-muted-foreground">
-              {layer.radius === 999 ? "Pill / Circle" : `${layer.radius}px`}
-            </span>
-          </div>
+          <DragHandle label="Corner Radius" {...radiusDrag.dragHandleProps} onClose={() => setRadiusOpen(false)} />
+          <div className="space-y-3 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-foreground">Corner Radius</span>
+              <span className="text-[11px] font-medium text-muted-foreground">
+                {layer.radius === 999 ? "Pill / Circle" : `${layer.radius}px`}
+              </span>
+            </div>
 
-          <Range
-            value={layer.radius}
-            min={0}
-            max={200}
-            onChange={(v) => onUpdate({ radius: v })}
-          />
+            <Range
+              value={layer.radius}
+              min={0}
+              max={200}
+              onChange={(v) => onUpdate({ radius: v })}
+            />
 
-          <div className="grid grid-cols-3 gap-1.5">
-            {[
-              { label: "0px", val: 0 },
-              { label: "8px", val: 8 },
-              { label: "16px", val: 16 },
-              { label: "24px", val: 24 },
-              { label: "40px", val: 40 },
-              { label: "Circle", val: 999 },
-            ].map((p) => (
-              <Chip
-                key={p.label}
-                active={layer.radius === p.val}
-                onClick={() => onUpdate({ radius: p.val })}
-                className="justify-center py-1 text-[11px]"
-              >
-                {p.label}
-              </Chip>
-            ))}
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { label: "0px", val: 0 },
+                { label: "8px", val: 8 },
+                { label: "16px", val: 16 },
+                { label: "24px", val: 24 },
+                { label: "40px", val: 40 },
+                { label: "Circle", val: 999 },
+              ].map((p) => (
+                <Chip
+                  key={p.label}
+                  active={layer.radius === p.val}
+                  onClick={() => onUpdate({ radius: p.val })}
+                  className="justify-center py-1 text-[11px]"
+                >
+                  {p.label}
+                </Chip>
+              ))}
+            </div>
           </div>
-        </PopoverContent>
-      </Popover>
+        </div>
+      </FloatingDropdown>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
       {/* 3. Opacity Popover */}
-      <Popover open={opacityOpen} onOpenChange={setOpacityOpen}>
-        <AppTooltip content="Adjust layer opacity">
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                btnClass,
-                opacityOpen && "bg-secondary text-primary",
-                (layer.opacity ?? 100) < 100 && "text-primary",
-              )}
-            >
-              <EyeIcon size={15} />
-              <span className="text-xs font-semibold">{layer.opacity ?? 100}%</span>
-            </button>
-          </PopoverTrigger>
-        </AppTooltip>
-        <PopoverContent
-          align="center"
-          sideOffset={8}
-          className="w-56 space-y-3 p-3 shadow-xl"
+      <AppTooltip content="Adjust layer opacity">
+        <button
+          ref={opacityTriggerRef}
+          type="button"
+          onClick={() => {
+            setOpacityOpen((wasOpen) => {
+              if (!wasOpen) opacityDrag.reset();
+              return !wasOpen;
+            });
+          }}
+          className={cn(
+            btnClass,
+            opacityOpen && "bg-secondary text-primary",
+            (layer.opacity ?? 100) < 100 && "text-primary",
+          )}
+        >
+          <EyeIcon size={15} />
+          <span className="text-xs font-semibold">{layer.opacity ?? 100}%</span>
+        </button>
+      </AppTooltip>
+      <FloatingDropdown anchor={opacityAnchor} offset={opacityDrag.offset} align="center">
+        <div
           data-nopan=""
           data-keep-text-editing=""
+          className="w-56 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
         >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-foreground">Layer Opacity</span>
-            <span className="text-[11px] font-medium text-muted-foreground">
-              {layer.opacity ?? 100}%
-            </span>
-          </div>
+          <DragHandle label="Opacity" {...opacityDrag.dragHandleProps} onClose={() => setOpacityOpen(false)} />
+          <div className="space-y-3 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-foreground">Layer Opacity</span>
+              <span className="text-[11px] font-medium text-muted-foreground">
+                {layer.opacity ?? 100}%
+              </span>
+            </div>
 
-          <Range
-            value={layer.opacity ?? 100}
-            min={5}
-            max={100}
-            onChange={(v) => onUpdate({ opacity: v })}
-          />
+            <Range
+              value={layer.opacity ?? 100}
+              min={5}
+              max={100}
+              onChange={(v) => onUpdate({ opacity: v })}
+            />
 
-          <div className="grid grid-cols-4 gap-1">
-            {[100, 75, 50, 25].map((op) => (
-              <Chip
-                key={op}
-                active={(layer.opacity ?? 100) === op}
-                onClick={() => onUpdate({ opacity: op })}
-                className="justify-center py-1 text-[10px]"
-              >
-                {op}%
-              </Chip>
-            ))}
+            <div className="grid grid-cols-4 gap-1">
+              {[100, 75, 50, 25].map((op) => (
+                <Chip
+                  key={op}
+                  active={(layer.opacity ?? 100) === op}
+                  onClick={() => onUpdate({ opacity: op })}
+                  className="justify-center py-1 text-[10px]"
+                >
+                  {op}%
+                </Chip>
+              ))}
+            </div>
           </div>
-        </PopoverContent>
-      </Popover>
+        </div>
+      </FloatingDropdown>
 
       {/* 4. Drop Shadow Popover */}
-      <Popover open={shadowOpen} onOpenChange={setShadowOpen}>
-        <AppTooltip content="Drop shadow & depth">
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                btnClass,
-                shadowOpen && "bg-secondary text-primary",
-                layer.shadow ? "text-primary font-semibold" : "text-muted-foreground",
-              )}
-            >
-              <Layers01Icon size={14} />
-              <span className="text-[11px]">Shadow</span>
-            </button>
-          </PopoverTrigger>
-        </AppTooltip>
-        <PopoverContent
-          align="center"
-          sideOffset={8}
-          className="w-[350px] space-y-3.5 p-4 shadow-2xl rounded-2xl border border-border/80 bg-background/95 backdrop-blur-md"
+      <AppTooltip content="Drop shadow & depth">
+        <button
+          ref={shadowTriggerRef}
+          type="button"
+          onClick={() => {
+            setShadowOpen((wasOpen) => {
+              if (!wasOpen) shadowDrag.reset();
+              return !wasOpen;
+            });
+          }}
+          className={cn(
+            btnClass,
+            shadowOpen && "bg-secondary text-primary",
+            layer.shadow ? "text-primary font-semibold" : "text-muted-foreground",
+          )}
+        >
+          <Layers01Icon size={14} />
+          <span className="text-[11px]">Shadow</span>
+        </button>
+      </AppTooltip>
+      <FloatingDropdown anchor={shadowAnchor} offset={shadowDrag.offset} align="center">
+        <div
           data-nopan=""
           data-keep-text-editing=""
+          className="w-[350px] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-md"
         >
-          <Toggle
-            checked={layer.shadow}
-            onChange={(v) => onUpdate({ shadow: v })}
-            label="Drop shadow"
-          />
+          <DragHandle label="Drop Shadow" {...shadowDrag.dragHandleProps} onClose={() => setShadowOpen(false)} />
+          <div className="space-y-3.5 p-4">
+            <Toggle
+              checked={layer.shadow}
+              onChange={(v) => onUpdate({ shadow: v })}
+              label="Drop shadow"
+            />
 
-          {layer.shadow ? (
-            <div className="space-y-3 border-t border-border/50 pt-3">
-              {/* All Range Sliders on Top with full width */}
-              <Field label={`Blur — ${layer.shadowBlur}px`}>
-                <Range
-                  value={layer.shadowBlur}
-                  min={0}
-                  max={100}
-                  onChange={(v) => onUpdate({ shadowBlur: v })}
-                  showInput={true}
-                />
-              </Field>
+            {layer.shadow ? (
+              <div className="space-y-3 border-t border-border/50 pt-3">
+                {/* All Range Sliders on Top with full width */}
+                <Field label={`Blur — ${layer.shadowBlur}px`}>
+                  <Range
+                    value={layer.shadowBlur}
+                    min={0}
+                    max={100}
+                    onChange={(v) => onUpdate({ shadowBlur: v })}
+                    showInput={true}
+                  />
+                </Field>
 
-              <Field label={`Spread — ${layer.shadowSpread ?? 0}px`}>
-                <Range
-                  value={layer.shadowSpread ?? 0}
-                  min={-20}
-                  max={40}
-                  onChange={(v) => onUpdate({ shadowSpread: v })}
-                  showInput={true}
-                />
-              </Field>
+                <Field label={`Spread — ${layer.shadowSpread ?? 0}px`}>
+                  <Range
+                    value={layer.shadowSpread ?? 0}
+                    min={-20}
+                    max={40}
+                    onChange={(v) => onUpdate({ shadowSpread: v })}
+                    showInput={true}
+                  />
+                </Field>
 
-              <Field label={`Offset X — ${layer.shadowX ?? 0}px`}>
-                <Range
-                  value={layer.shadowX ?? 0}
-                  min={-50}
-                  max={50}
-                  onChange={(v) => onUpdate({ shadowX: v })}
-                  showInput={true}
-                />
-              </Field>
+                <Field label={`Offset X — ${layer.shadowX ?? 0}px`}>
+                  <Range
+                    value={layer.shadowX ?? 0}
+                    min={-50}
+                    max={50}
+                    onChange={(v) => onUpdate({ shadowX: v })}
+                    showInput={true}
+                  />
+                </Field>
 
-              <Field label={`Offset Y — ${layer.shadowY ?? 12}px`}>
-                <Range
-                  value={layer.shadowY ?? 12}
-                  min={-50}
-                  max={50}
-                  onChange={(v) => onUpdate({ shadowY: v })}
-                  showInput={true}
-                />
-              </Field>
+                <Field label={`Offset Y — ${layer.shadowY ?? 12}px`}>
+                  <Range
+                    value={layer.shadowY ?? 12}
+                    min={-50}
+                    max={50}
+                    onChange={(v) => onUpdate({ shadowY: v })}
+                    showInput={true}
+                  />
+                </Field>
 
-              <Field label={`Opacity — ${layer.shadowOpacity ?? 35}%`}>
-                <Range
-                  value={layer.shadowOpacity ?? 35}
-                  min={0}
-                  max={100}
-                  onChange={(v) => onUpdate({ shadowOpacity: v })}
-                  showInput={true}
-                />
-              </Field>
+                <Field label={`Opacity — ${layer.shadowOpacity ?? 35}%`}>
+                  <Range
+                    value={layer.shadowOpacity ?? 35}
+                    min={0}
+                    max={100}
+                    onChange={(v) => onUpdate({ shadowOpacity: v })}
+                    showInput={true}
+                  />
+                </Field>
 
-              {/* Color Picker at Bottom */}
-              <div className="flex items-center justify-between border-t border-border/40 pt-2.5">
-                <span className="text-xs font-semibold text-muted-foreground">Shadow Color</span>
-                <ColorInput
-                  value={layer.shadowColor ?? "#000000"}
-                  onChange={(v) => onUpdate({ shadowColor: v })}
-                  showHex={true}
-                  swatchClassName="h-7 w-7 rounded-lg border-border"
-                />
+                {/* Color Picker at Bottom */}
+                <div className="flex items-center justify-between border-t border-border/40 pt-2.5">
+                  <span className="text-xs font-semibold text-muted-foreground">Shadow Color</span>
+                  <ColorInput
+                    value={layer.shadowColor ?? "#000000"}
+                    onChange={(v) => onUpdate({ shadowColor: v })}
+                    showHex={true}
+                    swatchClassName="h-7 w-7 rounded-lg border-border"
+                  />
+                </div>
               </div>
-            </div>
-          ) : null}
-        </PopoverContent>
-      </Popover>
+            ) : null}
+          </div>
+        </div>
+      </FloatingDropdown>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
