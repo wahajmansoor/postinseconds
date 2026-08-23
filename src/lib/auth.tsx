@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { SocialLogin } from "@capgo/capacitor-social-login";
 import { supabase } from "@/lib/supabase";
@@ -30,6 +30,16 @@ interface AuthContextType {
   openLoginModal: () => void;
   closeLoginModal: () => void;
   updateLocalUser: (partial: Partial<Pick<AuthUser, "name" | "avatar">>) => void;
+  // Web-only: attach to a container element to have Google's own real
+  // "Sign in with Google" button rendered into it (see the big comment on
+  // the GIS effect below for why it has to be Google's actual button, not
+  // a custom one). isGoogleButtonReady flips true once that render
+  // succeeds — until then (or if it never does, e.g. an ad blocker killed
+  // Google's script), the caller should keep showing loginWithGoogle's
+  // own fallback button instead. Always false/no-op on native, where the
+  // existing custom button already calls loginWithGoogle directly.
+  googleButtonContainerRef: (el: HTMLDivElement | null) => void;
+  isGoogleButtonReady: boolean;
 }
 
 const STORAGE_KEY = "postinseconds_auth_user";
@@ -110,6 +120,101 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("SocialLogin.initialize error:", err);
     });
   }, []);
+
+  // Web-only: Google Identity Services (GIS) — the same idea as the native
+  // Credential Manager flow above, applied to the browser. Supabase's own
+  // signInWithOAuth redirects through Supabase's *own* domain on the way to
+  // Google, which is what put "nwomhuftbmbhjfmsboob.supabase.co" on
+  // Google's account-picker screen; GIS instead authenticates directly
+  // against this site's own origin and hands back an ID token to a JS
+  // callback here, with no redirect at all — same signInWithIdToken finish
+  // line as native, and Google shows this site, not Supabase's domain.
+  //
+  // GIS's button is a real Google-hosted iframe for security — a page
+  // can't dispatch a synthetic click into it from a different, custom-
+  // styled button, so it has to be the thing the user actually clicks.
+  // registerGoogleButtonContainer below renders it into whatever container
+  // the UI (SignupPage) hands over, styled via GIS's own options to sit as
+  // close to the existing button's look as it can.
+  const gisReadyRef = useRef(false);
+  const pendingButtonContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isGoogleButtonReady, setIsGoogleButtonReady] = useState(false);
+
+  const handleGisCredential = async (response: { credential?: string }) => {
+    if (!response.credential) return;
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithIdToken({
+        provider: "google",
+        token: response.credential,
+      });
+      if (error) throw error;
+      setIsLoginModalOpen(false);
+    } catch (e: any) {
+      console.error("Google Auth Error:", e);
+      alert(e.message || "Failed to sign in with Google");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const tryRenderGoogleButton = () => {
+    const container = pendingButtonContainerRef.current;
+    if (!gisReadyRef.current || !container || container.childElementCount > 0) return;
+    try {
+      (window as any).google.accounts.id.renderButton(container, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        shape: "pill",
+        text: "signin_with",
+        logo_alignment: "left",
+        width: Math.round(container.offsetWidth) || 320,
+      });
+      setIsGoogleButtonReady(true);
+    } catch (err) {
+      console.error("GIS renderButton error:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) return;
+
+    const initGis = () => {
+      try {
+        (window as any).google.accounts.id.initialize({
+          client_id: GOOGLE_WEB_CLIENT_ID,
+          callback: handleGisCredential,
+        });
+        gisReadyRef.current = true;
+        tryRenderGoogleButton();
+      } catch (err) {
+        console.error("GIS initialize error:", err);
+      }
+    };
+
+    if ((window as any).google?.accounts?.id) {
+      initGis();
+      return;
+    }
+
+    // Ad blockers/privacy extensions commonly block accounts.google.com —
+    // if this script never loads, gisReadyRef just stays false forever and
+    // the caller's fallback button (plain loginWithGoogle, the redirect
+    // flow) is what actually gets used instead.
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = initGis;
+    script.onerror = () => console.error("Failed to load Google Identity Services script");
+    document.head.appendChild(script);
+  }, []);
+
+  const googleButtonContainerRef = (el: HTMLDivElement | null) => {
+    pendingButtonContainerRef.current = el;
+    if (el) tryRenderGoogleButton();
+  };
 
   // Helper to fetch user profile and role from Supabase
   const syncUserFromSession = async (sbUser: any) => {
@@ -230,6 +335,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         openLoginModal,
         closeLoginModal,
         updateLocalUser,
+        googleButtonContainerRef,
+        isGoogleButtonReady,
       }}
     >
       {children}
