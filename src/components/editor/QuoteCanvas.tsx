@@ -1305,40 +1305,57 @@ function LayerToolbar({
       }}
       className="flex items-center gap-1 whitespace-nowrap rounded-full border border-white/15 bg-[#15161c]/95 px-2 py-1.5 shadow-2xl backdrop-blur-md"
     >
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleLock();
-        }}
-        title={locked ? "Unlock layer" : "Lock layer"}
-        className={btn}
-      >
-        {locked ? <SquareLock02Icon size={18} /> : <SquareUnlock02Icon size={18} />}
-      </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDuplicate();
-        }}
-        title="Duplicate"
-        className={btn}
-      >
-        <Copy01Icon size={18} />
-      </button>
-      <div className="mx-0.5 h-5 w-px bg-white/15" />
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-        title="Delete"
-        className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400"
-      >
-        <Delete02Icon size={18} />
-      </button>
+      {locked ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleLock();
+          }}
+          title="Unlock layer"
+          className="flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-semibold text-amber-400 transition-colors hover:bg-amber-400/20 hover:text-amber-300 active:scale-95"
+        >
+          <SquareLock02Icon size={16} />
+          <span>Unlock</span>
+        </button>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleLock();
+            }}
+            title="Lock layer"
+            className={btn}
+          >
+            <SquareUnlock02Icon size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+            }}
+            title="Duplicate"
+            className={btn}
+          >
+            <Copy01Icon size={18} />
+          </button>
+          <div className="mx-0.5 h-5 w-px bg-white/15" />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            title="Delete"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400"
+          >
+            <Delete02Icon size={18} />
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -2476,7 +2493,10 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               onSelect(t.id, { toggle: true });
               return;
             }
-            if (locked) return;
+            if (locked) {
+              onSelect(t.id);
+              return;
+            }
 
             if (e.altKey && set) {
               const dup = withTextDuplicated(sRef.current, t.id);
@@ -2754,7 +2774,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               style={{
                 position: "absolute",
                 inset: -4,
-                border: "2px solid #0021ff",
+                border: locked ? "2px dashed #f59e0b" : "2px solid #0021ff",
                 borderRadius: 4,
                 pointerEvents: "none",
               }}
@@ -2957,7 +2977,10 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
         onSelect(img.id, { toggle: true });
         return;
       }
-      if (locked) return;
+      if (locked) {
+        onSelect(img.id);
+        return;
+      }
 
       if (e.altKey && set) {
         const dup = withImageDuplicated(sRef.current, img.id);
@@ -3129,7 +3152,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
               style={{
                 position: "absolute",
                 inset: -4,
-                border: "2px solid #0021ff",
+                border: locked ? "2px dashed #f59e0b" : "2px solid #0021ff",
                 // Fixed, not tied to img.radius — a circularly-cropped
                 // image should still get the same plain rectangular
                 // selection outline every other layer type gets (see the
@@ -3341,7 +3364,10 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
         onSelect(shape.id, { toggle: true });
         return;
       }
-      if (locked) return;
+      if (locked) {
+        onSelect(shape.id);
+        return;
+      }
       if (!selected) {
         onSelect(shape.id);
       }
@@ -3504,7 +3530,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               style={{
                 position: "absolute",
                 inset: -4,
-                border: "2px solid #0021ff",
+                border: locked ? "2px dashed #f59e0b" : "2px solid #0021ff",
                 borderRadius: 4,
                 pointerEvents: "none",
               }}
