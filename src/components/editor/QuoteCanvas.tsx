@@ -10,6 +10,7 @@ import {
   ReloadIcon
 } from "hugeicons-react";
 import { loadGoogleFont } from "@/lib/fontLoader";
+import { triggerAlignmentHaptic } from "@/lib/haptics";
 import {
   getImageLayers,
   getShapeLayers,
@@ -137,6 +138,27 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   const multiSelectInvScale = scale > 0 ? 1 / scale : 1;
 
   const [guides, setGuides] = useState<GuidesState>({ vCenter: false, hCenter: false });
+  // Tracks whether the *previous* guides update was "snapped" (any guide
+  // line/edge/center active), so the haptic below only fires once on the
+  // false->true transition — not on every pointermove while a drag stays
+  // snapped, and not when a drag ends and guides clear back to false.
+  const wasSnappedRef = useRef(false);
+  const handleGuidesChange = useCallback((g: GuidesState) => {
+    const isSnapped = !!(
+      g.vCenter ||
+      g.hCenter ||
+      g.edgeLeft ||
+      g.edgeRight ||
+      g.edgeTop ||
+      g.edgeBottom ||
+      (g.lines && g.lines.length > 0)
+    );
+    if (isSnapped && !wasSnappedRef.current) {
+      triggerAlignmentHaptic();
+    }
+    wasSnappedRef.current = isSnapped;
+    setGuides(g);
+  }, []);
   const [controlsOverlayEl, setControlsOverlayEl] = useState<HTMLDivElement | null>(null);
 
   type LayerRef = { kind: "image" | "text" | "shape"; id: string };
@@ -305,7 +327,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         dxPct = snappedGroupCenterX - (minStartX + maxStartX) / 2;
         dyPct = snappedGroupCenterY - (minStartY + maxStartY) / 2;
 
-        setGuides(snapGuides);
+        handleGuidesChange(snapGuides);
       }
 
       const imageItems = g.items.filter((it) => it.kind === "image");
@@ -342,7 +364,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
 
   const endGroupDrag = useCallback(() => {
     groupDragRef.current = null;
-    setGuides({ vCenter: false, hCenter: false });
+    handleGuidesChange({ vCenter: false, hCenter: false });
   }, []);
 
   // Arrow keys nudge every currently-selected layer together — 0.1% of the
@@ -520,7 +542,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGroupDragStart={beginGroupDrag}
                 onGroupDragMove={updateGroupDrag}
                 onGroupDragEnd={endGroupDrag}
-                onGuides={setGuides}
+                onGuides={handleGuidesChange}
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
               />
@@ -545,7 +567,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGroupDragStart={beginGroupDrag}
                 onGroupDragMove={updateGroupDrag}
                 onGroupDragEnd={endGroupDrag}
-                onGuides={setGuides}
+                onGuides={handleGuidesChange}
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
               />
@@ -570,7 +592,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGroupDragStart={beginGroupDrag}
                 onGroupDragMove={updateGroupDrag}
                 onGroupDragEnd={endGroupDrag}
-                onGuides={setGuides}
+                onGuides={handleGuidesChange}
                 registerHandle={registerTextLayerHandle}
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}

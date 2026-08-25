@@ -271,6 +271,11 @@ export function FloatingDropdown({
   return createPortal(
     <div
       ref={panelRef}
+      // Lets mobile's auto-pan-into-view (index.tsx) find every currently-open
+      // popover's real on-screen position via a plain DOM query, the same way
+      // it already locates the selected layer itself — see the comment on its
+      // "Trigger 3" effect for why a live measurement beats a guessed height.
+      data-floating-dropdown=""
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       style={{
