@@ -603,7 +603,12 @@ export function ColorPickerContent({
   const currentColor = rgbaToHex(rgba, showAlpha && hsva.a < 1);
 
   return (
-    <div className="flex w-68 flex-col gap-3.5 p-3.5 text-popover-foreground">
+    // max-md: this is used both as a plain desktop popover (fixed w-68 is
+    // correct there) and directly inside FloatingDropdown's mobile bottom
+    // sheet (Text Color, Background Solid) — on mobile it should fill the
+    // sheet's own width instead of floating narrow inside it with blank
+    // space on either side.
+    <div className="flex w-68 max-md:w-full flex-col gap-3.5 p-3.5 text-popover-foreground">
       {/* 1. HeroUI 2D Color Area */}
       <ColorArea hsva={hsva} onChange={updateHsva} />
 

@@ -66,7 +66,7 @@ import {
   type ImageLayer,
   type Template,
 } from "@/components/editor/types";
-import { AppTooltip, Chip, Range } from "@/components/editor/ui";
+import { AppTooltip, Chip, MOBILE_SHEET_MAX_HEIGHT_FRACTION, Range } from "@/components/editor/ui";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ExportPreviewDialog } from "@/components/editor/ExportPreviewDialog";
 import { Rulers, RULER_SIZE } from "@/components/editor/Rulers";
@@ -210,19 +210,6 @@ function ZoomInput({
 // drawn.
 const SCROLLBAR_EDGE_MARGIN = 3;
 const SCROLLBAR_CORNER_RESERVE = 12;
-
-// Mobile tool drawer snap points — fractions of window height, same
-// convention vaul (the underlying Drawer library) uses for numeric
-// snapPoints. Two stops instead of one fixed height: PEEK is short enough
-// to leave most of the canvas visible while a control is still open (drag
-// the sheet down without dismissing it), FULL matches the old fixed 75vh
-// the drawer always opened to before snap points existed. Hoisted to module
-// scope so the array reference is stable across renders — vaul re-measures
-// on every snapPoints identity change, which a fresh array literal in JSX
-// would trigger on every single render.
-const TOOL_DRAWER_PEEK_FRACTION = 0.42;
-const TOOL_DRAWER_FULL_FRACTION = 0.8;
-const TOOL_DRAWER_SNAP_POINTS: (number | string)[] = [TOOL_DRAWER_PEEK_FRACTION, TOOL_DRAWER_FULL_FRACTION];
 
 function CanvasScrollbar({
   orientation,
@@ -454,16 +441,6 @@ function Index() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const isMobile = useIsMobile();
   const [mobileToolDrawerOpen, setMobileToolDrawerOpen] = useState(false);
-  // Which of TOOL_DRAWER_SNAP_POINTS the tool drawer is currently resting
-  // at — vaul drives this itself as the user drags, we just seed/reset it
-  // below so every fresh open starts at FULL rather than remembering
-  // wherever a previous session left it peeked down to.
-  const [toolDrawerSnap, setToolDrawerSnap] = useState<number | string | null>(
-    TOOL_DRAWER_FULL_FRACTION,
-  );
-  useEffect(() => {
-    if (mobileToolDrawerOpen) setToolDrawerSnap(TOOL_DRAWER_FULL_FRACTION);
-  }, [mobileToolDrawerOpen]);
   const [mobileExportDrawerOpen, setMobileExportDrawerOpen] = useState(false);
   const [croppingImageLayer, setCroppingImageLayer] = useState<ImageLayer | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
@@ -1174,17 +1151,13 @@ function Index() {
 
   // Trigger 2: the mobile tool drawer opening while a layer stays selected
   // (e.g. tapping "Effects" on the selection toolbar) — the drawer covers
-  // the bottom fraction of the *window* given by its FULL snap point (what
-  // it always opens to — see toolDrawerSnap's reset effect above), which
-  // trigger 1 above has no way to know about since it only reasons about
-  // the stage's own (unchanged) size. Deliberately keyed on the drawer just
-  // opening, not on toolDrawerSnap itself — re-panning every time the user
-  // drags between peek/full while it's already open would fight their own
-  // manual "let me just glance at the canvas" gesture.
+  // the bottom MOBILE_SHEET_MAX_HEIGHT_FRACTION of the window (fixed, no
+  // snap points — see ui.tsx), which trigger 1 above has no way to know
+  // about since it only reasons about the stage's own (unchanged) size.
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
     if (!isMobile || !mobileToolDrawerOpen || !only) return;
-    const maxSafeViewportY = window.innerHeight * (1 - TOOL_DRAWER_FULL_FRACTION);
+    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_SHEET_MAX_HEIGHT_FRACTION);
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
   }, [isMobile, mobileToolDrawerOpen, canvasSelection, panLayerIntoView]);
@@ -1845,34 +1818,23 @@ function Index() {
     [],
   );
 
-  // Trigger 3: a FloatingDropdown popover (Font/Color/Spacing/... on any
-  // selection toolbar) opening. Like the tool drawer, these portal straight
-  // to <body> and anchor above the mobile toolbar's trigger button — so they
-  // can cover the very layer being edited without the stage's own layout
-  // knowing anything about it. Reuses `pinnedOwners` above as the "did a
-  // popover just open" signal (any slot going non-null already means
-  // exactly that — see the long comment above it) instead of adding new
-  // callback plumbing through every toolbar component. Then reads each
-  // currently-open popover's REAL on-screen top edge via a plain DOM query
-  // (data-floating-dropdown, set on every FloatingDropdown instance in
-  // ui.tsx) rather than assuming a fixed height — popover height varies a
-  // lot (a short Spacing panel vs. a tall scrollable font list), so a
-  // guessed constant would either under- or over-correct.
+  // "Is any FloatingDropdown popover open right now" (radius/opacity/
+  // shadow/font/color/spacing/... across every selection toolbar) — any
+  // `pinnedOwners` slot going non-null already means exactly that (see the
+  // long comment above it), reused here as trigger 3's signal instead of
+  // adding new callback plumbing through every toolbar component.
+  const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
+
+  // Trigger 3: a FloatingDropdown popover opening. On mobile these render as
+  // a fixed max-h-[45vh] bottom sheet (see ui.tsx), same fixed fraction
+  // trigger 2 above reasons about for the tool drawer.
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
-    const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
     if (!isMobile || !only || !anyPopoverOpen) return;
-    const raf = requestAnimationFrame(() => {
-      const panels = document.querySelectorAll<HTMLElement>("[data-floating-dropdown]");
-      if (!panels.length) return;
-      let minTop = Infinity;
-      panels.forEach((panel) => {
-        minTop = Math.min(minTop, panel.getBoundingClientRect().top);
-      });
-      if (Number.isFinite(minTop)) panLayerIntoView(only.id, { maxSafeViewportY: minTop });
-    });
+    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_SHEET_MAX_HEIGHT_FRACTION);
+    const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
-  }, [isMobile, canvasSelection, pinnedOwners, panLayerIntoView]);
+  }, [isMobile, canvasSelection, anyPopoverOpen, panLayerIntoView]);
 
   const textDetached = !selectedTextLayer && !!pinnedOwners.text;
   const imageDetached = !selectedImageLayer && !!pinnedOwners.image;
@@ -2607,16 +2569,28 @@ function Index() {
             )}
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
-                just inside a bottom sheet instead of a fixed side aside. */}
+                just inside a bottom sheet instead of a fixed side aside.
+                Fixed max-h-[45vh], no snap points/drag-to-resize — short
+                enough that the canvas doesn't need any special
+                accommodation for it being open. No dark overlay/background
+                scale-down either (unlike the Export drawer below) — the
+                whole point of keeping this short is staying able to see the
+                canvas while it's open, which a dimmed/shrunk backdrop would
+                work against. pointer-events-none on the overlay on top of
+                that (not just transparent) so it doesn't swallow touches
+                either — the user can still drag/pan the canvas around in
+                the visible area above the sheet while it's open; tapping
+                the canvas no longer closes the drawer via the overlay
+                because of that, only the Done button/swipe-down do now. */}
             <Drawer
               open={mobileToolDrawerOpen}
               onOpenChange={setMobileToolDrawerOpen}
-              snapPoints={TOOL_DRAWER_SNAP_POINTS}
-              activeSnapPoint={toolDrawerSnap}
-              setActiveSnapPoint={setToolDrawerSnap}
-              fadeFromIndex={TOOL_DRAWER_SNAP_POINTS.length - 1}
+              shouldScaleBackground={false}
             >
-              <DrawerContent className="mt-0 flex h-full max-h-[80vh] flex-col rounded-t-2xl">
+              <DrawerContent
+                overlayClassName="bg-transparent pointer-events-none"
+                className="mt-0 flex max-h-[45vh] flex-col rounded-t-2xl"
+              >
                 <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
                   <span className="text-sm font-bold text-foreground">
                     {RAIL.find((r) => r.id === tab)?.label}

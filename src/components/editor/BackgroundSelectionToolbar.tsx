@@ -222,7 +222,7 @@ export function BackgroundSelectionToolbar({
         onRequestClose={() => setGradientOpen(false)}
         triggerRef={gradientTriggerRef}
       >
-        <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+        <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
           <DragHandle
             label="Gradient"
             {...gradientDrag.dragHandleProps}
@@ -373,7 +373,7 @@ export function BackgroundSelectionToolbar({
         onRequestClose={() => setImagePopoverOpen(false)}
         triggerRef={imageTriggerRef}
       >
-        <div className="w-80 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+        <div className="w-80 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
           <DragHandle
             label="Background Image"
             {...imageDrag.dragHandleProps}

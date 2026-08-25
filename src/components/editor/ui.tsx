@@ -5,8 +5,23 @@ import { cn } from "@/lib/utils";
 import { AppTooltip, InfoTooltip } from "@/components/ui/tooltip";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker } from "@/components/ui/color-picker";
+import { Drawer, DrawerContent } from "@/components/ui/drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker };
+
+// Max height for every mobile bottom sheet in the app — the big tool drawer
+// (index.tsx) AND every property popover routed through FloatingDropdown
+// below share this, so none of them ever eats more than a modest slice of
+// the screen. Deliberately a single fixed cap, no snap points/drag-to-resize
+// — at 45vh there's no real "peek vs full" to speak of, and the canvas
+// never needs special accommodation for a sheet this short in the first
+// place. Kept as a plain fraction for the JS-side safe-area math in
+// index.tsx's auto-pan triggers; the matching Tailwind class
+// (`max-h-[45vh]`) is a separate literal in each DrawerContent below since
+// arbitrary values have to be literal source text for Tailwind's scanner —
+// keep both in sync if this ever changes.
+export const MOBILE_SHEET_MAX_HEIGHT_FRACTION = 0.45;
 
 // Shared by every floating toolbar's Popover dropdowns (Text/Shape/Image/
 // Background selection toolbars) so all of them can be dragged to wherever
@@ -22,23 +37,34 @@ export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, Co
 // `onOpenChange`), so reopening it starts back at the normal anchored
 // position rather than wherever it was last dragged to.
 export function useDraggableOffset() {
+  // On mobile, FloatingDropdown renders these popovers as a draggable
+  // bottom sheet instead of a freely-repositionable floating card (see its
+  // own comment) — vaul owns the drag gesture there via listeners on the
+  // sheet itself, so this hook's own handlers must become no-ops rather
+  // than stopPropagation/capture the pointer, which would otherwise steal
+  // the same touch sequence vaul needs to recognize a peek/full/dismiss
+  // swipe starting from this same DragHandle.
+  const isMobile = useIsMobile();
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; startOffsetX: number; startOffsetY: number } | null>(
     null,
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (isMobile) return;
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = { startX: e.clientX, startY: e.clientY, startOffsetX: offset.x, startOffsetY: offset.y };
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    if (isMobile) return;
     const d = dragRef.current;
     if (!d) return;
     e.stopPropagation();
     setOffset({ x: d.startOffsetX + (e.clientX - d.startX), y: d.startOffsetY + (e.clientY - d.startY) });
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    if (isMobile) return;
     e.stopPropagation();
     dragRef.current = null;
   };
@@ -207,9 +233,14 @@ export function FloatingDropdown({
   triggerRef?: React.RefObject<HTMLElement | null>;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
-    if (!anchor || pinned || !onRequestClose) return;
+    // On mobile this renders as a Drawer (see the mobile branch below),
+    // which already owns its own overlay-tap/swipe-to-dismiss — this
+    // desktop-only "click anywhere else closes it" listener would just be
+    // redundant, and would fire before the Drawer's own dismissible check.
+    if (isMobile || !anchor || pinned || !onRequestClose) return;
     const handlePointerDown = (e: PointerEvent) => {
       const target = e.target as Node | null;
       if (!target) return;
@@ -223,7 +254,7 @@ export function FloatingDropdown({
     // opening a different dropdown, or deselecting this one's layer) lands.
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
-  }, [anchor, pinned, onRequestClose, triggerRef]);
+  }, [isMobile, anchor, pinned, onRequestClose, triggerRef]);
   // One-time collision check, the instant a fresh anchor shows up (i.e.
   // every time this opens) — Radix used to give this for free (flipping
   // above the trigger, or nudging sideways, whenever there wasn't room),
@@ -241,6 +272,9 @@ export function FloatingDropdown({
   // user has dragged it, this never runs again and never fights them.
   const [correction, setCorrection] = useState<{ flip: boolean; nudgeX: number; nudgeY: number } | null>(null);
   useLayoutEffect(() => {
+    // Meaningless on mobile — the mobile branch below doesn't use anchor-
+    // relative fixed positioning at all, it's a bottom sheet.
+    if (isMobile) return;
     setCorrection(null);
     if (!anchor || !panelRef.current) return;
     const r = panelRef.current.getBoundingClientRect();
@@ -260,7 +294,55 @@ export function FloatingDropdown({
 
     if (flip || nudgeX !== 0 || nudgeY !== 0) setCorrection({ flip, nudgeX, nudgeY });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor]);
+  }, [isMobile, anchor]);
+
+  // Mobile: a short bottom sheet (fixed max-h-[45vh] — see
+  // MOBILE_SHEET_MAX_HEIGHT_FRACTION above) instead of a fixed-position card
+  // anchored to the trigger. A card wide/tall enough to hold real controls
+  // (a font search list, several sliders) used to end up covering most of a
+  // phone screen wherever it was anchored — no amount of flip/clamp
+  // repositioning fixed that, since the problem was the card's own size
+  // relative to the viewport, not its position. Capping it to a modest
+  // height instead (rather than a tall drag-to-peek sheet) sidesteps that
+  // directly — plain vaul drawer behavior, no snapPoints: content up to
+  // max-h-[45vh], scrolls internally past that, swipe-down dismisses like
+  // any normal sheet. `children` is left exactly as every caller already
+  // builds it (their own DragHandle + content) — only that outer wrapper's
+  // fixed desktop width is overridden per call site (`max-md:w-full`, see
+  // TextSelectionToolbar.tsx etc.) so it stretches to the sheet's full
+  // width instead of floating narrow inside it.
+  if (isMobile) {
+    return (
+      <Drawer
+        open={!!anchor}
+        onOpenChange={(open) => {
+          if (!open) onRequestClose?.();
+        }}
+        dismissible={!pinned}
+        shouldScaleBackground={false}
+      >
+        {/* pointer-events-none on top of the transparent background — a
+            regular `fixed inset-0` overlay would still swallow every touch
+            even fully invisible, blocking exactly the canvas
+            drag/pan-to-see-behind-the-sheet interaction this is here for.
+            Tapping the canvas no longer closes this sheet via the overlay
+            because of that; the trigger button, an explicit close, and
+            swipe-down on the sheet itself still do. */}
+        <DrawerContent
+          data-floating-dropdown=""
+          overlayClassName="bg-transparent pointer-events-none"
+          className="mt-0 flex max-h-[45vh] flex-col rounded-t-2xl"
+        >
+          <div
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3"
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+          >
+            {children}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
 
   if (!anchor || typeof document === "undefined") return null;
   const flip = correction?.flip ?? false;
@@ -271,10 +353,10 @@ export function FloatingDropdown({
   return createPortal(
     <div
       ref={panelRef}
-      // Lets mobile's auto-pan-into-view (index.tsx) find every currently-open
-      // popover's real on-screen position via a plain DOM query, the same way
-      // it already locates the selected layer itself — see the comment on its
-      // "Trigger 3" effect for why a live measurement beats a guessed height.
+      // Marks every floating-dropdown DOM node so other code can generically
+      // recognize one — currently only reached on desktop (the mobile branch
+      // above renders its own bottom sheet instead), kept for parity/possible
+      // future use rather than actively relied on right now.
       data-floating-dropdown=""
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}

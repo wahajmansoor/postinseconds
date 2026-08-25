@@ -218,7 +218,7 @@ export function TextSelectionToolbar({
         onRequestClose={() => setFontOpen(false)}
         triggerRef={fontTriggerRef}
       >
-        <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+        <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
           <DragHandle
             label="Text Font"
             {...fontDrag.dragHandleProps}
@@ -486,7 +486,7 @@ export function TextSelectionToolbar({
         onRequestClose={() => setSpacingOpen(false)}
         triggerRef={spacingTriggerRef}
       >
-        <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-xl">
+        <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-xl">
           <DragHandle
             label="Spacing"
             {...spacingDrag.dragHandleProps}

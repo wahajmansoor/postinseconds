@@ -211,7 +211,7 @@ export function ImageSelectionToolbar({
         <div
           data-nopan=""
           data-keep-text-editing=""
-          className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+          className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
         >
           <DragHandle
             label="Corner Radius"
@@ -295,7 +295,7 @@ export function ImageSelectionToolbar({
         <div
           data-nopan=""
           data-keep-text-editing=""
-          className="w-56 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+          className="w-56 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
         >
           <DragHandle
             label="Opacity"
@@ -370,7 +370,7 @@ export function ImageSelectionToolbar({
         <div
           data-nopan=""
           data-keep-text-editing=""
-          className="w-[350px] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-md"
+          className="w-[350px] max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-md"
         >
           <DragHandle
             label="Drop Shadow"

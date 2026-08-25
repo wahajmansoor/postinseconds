@@ -31,10 +31,20 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName;
 
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content> & {
+    // Lets a caller keep the overlay element (and whatever dismiss-on-
+    // outside-tap/focus-trap behavior vaul wires to it) while dropping its
+    // visual dimming — e.g. the editor's mobile tool drawer/property sheets
+    // want the canvas to stay clearly visible underneath, unlike a more
+    // deliberate flow like the Export drawer which keeps the normal dark
+    // backdrop. Merged onto DrawerOverlay's own classes via cn/twMerge, so
+    // `overlayClassName="bg-transparent"` reliably wins over its default
+    // `bg-black/80` instead of just adding on top of it.
+    overlayClassName?: string;
+  }
+>(({ className, children, overlayClassName, ...props }, ref) => (
   <DrawerPortal>
-    <DrawerOverlay />
+    <DrawerOverlay className={overlayClassName} />
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
@@ -43,7 +53,7 @@ const DrawerContent = React.forwardRef<
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
+      <div className="mx-auto mt-4 mb-4 h-2 w-[100px] rounded-full bg-muted" />
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>
