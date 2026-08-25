@@ -100,8 +100,6 @@ import {
   AppTooltip,
   Chip,
   MOBILE_SHEET_MAX_HEIGHT_FRACTION,
-  MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION,
-  MOBILE_TOOL_DRAWER_SNAP_POINTS,
   Range,
 } from "@/components/editor/ui";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -1249,18 +1247,13 @@ function Index() {
 
   // Trigger 2: the mobile tool drawer opening while a layer stays selected
   // (e.g. tapping "Effects" on the selection toolbar) — the drawer covers
-  // up to MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION of the window once
-  // dragged to its taller snap point (see ui.tsx), which trigger 1 above
-  // has no way to know about since it only reasons about the stage's own
-  // (unchanged) size. Sized against the drawer's tallest possible extent,
-  // not its default "peek" one — this only runs once, on open, so it can't
-  // react to the user dragging the drawer taller afterward; assuming the
-  // worst case up front means the selected layer stays visible regardless
-  // of which snap point they end up leaving it at.
+  // the bottom MOBILE_SHEET_MAX_HEIGHT_FRACTION of the window (fixed, no
+  // snap points — see ui.tsx), which trigger 1 above has no way to know
+  // about since it only reasons about the stage's own (unchanged) size.
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
     if (!isMobile || !mobileToolDrawerOpen || !only) return;
-    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION);
+    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_SHEET_MAX_HEIGHT_FRACTION);
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
   }, [isMobile, mobileToolDrawerOpen, canvasSelection, panLayerIntoView]);
@@ -2909,31 +2902,26 @@ function Index() {
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
                 just inside a bottom sheet instead of a fixed side aside.
-                Draggable between MOBILE_TOOL_DRAWER_SNAP_POINTS' two
-                heights (see ui.tsx) — unlike every other sheet in the app,
-                this one holds a whole panel's worth of content, so being
-                stuck at a short "peek" height with no way to see more of it
-                without scrolling a tiny window wasn't great; dragging it up
-                now holds there instead of springing back down. No dark
-                overlay/background scale-down either (unlike the Export
-                drawer below) — the whole point of keeping this short by
-                default is staying able to see the canvas while it's open,
-                which a dimmed/shrunk backdrop would work against.
-                pointer-events-none on the overlay on top of that (not just
-                transparent) so it doesn't swallow touches either — the user
-                can still drag/pan the canvas around in the visible area
-                above the sheet while it's open; tapping the canvas no
-                longer closes the drawer via the overlay because of that,
-                only the Done button/swipe-down do now. */}
+                Fixed max-h-[45vh], no snap points/drag-to-resize — short
+                enough that the canvas doesn't need any special
+                accommodation for it being open. No dark overlay/background
+                scale-down either (unlike the Export drawer below) — the
+                whole point of keeping this short is staying able to see the
+                canvas while it's open, which a dimmed/shrunk backdrop would
+                work against. pointer-events-none on the overlay on top of
+                that (not just transparent) so it doesn't swallow touches
+                either — the user can still drag/pan the canvas around in
+                the visible area above the sheet while it's open; tapping
+                the canvas no longer closes the drawer via the overlay
+                because of that, only the Done button/swipe-down do now. */}
             <Drawer
               open={mobileToolDrawerOpen}
               onOpenChange={setMobileToolDrawerOpen}
               shouldScaleBackground={false}
-              snapPoints={MOBILE_TOOL_DRAWER_SNAP_POINTS}
             >
               <DrawerContent
                 overlayClassName="bg-transparent pointer-events-none"
-                className="mt-0 flex max-h-[85vh] flex-col rounded-t-2xl"
+                className="mt-0 flex max-h-[45vh] flex-col rounded-t-2xl"
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
                   <span className="text-sm font-bold text-foreground">

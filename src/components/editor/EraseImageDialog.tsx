@@ -59,8 +59,19 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
     y: 0,
     visible: false,
   });
+  // The canvas's CSS box has to end up at exactly this aspect ratio (see
+  // where it's applied below) — otherwise a mismatched box lets object-fit
+  // letterbox the actual image inside it, and every erase coordinate
+  // computed from the box's own bounding rect would be off by however big
+  // that letterbox gap is. Defaults to 1 before the image has loaded.
+  const [aspectRatio, setAspectRatio] = useState(1);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // The checkerboard stage wrapping the canvas — needed because the cursor
+  // ring below is positioned (absolute) relative to THIS element, not the
+  // canvas itself, so its own coordinate math has to be computed against
+  // the same rect it's rendered against. See handlePointerMove's comment.
+  const stageRef = useRef<HTMLDivElement>(null);
   const originalImgRef = useRef<HTMLImageElement | null>(null);
   const isDrawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
@@ -98,6 +109,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
       if (!canvas) return;
       canvas.width = img.naturalWidth || 1;
       canvas.height = img.naturalHeight || 1;
+      setAspectRatio((img.naturalWidth || 1) / (img.naturalHeight || 1));
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -169,9 +181,16 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const canvas = canvasRef.current;
-    const rect = canvas?.getBoundingClientRect();
-    if (canvas && rect) {
-      setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top, visible: true });
+    // Deliberately the STAGE's rect, not the canvas's own — the ring below
+    // is an absolutely-positioned sibling of the canvas inside the stage,
+    // centered by the stage's flex layout, so it needs coordinates in the
+    // stage's frame to land in the same place on screen as the pointer
+    // actually is. getCanvasPoint (the real erase math) is unaffected —
+    // it deliberately keeps using the canvas's own rect, since a scale
+    // factor into buffer-pixel space is a different calculation entirely.
+    const stageRect = stageRef.current?.getBoundingClientRect();
+    if (stageRect) {
+      setCursorPos({ x: e.clientX - stageRect.left, y: e.clientY - stageRect.top, visible: true });
     }
     if (!isDrawingRef.current) return;
     const point = getCanvasPoint(e);
@@ -296,6 +315,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
 
           {/* Canvas stage — checkerboard shows through wherever erased */}
           <div
+            ref={stageRef}
             style={{
               backgroundImage: `
                 linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
@@ -317,8 +337,13 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               onPointerCancel={endStroke}
               onPointerLeave={() => setCursorPos((p) => ({ ...p, visible: false }))}
               onPointerEnter={() => setCursorPos((p) => ({ ...p, visible: true }))}
-              style={{ touchAction: "none", cursor: "none" }}
-              className="max-h-84 max-w-full select-none rounded-sm object-contain shadow-2xl ring-1 ring-white/20"
+              // aspectRatio (not object-fit) is what keeps this pointer-
+              // accurate — sizing the element itself to the image's own
+              // ratio means its bounding rect IS the visible image area,
+              // with no separate letterboxed gap for getCanvasPoint's
+              // scale-factor math to silently ignore.
+              style={{ touchAction: "none", cursor: "none", aspectRatio: String(aspectRatio) }}
+              className="max-h-84 max-w-full select-none rounded-sm shadow-2xl ring-1 ring-white/20"
             />
             {/* Brush cursor — a live-sized ring following the pointer so
                 the actual erase area is obvious before you commit a stroke. */}

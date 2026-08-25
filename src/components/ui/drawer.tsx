@@ -5,21 +5,9 @@ import { cn } from "@/lib/utils";
 
 const Drawer = ({
   shouldScaleBackground = true,
-  // Defaults true across every sheet in the app — without it, vaul treats
-  // the ENTIRE sheet (not just its visible handle bar) as a drag target
-  // for resizing/dismissing itself, which competes with any gesture inside
-  // the content for the same touch: normal scrolling past the fold, a tap
-  // to open the file picker, a custom pointer-capture drag (e.g. the
-  // Layers panel's drag-to-reorder handles) can all get swallowed by
-  // vaul's own drag-start detection before the content ever sees them.
-  // Restricting the drag to DrawerContent's own <Drawer.Handle /> (see
-  // below) frees up everything else to behave normally. Still overridable
-  // per call site via props if a future sheet genuinely wants the old
-  // whole-content-draggable behavior.
-  handleOnly = true,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) => (
-  <DrawerPrimitive.Root shouldScaleBackground={shouldScaleBackground} handleOnly={handleOnly} {...props} />
+  <DrawerPrimitive.Root shouldScaleBackground={shouldScaleBackground} {...props} />
 );
 Drawer.displayName = "Drawer";
 
@@ -65,11 +53,7 @@ const DrawerContent = React.forwardRef<
       )}
       {...props}
     >
-      {/* A real vaul Handle, not a decorative div — with handleOnly (see
-          the Drawer wrapper above) this is the ONLY thing that actually
-          starts a resize/dismiss drag, so it needs to be the genuine drag
-          target rather than just visually implying one. */}
-      <DrawerPrimitive.Handle className="mx-auto mt-4 mb-4 h-2 w-[100px] shrink-0 rounded-full bg-muted" />
+      <div className="mx-auto mt-4 h-2 w-[100px] rounded-full bg-muted" />
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>

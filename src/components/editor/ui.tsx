@@ -24,25 +24,6 @@ export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, Co
 // keep both in sync if this ever changes.
 export const MOBILE_SHEET_MAX_HEIGHT_FRACTION = 0.45;
 
-// The one exception to the fixed-height rule above — the main mobile tool
-// drawer (index.tsx), which hosts the entire LeftPanel rather than a single
-// property's controls. That's real content worth being able to see more
-// of, so unlike every other sheet it's draggable between two heights
-// instead of being capped short: MOBILE_SHEET_MAX_HEIGHT_FRACTION's usual
-// "peek" height, and this taller "full" one. vaul (the drawer primitive)
-// always resolves a release to whichever of the two snap points is
-// nearest, not a fully free-form height — so "stays wherever it's left"
-// means it stops snapping straight back down to peek height the moment
-// it's dragged, and holds whichever of the two it's closest to for the
-// rest of that open session. (It does reset back to the peek height once
-// fully closed and reopened — vaul's own built-in behavior, matching how
-// most bottom sheets behave elsewhere.)
-export const MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION = 0.85;
-export const MOBILE_TOOL_DRAWER_SNAP_POINTS: (number | string)[] = [
-  MOBILE_SHEET_MAX_HEIGHT_FRACTION,
-  MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION,
-];
-
 // Shared by every floating toolbar's Popover dropdowns (Text/Shape/Image/
 // Background selection toolbars) so all of them can be dragged to wherever
 // the user wants — handy once a popover holds real controls (sliders, a
