@@ -2222,24 +2222,35 @@ function Index() {
           />
         ) : null}
 
-        <CanvasScrollbar
-          orientation="horizontal"
-          stageLength={stageSize.width}
-          contentLength={s.width * scale}
-          origin={canvasWrapperOrigin.x}
-          onPanDelta={(delta) =>
-            setPan((p) => clampPan({ ...p, x: p.x + delta }, scale, stageSize.width, stageSize.height))
-          }
-        />
-        <CanvasScrollbar
-          orientation="vertical"
-          stageLength={stageSize.height}
-          contentLength={s.height * scale}
-          origin={canvasWrapperOrigin.y}
-          onPanDelta={(delta) =>
-            setPan((p) => clampPan({ ...p, y: p.y + delta }, scale, stageSize.width, stageSize.height))
-          }
-        />
+        {/* Desktop only — mobile already has native two-finger pinch/pan for
+            scrolling around a zoomed-in canvas, so this drag-thumb overlay is
+            just redundant chrome eating into already-tight canvas edge space
+            there (and its own pointer handling would compete with edge-swipe
+            gestures). Mouse/trackpad users still get it since that's the only
+            way to pan without holding spacebar or a two-finger trackpad
+            gesture on desktop. */}
+        {!isMobile ? (
+          <>
+            <CanvasScrollbar
+              orientation="horizontal"
+              stageLength={stageSize.width}
+              contentLength={s.width * scale}
+              origin={canvasWrapperOrigin.x}
+              onPanDelta={(delta) =>
+                setPan((p) => clampPan({ ...p, x: p.x + delta }, scale, stageSize.width, stageSize.height))
+              }
+            />
+            <CanvasScrollbar
+              orientation="vertical"
+              stageLength={stageSize.height}
+              contentLength={s.height * scale}
+              origin={canvasWrapperOrigin.y}
+              onPanDelta={(delta) =>
+                setPan((p) => clampPan({ ...p, y: p.y + delta }, scale, stageSize.width, stageSize.height))
+              }
+            />
+          </>
+        ) : null}
       </div>
     </div>
   );
