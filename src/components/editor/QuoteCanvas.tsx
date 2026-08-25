@@ -2736,7 +2736,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         ref={containerRef}
         data-layer-id={t.id}
         data-nopan=""
-        onPointerDown={handlePointerDown}
         style={{
           position: "absolute",
           left: `${t.x}%`,
