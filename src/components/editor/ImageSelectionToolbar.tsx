@@ -2,6 +2,7 @@ import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   CropIcon,
+  Eraser01Icon,
   EyeIcon,
   Layers01Icon,
   Upload01Icon,
@@ -22,6 +23,7 @@ import {
 } from "./ui";
 import { cn } from "@/lib/utils";
 import { ImageCropDialog } from "./ImageCropDialog";
+import { EraseImageDialog } from "./EraseImageDialog";
 
 interface ImageSelectionToolbarProps {
   layer: ImageLayer;
@@ -41,6 +43,7 @@ export function ImageSelectionToolbar({
 }: ImageSelectionToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cropOpen, setCropOpen] = useState(false);
+  const [eraseOpen, setEraseOpen] = useState(false);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
@@ -171,6 +174,25 @@ export function ImageSelectionToolbar({
           onCropComplete={(croppedDataUrl) => onUpdate({ src: croppedDataUrl })}
         />
       ) : null}
+
+      {/* 2b. Erase Image Button */}
+      <AppTooltip content="Brush away part of this image">
+        <button
+          type="button"
+          onClick={() => setEraseOpen(true)}
+          className={cn(btnClass, "border border-border/60 bg-secondary/40 text-foreground")}
+        >
+          <Eraser01Icon size={15} className="text-primary" />
+          <span>Erase</span>
+        </button>
+      </AppTooltip>
+
+      <EraseImageDialog
+        open={eraseOpen}
+        onClose={() => setEraseOpen(false)}
+        imageSrc={layer.src}
+        onErased={(erasedDataUrl) => onUpdate({ src: erasedDataUrl })}
+      />
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
