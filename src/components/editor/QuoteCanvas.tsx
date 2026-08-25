@@ -1288,11 +1288,12 @@ function LayerToolbar({
 }) {
   const invScale = scale > 0 ? 1 / scale : 1;
   const btn =
-    "flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white";
+    "flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white active:scale-95";
   return (
     <div
       data-nopan=""
       onPointerDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
       style={{
         position: "absolute",
         top: placement === "top" ? -16 * invScale : undefined,
@@ -1301,13 +1302,14 @@ function LayerToolbar({
         transformOrigin: placement === "top" ? "bottom center" : "top center",
         transform: `translateX(-50%) translateY(${placement === "top" ? "-100%" : "100%"}) scale(${invScale})`,
         zIndex: 80,
-        touchAction: "none",
+        touchAction: "manipulation",
       }}
       className="flex items-center gap-1 whitespace-nowrap rounded-full border border-white/15 bg-[#15161c]/95 px-2 py-1.5 shadow-2xl backdrop-blur-md"
     >
       {locked ? (
         <button
           type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onToggleLock();
@@ -1322,6 +1324,7 @@ function LayerToolbar({
         <>
           <button
             type="button"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onToggleLock();
@@ -1333,6 +1336,7 @@ function LayerToolbar({
           </button>
           <button
             type="button"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onDuplicate();
@@ -1345,12 +1349,13 @@ function LayerToolbar({
           <div className="mx-0.5 h-5 w-px bg-white/15" />
           <button
             type="button"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
             }}
             title="Delete"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400 active:scale-95"
           >
             <Delete02Icon size={18} />
           </button>
@@ -2721,6 +2726,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
   const validTextWidth =
     typeof t.width === "number" && Number.isFinite(t.width) && t.width > 0 ? t.width : undefined;
+  const isNearTop = t.y < 18;
 
   if (t.hidden) return null;
 
@@ -2730,6 +2736,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         ref={containerRef}
         data-layer-id={t.id}
         data-nopan=""
+        onPointerDown={handlePointerDown}
         style={{
           position: "absolute",
           left: `${t.x}%`,
@@ -2786,6 +2793,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                 onDuplicate={duplicate}
                 onDelete={remove}
                 scale={scale}
+                placement={isNearTop ? "bottom" : "top"}
               />
             </div>
 
@@ -2957,6 +2965,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   const canInteract = interactive && !!set && !s.locked;
   const locked = img.locked ?? false;
   const hasExplicitHeight = img.height !== undefined;
+  const isNearTop = img.y < 18;
   const rotation = img.rotation ?? 0;
   const update = (patch: Partial<Omit<ImageLayer, "id">>) => set?.("images", withImageUpdated(s, img.id, patch));
   const remove = () => set?.("images", withImageRemoved(s, img.id));
@@ -3169,6 +3178,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                 onDuplicate={duplicate}
                 onDelete={remove}
                 scale={scale}
+                placement={isNearTop ? "bottom" : "top"}
               />
             </div>
 
