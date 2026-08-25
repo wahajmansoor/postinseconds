@@ -29,6 +29,15 @@ interface ImageSelectionToolbarProps {
   layer: ImageLayer;
   onUpdate: (patch: Partial<Omit<ImageLayer, "id">>) => void;
   onOpenCrop?: () => void;
+  // Same reasoning as onOpenCrop above: when provided, index.tsx renders
+  // EraseImageDialog itself, driven by its own top-level state, instead of
+  // this toolbar's local eraseOpen. That's not optional in practice — this
+  // toolbar (and the layer selection driving it) can unmount/remount as
+  // the user interacts with the canvas while an editing dialog is open,
+  // which would reset local state and slam the dialog shut moments after
+  // opening it. Lifting it to a parent that outlives that churn is what
+  // ImageCropDialog already does via onOpenCrop; onOpenErase mirrors it.
+  onOpenErase?: () => void;
   // See the matching props' comments in TextSelectionToolbar.tsx.
   detached?: boolean;
   onAnyPopoverOpenChange?: (open: boolean) => void;
@@ -38,6 +47,7 @@ export function ImageSelectionToolbar({
   layer,
   onUpdate,
   onOpenCrop,
+  onOpenErase,
   detached = false,
   onAnyPopoverOpenChange,
 }: ImageSelectionToolbarProps) {
@@ -179,7 +189,13 @@ export function ImageSelectionToolbar({
       <AppTooltip content="Brush away part of this image">
         <button
           type="button"
-          onClick={() => setEraseOpen(true)}
+          onClick={() => {
+            if (onOpenErase) {
+              onOpenErase();
+            } else {
+              setEraseOpen(true);
+            }
+          }}
           className={cn(btnClass, "border border-border/60 bg-secondary/40 text-foreground")}
         >
           <Eraser01Icon size={15} className="text-primary" />
@@ -187,12 +203,14 @@ export function ImageSelectionToolbar({
         </button>
       </AppTooltip>
 
-      <EraseImageDialog
-        open={eraseOpen}
-        onClose={() => setEraseOpen(false)}
-        imageSrc={layer.src}
-        onErased={(erasedDataUrl) => onUpdate({ src: erasedDataUrl })}
-      />
+      {!onOpenErase ? (
+        <EraseImageDialog
+          open={eraseOpen}
+          onClose={() => setEraseOpen(false)}
+          imageSrc={layer.src}
+          onErased={(erasedDataUrl) => onUpdate({ src: erasedDataUrl })}
+        />
+      ) : null}
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

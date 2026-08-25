@@ -54,6 +54,7 @@ import { TextSelectionToolbar } from "@/components/editor/TextSelectionToolbar";
 import { BackgroundSelectionToolbar } from "@/components/editor/BackgroundSelectionToolbar";
 import { ImageSelectionToolbar } from "@/components/editor/ImageSelectionToolbar";
 import { ImageCropDialog } from "@/components/editor/ImageCropDialog";
+import { EraseImageDialog } from "@/components/editor/EraseImageDialog";
 import { ShapeSelectionToolbar } from "@/components/editor/ShapeSelectionToolbar";
 import {
   MultiShapeSelectionToolbar,
@@ -479,6 +480,9 @@ function Index() {
   const [mobileToolDrawerOpen, setMobileToolDrawerOpen] = useState(false);
   const [mobileExportDrawerOpen, setMobileExportDrawerOpen] = useState(false);
   const [croppingImageLayer, setCroppingImageLayer] = useState<ImageLayer | null>(null);
+  // Same lifted-state reasoning as croppingImageLayer above — see
+  // onOpenErase's own comment in ImageSelectionToolbar.tsx.
+  const [erasingImageLayer, setErasingImageLayer] = useState<ImageLayer | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [isExportingFinal, setIsExportingFinal] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -2244,6 +2248,7 @@ function Index() {
                     set("images", withImageUpdated(s, (selectedImageLayer ?? pinnedImageLayer)!.id, patch))
                   }
                   onOpenCrop={() => setCroppingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)}
+                  onOpenErase={() => setErasingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)}
                 />
               ) : null}
               {selectedShapeLayer || (shapeDetached && pinnedShapeLayer) ? (
@@ -2795,6 +2800,7 @@ function Index() {
                         set("images", withImageUpdated(s, selectedImageLayer.id, patch))
                       }
                       onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
+                      onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
                     />
                   ) : selectedShapeLayer ? (
                     <ShapeSelectionToolbar
@@ -3273,6 +3279,18 @@ function Index() {
             onCropComplete={(croppedDataUrl) => {
               set("images", withImageUpdated(s, croppingImageLayer.id, { src: croppedDataUrl }));
               setCroppingImageLayer(null);
+            }}
+          />
+        ) : null}
+
+        {erasingImageLayer ? (
+          <EraseImageDialog
+            open={Boolean(erasingImageLayer)}
+            onClose={() => setErasingImageLayer(null)}
+            imageSrc={erasingImageLayer.src}
+            onErased={(erasedDataUrl) => {
+              set("images", withImageUpdated(s, erasingImageLayer.id, { src: erasedDataUrl }));
+              setErasingImageLayer(null);
             }}
           />
         ) : null}
