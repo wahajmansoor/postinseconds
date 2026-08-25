@@ -478,6 +478,16 @@ function Index() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const isMobile = useIsMobile();
   const [mobileToolDrawerOpen, setMobileToolDrawerOpen] = useState(false);
+  // Controlled snap point for the tool drawer (see MOBILE_TOOL_DRAWER_SNAP_POINTS
+  // in ui.tsx) — needed so the canvas-lift logic below can tell tall vs.
+  // peek apart, not just "is it open at all". Defaults to the tall point,
+  // matching snapPoints[0] (what vaul itself opens at); reset back to that
+  // whenever the drawer closes so the next open always starts tall again,
+  // same as vaul's own built-in reset behavior for its (uncontrolled, on
+  // every other sheet) snap point state.
+  const [mobileToolDrawerSnapPoint, setMobileToolDrawerSnapPoint] = useState<number | string | null>(
+    MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
+  );
   const [mobileExportDrawerOpen, setMobileExportDrawerOpen] = useState(false);
   const [croppingImageLayer, setCroppingImageLayer] = useState<ImageLayer | null>(null);
   // Same lifted-state reasoning as croppingImageLayer above — see
@@ -2000,19 +2010,27 @@ function Index() {
   // adding new callback plumbing through every toolbar component.
   const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
 
+  // Whether the tool drawer is currently sitting at its short "peek" snap
+  // point rather than its tall default — see mobileToolDrawerSnapPoint's
+  // own comment above for why this needs to be a controlled, tracked value
+  // instead of just "is it open at all": vaul only TRANSLATES the drawer
+  // between snap points, it never reflows the canvas's own (separately
+  // laid out, position: fixed underneath it) box, so shrinking the drawer
+  // alone doesn't un-cover anything — whatever was already sitting in that
+  // bottom band stays exactly where it was, just no longer covered by as
+  // much overlay. The lift below is what actually moves the canvas clear.
+  const mobileToolDrawerAtPeek =
+    isMobile && mobileToolDrawerOpen && mobileToolDrawerSnapPoint === MOBILE_SHEET_MAX_HEIGHT_FRACTION;
+
   // Whether the canvas area should currently be lifted clear of a bottom
-  // sheet — property popovers only (fixed at MOBILE_SHEET_MAX_HEIGHT_FRACTION
-  // — see where this is applied, below in the mobile layout). The tool
-  // drawer is deliberately NOT included here anymore: it now opens tall by
-  // default (Canva's own pattern — see MOBILE_TOOL_DRAWER_SNAP_POINTS in
-  // ui.tsx) and only shrinks to a fixed height once dragged down, so a
-  // single fixed lift amount tied to "is it open at all" doesn't match its
-  // live height the way it still does for the property sheets, which never
-  // change size. It's fine for the tall drawer to simply cover the canvas
-  // the way any other tall sheet would — that's exactly how Canva's own
-  // version behaves too, and only reappears (with no extra animation
-  // needed) once the drawer's dragged down to its short height itself.
-  const mobileDrawerLiftActive = isMobile && anyPopoverOpen;
+  // sheet — every property popover (always fixed at
+  // MOBILE_SHEET_MAX_HEIGHT_FRACTION) plus the tool drawer specifically
+  // when it's at that same short height (see mobileToolDrawerAtPeek just
+  // above). Not the tool drawer's tall state — Canva's own version doesn't
+  // try to keep the canvas visible while its sheet is tall either, and at
+  // 92vh there isn't a sensible "clear of it" position for the canvas to
+  // lift to in the first place.
+  const mobileDrawerLiftActive = isMobile && (anyPopoverOpen || mobileToolDrawerAtPeek);
 
   // Trigger 3: a FloatingDropdown popover opening. On mobile these render as
   // a fixed max-h-[45vh] bottom sheet (see ui.tsx), same fixed fraction
@@ -2759,17 +2777,19 @@ function Index() {
               style={{
                 paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 12px)",
                 // Lifts the whole canvas area clear of an open property-
-                // popover sheet — same idea as how the OS keyboard pushes
+                // popover sheet, or the tool drawer once it's at its short
+                // "peek" height — same idea as how the OS keyboard pushes
                 // page content up rather than just covering it, applied to
-                // our own bottom sheets. These are fixed at
+                // our own bottom sheets. All of these top out at
                 // MOBILE_SHEET_MAX_HEIGHT_FRACTION's height, so that's
                 // exactly how far up this needs to shift for the canvas to
                 // clear it. Same duration/easing vaul itself uses for the
                 // sheet's own slide (TRANSITIONS in vaul's source) so the
                 // two motions read as one connected movement instead of two
                 // separately-timed animations. Deliberately NOT the tool
-                // drawer (see mobileDrawerLiftActive's own comment) or the
-                // Export drawer (already dims the canvas behind it).
+                // drawer's own TALL state (see mobileDrawerLiftActive's own
+                // comment) or the Export drawer (already dims the canvas
+                // behind it).
                 transform: mobileDrawerLiftActive
                   ? `translateY(-${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh)`
                   : undefined,
@@ -2957,9 +2977,18 @@ function Index() {
                 now. */}
             <Drawer
               open={mobileToolDrawerOpen}
-              onOpenChange={setMobileToolDrawerOpen}
+              onOpenChange={(open) => {
+                setMobileToolDrawerOpen(open);
+                // Reset for the NEXT open — vaul does this internally for
+                // its own uncontrolled snap point state on close, but
+                // mobileToolDrawerSnapPoint is controlled (see its own
+                // comment above), so that reset has to happen here instead.
+                if (!open) setMobileToolDrawerSnapPoint(MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION);
+              }}
               shouldScaleBackground={false}
               snapPoints={MOBILE_TOOL_DRAWER_SNAP_POINTS}
+              activeSnapPoint={mobileToolDrawerSnapPoint}
+              setActiveSnapPoint={setMobileToolDrawerSnapPoint}
             >
               <DrawerContent
                 overlayClassName="bg-transparent pointer-events-none"
