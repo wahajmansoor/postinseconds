@@ -44,6 +44,11 @@ import { ImageSelectionToolbar } from "@/components/editor/ImageSelectionToolbar
 import { ImageCropDialog } from "@/components/editor/ImageCropDialog";
 import { ShapeSelectionToolbar } from "@/components/editor/ShapeSelectionToolbar";
 import {
+  MultiShapeSelectionToolbar,
+  type ShapeArrangeDirection,
+} from "@/components/editor/MultiShapeSelectionToolbar";
+import { MultiImageSelectionToolbar } from "@/components/editor/MultiImageSelectionToolbar";
+import {
   INITIAL_STATE,
   PREMIUM_TEMPLATES,
   STARTER_TEMPLATES,
@@ -56,14 +61,26 @@ import {
   withImageRemoved,
   withImageUpdated,
   withImagesAdded,
+  withImagesAligned,
+  withImagesLockSet,
+  withImagesShifted,
+  withImagesUpdated,
+  withMultipleLayersRemoved,
   withShapeDuplicated,
   withShapeRemoved,
   withShapeUpdated,
+  withShapesAligned,
+  withShapesLockSet,
+  withShapesShifted,
+  withShapesUpdated,
   withTextDuplicated,
   withTextRemoved,
   withTextUpdated,
+  withUnifiedLayersReordered,
   type EditorState,
   type ImageLayer,
+  type ShapeAlignEdge,
+  type ShapeLayer,
   type Template,
 } from "@/components/editor/types";
 import { AppTooltip, Chip, MOBILE_SHEET_MAX_HEIGHT_FRACTION, Range } from "@/components/editor/ui";
@@ -1780,6 +1797,78 @@ function Index() {
       ? getShapeLayers(s).find((sh) => sh.id === onlySelected.id)
       : undefined;
 
+  // Batch editing: when every currently-selected layer is a shape (two or
+  // more — e.g. several rectangles/circles dropped as decoration), surface
+  // a toolbar that changes fill color and width/height across all of them
+  // at once via withShapesUpdated, instead of forcing one-at-a-time edits.
+  const multiSelectedShapeLayers =
+    canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "shape")
+      ? (canvasSelection
+          .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
+          .filter(Boolean) as ShapeLayer[])
+      : [];
+  const isMultiShapeSelection = multiSelectedShapeLayers.length > 1;
+
+  // Position-panel callbacks for the multi-shape toolbar (Arrange/Align/
+  // Advanced X-Y) — shared between the desktop and mobile render slots
+  // below rather than re-inlined at each, since both need the exact same
+  // logic. Recomputed every render (multiSelectedShapeLayers/`s` aren't
+  // memoized), same as this file's other per-render callbacks (e.g.
+  // handleSelectLayer) — useCallback here is for consistency with that
+  // pattern, not a real memoization win.
+  const handleShapeArrange = useCallback(
+    (direction: ShapeArrangeDirection) => {
+      const ids = multiSelectedShapeLayers.map((l) => l.id);
+      set("layerOrder", withUnifiedLayersReordered(s, ids, direction).layerOrder);
+    },
+    [multiSelectedShapeLayers, s, set],
+  );
+  const handleShapeAlign = useCallback(
+    (edge: ShapeAlignEdge) => {
+      set("shapes", withShapesAligned(s, multiSelectedShapeLayers.map((l) => l.id), edge));
+    },
+    [multiSelectedShapeLayers, s, set],
+  );
+  const handleShapeShiftGroup = useCallback(
+    (dxPercent: number, dyPercent: number) => {
+      set("shapes", withShapesShifted(s, multiSelectedShapeLayers.map((l) => l.id), dxPercent, dyPercent));
+    },
+    [multiSelectedShapeLayers, s, set],
+  );
+
+  // Same batch-editing idea as multiSelectedShapeLayers above, for a
+  // multi-selection made entirely of images — Arrange/Align/Advanced X-Y,
+  // same as shapes (withUnifiedLayersReordered is kind-agnostic and shared
+  // as-is; withImagesAligned/withImagesShifted are the image-specific
+  // counterparts to withShapesAligned/withShapesShifted).
+  const multiSelectedImageLayers =
+    canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "image")
+      ? (canvasSelection
+          .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
+          .filter(Boolean) as ImageLayer[])
+      : [];
+  const isMultiImageSelection = multiSelectedImageLayers.length > 1;
+
+  const handleImageArrange = useCallback(
+    (direction: ShapeArrangeDirection) => {
+      const ids = multiSelectedImageLayers.map((l) => l.id);
+      set("layerOrder", withUnifiedLayersReordered(s, ids, direction).layerOrder);
+    },
+    [multiSelectedImageLayers, s, set],
+  );
+  const handleImageAlign = useCallback(
+    (edge: ShapeAlignEdge) => {
+      set("images", withImagesAligned(s, multiSelectedImageLayers.map((l) => l.id), edge));
+    },
+    [multiSelectedImageLayers, s, set],
+  );
+  const handleImageShiftGroup = useCallback(
+    (dxPercent: number, dyPercent: number) => {
+      set("images", withImagesShifted(s, multiSelectedImageLayers.map((l) => l.id), dxPercent, dyPercent));
+    },
+    [multiSelectedImageLayers, s, set],
+  );
+
   // Keeps a floating toolbar popover (font, color, shadow, gradient, ...)
   // open and fully usable even after the layer it belongs to stops being
   // the live canvas selection — e.g. the user clicked the canvas background
@@ -2036,6 +2125,8 @@ function Index() {
         {!isMobile &&
           !stageMarquee &&
           (canvasSelection.length === 1 ||
+            isMultiShapeSelection ||
+            isMultiImageSelection ||
             isBackgroundSelected ||
             textDetached ||
             imageDetached ||
@@ -2106,6 +2197,84 @@ function Index() {
                       }),
                     )
                   }
+                />
+              ) : null}
+              {isMultiShapeSelection ? (
+                <MultiShapeSelectionToolbar
+                  layers={multiSelectedShapeLayers}
+                  canvasWidth={s.width}
+                  canvasHeight={s.height}
+                  onArrange={handleShapeArrange}
+                  onAlign={handleShapeAlign}
+                  onShiftGroup={handleShapeShiftGroup}
+                  onUpdateAll={(patch) =>
+                    set(
+                      "shapes",
+                      withShapesUpdated(
+                        s,
+                        multiSelectedShapeLayers.map((l) => l.id),
+                        patch,
+                      ),
+                    )
+                  }
+                  onToggleLockAll={() => {
+                    const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
+                    set(
+                      "shapes",
+                      withShapesLockSet(
+                        s,
+                        multiSelectedShapeLayers.map((l) => l.id),
+                        !allLocked,
+                      ),
+                    );
+                  }}
+                  onDeleteAll={() => {
+                    const result = withMultipleLayersRemoved(s, canvasSelection);
+                    set("texts", result.texts);
+                    set("images", result.images);
+                    set("shapes", result.shapes);
+                    set("layerOrder", result.layerOrder);
+                    setCanvasSelection([]);
+                  }}
+                />
+              ) : null}
+              {isMultiImageSelection ? (
+                <MultiImageSelectionToolbar
+                  layers={multiSelectedImageLayers}
+                  canvasWidth={s.width}
+                  canvasHeight={s.height}
+                  onArrange={handleImageArrange}
+                  onAlign={handleImageAlign}
+                  onShiftGroup={handleImageShiftGroup}
+                  onUpdateAll={(patch) =>
+                    set(
+                      "images",
+                      withImagesUpdated(
+                        s,
+                        multiSelectedImageLayers.map((l) => l.id),
+                        patch,
+                      ),
+                    )
+                  }
+                  onToggleLockAll={() => {
+                    const allLocked = multiSelectedImageLayers.every((l) => l.locked);
+                    set(
+                      "images",
+                      withImagesLockSet(
+                        s,
+                        multiSelectedImageLayers.map((l) => l.id),
+                        !allLocked,
+                      ),
+                    );
+                  }}
+                  onDeleteAll={() => {
+                    const result = withMultipleLayersRemoved(s, canvasSelection);
+                    set("texts", result.texts);
+                    set("images", result.images);
+                    set("shapes", result.shapes);
+                    set("layerOrder", result.layerOrder);
+                    setCanvasSelection([]);
+                  }}
                 />
               ) : null}
               {isBackgroundSelected || backgroundDetached ? (
@@ -2419,17 +2588,23 @@ function Index() {
             ) : null}
 
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
-            {(selectedTextLayer || selectedImageLayer || selectedShapeLayer) ? (
+            {(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection) ? (
               <div
                 className="pointer-events-none fixed right-4 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
               >
                 {/* Lock Toggle Button */}
-                <AppTooltip content={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked) ? "Unlock Layer" : "Lock Layer"}>
+                <AppTooltip content={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked))) ? "Unlock Layer" : "Lock Layer"}>
                   <button
                     type="button"
                     onClick={() => {
-                      if (selectedTextLayer) {
+                      if (isMultiShapeSelection) {
+                        const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
+                        set("shapes", withShapesLockSet(s, multiSelectedShapeLayers.map((l) => l.id), !allLocked));
+                      } else if (isMultiImageSelection) {
+                        const allLocked = multiSelectedImageLayers.every((l) => l.locked);
+                        set("images", withImagesLockSet(s, multiSelectedImageLayers.map((l) => l.id), !allLocked));
+                      } else if (selectedTextLayer) {
                         set("texts", withTextUpdated(s, selectedTextLayer.id, { locked: !selectedTextLayer.locked }));
                       } else if (selectedImageLayer) {
                         set("images", withImageUpdated(s, selectedImageLayer.id, { locked: !selectedImageLayer.locked }));
@@ -2439,13 +2614,13 @@ function Index() {
                     }}
                     className={cn(
                       "pointer-events-auto grid h-7 w-7 place-items-center rounded-full transition-all active:scale-95",
-                      (selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked)
+                      (selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)))
                         ? "bg-amber-500/20 text-amber-500"
                         : "text-muted-foreground hover:text-foreground"
                     )}
-                    title={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked) ? "Unlock Layer" : "Lock Layer"}
+                    title={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked))) ? "Unlock Layer" : "Lock Layer"}
                   >
-                    {(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked) ? (
+                    {(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked))) ? (
                       <SquareLock02Icon size={14} />
                     ) : (
                       <SquareUnlock02Icon size={14} />
@@ -2460,7 +2635,13 @@ function Index() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (selectedTextLayer) {
+                      if (isMultiShapeSelection || isMultiImageSelection) {
+                        const result = withMultipleLayersRemoved(s, canvasSelection);
+                        set("texts", result.texts);
+                        set("images", result.images);
+                        set("shapes", result.shapes);
+                        set("layerOrder", result.layerOrder);
+                      } else if (selectedTextLayer) {
                         set("texts", withTextRemoved(s, selectedTextLayer.id));
                       } else if (selectedImageLayer) {
                         set("images", withImageRemoved(s, selectedImageLayer.id));
@@ -2485,7 +2666,7 @@ function Index() {
               {canvasStage}
             </div>
 
-            {!(selectedTextLayer || selectedImageLayer || selectedShapeLayer) ? (
+            {!(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection) ? (
               <MobileBottomTabBar
                 activeTab={tab}
                 isDrawerOpen={mobileToolDrawerOpen}
@@ -2562,6 +2743,82 @@ function Index() {
                           }),
                         )
                       }
+                    />
+                  ) : isMultiShapeSelection ? (
+                    <MultiShapeSelectionToolbar
+                      layers={multiSelectedShapeLayers}
+                      canvasWidth={s.width}
+                      canvasHeight={s.height}
+                      onArrange={handleShapeArrange}
+                      onAlign={handleShapeAlign}
+                      onShiftGroup={handleShapeShiftGroup}
+                      onUpdateAll={(patch) =>
+                        set(
+                          "shapes",
+                          withShapesUpdated(
+                            s,
+                            multiSelectedShapeLayers.map((l) => l.id),
+                            patch,
+                          ),
+                        )
+                      }
+                      onToggleLockAll={() => {
+                        const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
+                        set(
+                          "shapes",
+                          withShapesLockSet(
+                            s,
+                            multiSelectedShapeLayers.map((l) => l.id),
+                            !allLocked,
+                          ),
+                        );
+                      }}
+                      onDeleteAll={() => {
+                        const result = withMultipleLayersRemoved(s, canvasSelection);
+                        set("texts", result.texts);
+                        set("images", result.images);
+                        set("shapes", result.shapes);
+                        set("layerOrder", result.layerOrder);
+                        setCanvasSelection([]);
+                      }}
+                    />
+                  ) : isMultiImageSelection ? (
+                    <MultiImageSelectionToolbar
+                      layers={multiSelectedImageLayers}
+                      canvasWidth={s.width}
+                      canvasHeight={s.height}
+                      onArrange={handleImageArrange}
+                      onAlign={handleImageAlign}
+                      onShiftGroup={handleImageShiftGroup}
+                      onUpdateAll={(patch) =>
+                        set(
+                          "images",
+                          withImagesUpdated(
+                            s,
+                            multiSelectedImageLayers.map((l) => l.id),
+                            patch,
+                          ),
+                        )
+                      }
+                      onToggleLockAll={() => {
+                        const allLocked = multiSelectedImageLayers.every((l) => l.locked);
+                        set(
+                          "images",
+                          withImagesLockSet(
+                            s,
+                            multiSelectedImageLayers.map((l) => l.id),
+                            !allLocked,
+                          ),
+                        );
+                      }}
+                      onDeleteAll={() => {
+                        const result = withMultipleLayersRemoved(s, canvasSelection);
+                        set("texts", result.texts);
+                        set("images", result.images);
+                        set("shapes", result.shapes);
+                        set("layerOrder", result.layerOrder);
+                        setCanvasSelection([]);
+                      }}
                     />
                   ) : null}
                 </div>

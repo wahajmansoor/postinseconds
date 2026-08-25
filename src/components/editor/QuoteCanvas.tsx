@@ -2,13 +2,13 @@ import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } f
 import { createPortal } from "react-dom";
 import {
   Copy01Icon,
+  CursorCircleSelection02Icon,
   Delete02Icon,
-  MoveIcon,
-  RotateClockwiseIcon,
   SquareLock02Icon,
   SquareUnlock02Icon,
-  ReloadIcon
 } from "hugeicons-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { HandGrabIcon } from "@hugeicons/core-free-icons";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { triggerAlignmentHaptic } from "@/lib/haptics";
 import {
@@ -23,6 +23,7 @@ import {
   withImageDuplicated,
   withImageRemoved,
   withImageUpdated,
+  withMultipleLayersDuplicated,
   withMultipleLayersRemoved,
   withShapeDuplicated,
   withShapeRemoved,
@@ -144,6 +145,10 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   // snapped, and not when a drag ends and guides clear back to false.
   const wasSnappedRef = useRef(false);
   const handleGuidesChange = useCallback((g: GuidesState) => {
+    // Spacing-measurement lines (distancePx set) don't represent an actual
+    // snap — they show up just from having a nearby neighbor, regardless of
+    // whether anything actually aligned — so they're excluded here; only a
+    // genuine alignment line/edge/center should trigger the snap haptic.
     const isSnapped = !!(
       g.vCenter ||
       g.hCenter ||
@@ -151,7 +156,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       g.edgeRight ||
       g.edgeTop ||
       g.edgeBottom ||
-      (g.lines && g.lines.length > 0)
+      g.lines?.some((line) => line.distancePx === undefined)
     );
     if (isSnapped && !wasSnappedRef.current) {
       triggerAlignmentHaptic();
@@ -217,8 +222,37 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   // three are also threaded down into DraggableTextLayer's editableNode
   // memo as onGroupDragStart/onGroupDragMove/onGroupDragEnd).
   const beginGroupDrag = useCallback(
-    (clientX: number, clientY: number) => {
+    // `duplicate` powers Alt+drag on a multi-selection (mirrors what
+    // single-item Alt+drag already did per-layer via withTextDuplicated/
+    // withImageDuplicated/withShapeDuplicated) — duplicates every selected
+    // layer in one batch (withMultipleLayersDuplicated), points the
+    // selection at the new copies, and seeds groupDragRef directly from
+    // that helper's own newSelection (which already carries each copy's
+    // startX/startY) instead of re-reading `selected`/sRef.current — those
+    // still reflect the PRE-duplication ids/state at this point, since
+    // `set`/selection updates are async React state, not visible yet within
+    // this same synchronous call.
+    (clientX: number, clientY: number, duplicate?: boolean) => {
       const s = sRef.current;
+      if (duplicate && set) {
+        const result = withMultipleLayersDuplicated(s, selected);
+        if (result.newSelection.length === 0) return;
+        set("texts", result.texts);
+        set("images", result.images);
+        set("shapes", result.shapes);
+        set("layerOrder", result.layerOrder);
+        if (onSelectionChange) {
+          onSelectionChange(result.newSelection);
+        } else {
+          setInternalSelected(result.newSelection);
+        }
+        groupDragRef.current = {
+          startMouseX: clientX,
+          startMouseY: clientY,
+          items: result.newSelection.map(({ kind, id, startX, startY }) => ({ kind, id, startX, startY })),
+        };
+        return;
+      }
       const items: (LayerRef & { startX: number; startY: number })[] = [];
       for (const sel of selected) {
         if (sel.kind === "image") {
@@ -234,7 +268,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       }
       groupDragRef.current = { startMouseX: clientX, startMouseY: clientY, items };
     },
-    [selected],
+    [selected, set, onSelectionChange],
   );
 
   // Computes aggregate bounding box of all currently selected layers
@@ -646,6 +680,8 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   position: "absolute",
                   top: 24,
                   left: 6,
+                  transform: `scale(${multiSelectInvScale})`,
+                  transformOrigin: "left center",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -680,6 +716,8 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   position: "absolute",
                   top: 24,
                   right: 6,
+                  transform: `scale(${multiSelectInvScale})`,
+                  transformOrigin: "right center",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -714,6 +752,8 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   position: "absolute",
                   left: 24,
                   top: 6,
+                  transform: `scale(${multiSelectInvScale})`,
+                  transformOrigin: "left top",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -748,6 +788,8 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   position: "absolute",
                   left: 24,
                   bottom: 6,
+                  transform: `scale(${multiSelectInvScale})`,
+                  transformOrigin: "left bottom",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -783,7 +825,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   position: "absolute",
                   top: 14,
                   left: "50%",
-                  transform: "translateX(-50%)",
+                  transform: `translateX(-50%) scale(${multiSelectInvScale})`,
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -819,7 +861,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   position: "absolute",
                   left: 14,
                   top: "50%",
-                  transform: "translateY(-50%)",
+                  transform: `translateY(-50%) scale(${multiSelectInvScale})`,
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -836,8 +878,13 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
             </div>
           ) : null}
 
-          {/* Element-to-Element Dotted Alignment Lines */}
+          {/* Element-to-Element Dotted Alignment Lines, plus the solid
+              "distance to nearest neighbor" spacing lines (distancePx set —
+              see calculateAlignmentSnap's own comment on where these come
+              from), each with a pill badge showing the gap in px centered
+              on the line. */}
           {guides.lines?.map((line, idx) => {
+            const isSpacing = line.distancePx !== undefined;
             if (line.orientation === "vertical") {
               const top = Math.min(line.startPct, line.endPct);
               const height = Math.max(2, Math.abs(line.endPct - line.startPct));
@@ -851,10 +898,31 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                     height: `${height}%`,
                     width: 0,
                     transform: "translateX(-50%)",
-                    borderLeft: "2px dotted #ec4899",
+                    borderLeft: isSpacing ? "1.5px solid #ec4899" : "2px dotted #ec4899",
                     filter: "drop-shadow(0 0 3px rgba(236,72,153,0.9))",
                   }}
-                />
+                >
+                  {isSpacing ? (
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transform: `translate(-50%, -50%) scale(${multiSelectInvScale})`,
+                        background: "#ec4899",
+                        color: "#ffffff",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {line.distancePx}
+                    </span>
+                  ) : null}
+                </div>
               );
             }
             const left = Math.min(line.startPct, line.endPct);
@@ -869,10 +937,31 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   width: `${width}%`,
                   height: 0,
                   transform: "translateY(-50%)",
-                  borderTop: "2px dotted #ec4899",
+                  borderTop: isSpacing ? "1.5px solid #ec4899" : "2px dotted #ec4899",
                   filter: "drop-shadow(0 0 3px rgba(236,72,153,0.9))",
                 }}
-              />
+              >
+                {isSpacing ? (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      left: "50%",
+                      transform: `translate(-50%, -50%) scale(${multiSelectInvScale})`,
+                      background: "#ec4899",
+                      color: "#ffffff",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: "2px 8px",
+                      borderRadius: 999,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {line.distancePx}
+                  </span>
+                ) : null}
+              </div>
             );
           })}
         </div>
@@ -972,6 +1061,12 @@ export type AlignmentGuideLine = {
   startPct: number;
   endPct: number;
   style?: "dotted" | "solid";
+  // Set only for a "distance to nearest neighbor" spacing measurement
+  // (Figma-style pill badge showing the gap in px) — plain alignment lines
+  // above leave this unset. When set, the renderer draws a solid line
+  // (instead of dotted) with a pill badge at its midpoint instead of
+  // rendering it bare.
+  distancePx?: number;
 };
 
 export type GuidesState = {
@@ -1247,6 +1342,126 @@ function calculateAlignmentSnap({
     }
   }
 
+  // 4. Chained spacing measurement — Figma/Canva-style "distance to nearest
+  // object" badges, independent of whether anything snapped above. For
+  // each of the 4 directions, walks the whole chain of other elements out
+  // from the dragged element's edge: dragged→1st neighbor, then 1st→2nd
+  // neighbor, then 2nd→3rd, and so on — each consecutive LINK gets its own
+  // independent badge (not a single badge spanning past the near ones to
+  // the far one). So dragging the left box of three in a row shows both
+  // left→middle AND middle→right, even though that second gap never
+  // touches the dragged box at all. Only elements that overlap the dragged
+  // element along the PERPENDICULAR axis qualify (so the gap is spatially
+  // meaningful — two elements diagonally apart with no shared row/column
+  // wouldn't read as "spaced" from each other), and positions are the
+  // FINAL settled ones (after all snapping above) so the measurement always
+  // reflects where the element actually ends up. Pushed into the same
+  // `lines` array the plain alignment lines use — distancePx is what tells
+  // the renderer to draw one of these as a solid measurement line with a
+  // pill badge instead.
+  if (otherElements && otherElements.length > 0) {
+    const finalLeft = currCenterX - halfW;
+    const finalRight = currCenterX + halfW;
+    const finalTop = currCenterY - halfH;
+    const finalBottom = currCenterY + halfH;
+
+    type Rect = { left: number; right: number; top: number; bottom: number };
+    const otherRects: Rect[] = otherElements
+      .filter((other) => other.id !== currentId)
+      .map((other) => {
+        const cx = (other.x / 100) * canvasW;
+        const cy = (other.y / 100) * canvasH;
+        const hw = other.width / 2;
+        const hh = other.height / 2;
+        return { left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh };
+      });
+
+    // Walks one direction's chain of qualifying elements outward from the
+    // dragged element's own edge, pushing a badge for every consecutive
+    // link whose gap is >= 1px: dragged→1st, then 1st→2nd, 2nd→3rd, etc.
+    // (not one badge spanning past the near ones straight to the far one).
+    // `near`/`far` pull whichever pair of edges face each other along the
+    // walking axis (e.g. walking rightward: near=left edge, far=right
+    // edge); `perpStart`/`perpEnd` are the perpendicular-axis edges used
+    // for the qualifying-overlap check and the line's own on-screen span.
+    const walkChain = (
+      qualifying: Rect[],
+      startEdge: number,
+      near: (r: Rect) => number,
+      far: (r: Rect) => number,
+      ascending: boolean,
+      perpAxisStart: number,
+      perpAxisEnd: number,
+      makeLine: (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number) => AlignmentGuideLine,
+    ) => {
+      const sorted = [...qualifying].sort((a, b) =>
+        ascending ? near(a) - near(b) : near(b) - near(a),
+      );
+      let prevFar = startEdge;
+      for (const node of sorted) {
+        const dist = ascending ? near(node) - prevFar : prevFar - near(node);
+        if (dist >= 1) {
+          const perpStart = Math.max(perpAxisStart, node.top);
+          const perpEnd = Math.min(perpAxisEnd, node.bottom);
+          const edgeA = ascending ? prevFar : near(node);
+          const edgeB = ascending ? near(node) : prevFar;
+          lines.push(makeLine(edgeA, edgeB, dist, perpStart, perpEnd));
+        }
+        prevFar = far(node);
+      }
+    };
+
+    const makeVerticalLine = (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number): AlignmentGuideLine => ({
+      orientation: "vertical",
+      posPct: ((edgeA + edgeB) / 2 / canvasW) * 100,
+      startPct: (perpStart / canvasH) * 100,
+      endPct: (perpEnd / canvasH) * 100,
+      distancePx: Math.round(dist),
+    });
+    const makeHorizontalLine = (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number): AlignmentGuideLine => ({
+      orientation: "horizontal",
+      posPct: ((edgeA + edgeB) / 2 / canvasH) * 100,
+      startPct: (perpStart / canvasW) * 100,
+      endPct: (perpEnd / canvasW) * 100,
+      distancePx: Math.round(dist),
+    });
+
+    const rightQualifying = otherRects.filter((r) => r.left >= finalRight && r.top < finalBottom && r.bottom > finalTop);
+    walkChain(rightQualifying, finalRight, (r) => r.left, (r) => r.right, true, finalTop, finalBottom, makeVerticalLine);
+
+    const leftQualifying = otherRects.filter((r) => r.right <= finalLeft && r.top < finalBottom && r.bottom > finalTop);
+    walkChain(leftQualifying, finalLeft, (r) => r.right, (r) => r.left, false, finalTop, finalBottom, makeVerticalLine);
+
+    // Top/Bottom reuse the exact same walker — `node.top`/`node.bottom`
+    // inside it double as "the perpendicular axis" regardless of which
+    // physical axis that means, since a Rect's own top/bottom already line
+    // up with X here (each rect below is a real Left/Right/Top/Bottom box,
+    // just walked with X as the "perpendicular" axis instead of Y).
+    const bottomQualifying = otherRects.filter((r) => r.top >= finalBottom && r.left < finalRight && r.right > finalLeft);
+    walkChain(
+      bottomQualifying.map((r) => ({ left: r.top, right: r.bottom, top: r.left, bottom: r.right })),
+      finalBottom,
+      (r) => r.left,
+      (r) => r.right,
+      true,
+      finalLeft,
+      finalRight,
+      makeHorizontalLine,
+    );
+
+    const topQualifying = otherRects.filter((r) => r.bottom <= finalTop && r.left < finalRight && r.right > finalLeft);
+    walkChain(
+      topQualifying.map((r) => ({ left: r.top, right: r.bottom, top: r.left, bottom: r.right })),
+      finalTop,
+      (r) => r.right,
+      (r) => r.left,
+      false,
+      finalLeft,
+      finalRight,
+      makeHorizontalLine,
+    );
+  }
+
   const nextX = Number(((currCenterX / canvasW) * 100).toFixed(3));
   const nextY = Number(((currCenterY / canvasH) * 100).toFixed(3));
 
@@ -1365,6 +1580,7 @@ function LayerToolbar({
   );
 }
 
+
 // The two circular handles docked below (or above, to dodge LayerToolbar
 // when it's flipped down near the top of the canvas) a selected layer's
 // bounding box — rotate on the left, move on the right, matching Canva's
@@ -1386,6 +1602,17 @@ function RotateMoveHandleRow({
   onMovePointerUp,
   scale = 1,
   placement = "bottom",
+  // True while the parent layer is being dragged via ANY path (this row's
+  // own move handle, or dragging the layer's body directly) — hides the
+  // rotate button for the duration, same idea as onRotatingChange below
+  // hiding the move button while rotating, so the handle for whichever
+  // gesture ISN'T active doesn't compete for attention/fat-finger taps
+  // right next to the one that is.
+  isMoving = false,
+  // Reports this row's own rotate-drag state back up to the parent, which
+  // uses it to hide the move button here (see isMoving's own comment) and
+  // to hide its LayerToolbar/resize handles for the same duration.
+  onRotatingChange,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
   onRotate: (deg: number) => void;
@@ -1394,19 +1621,30 @@ function RotateMoveHandleRow({
   onMovePointerUp: ((e: React.PointerEvent) => void) | undefined;
   scale?: number | undefined;
   placement?: "top" | "bottom" | undefined;
+  isMoving?: boolean;
+  onRotatingChange?: (isRotating: boolean) => void;
 }) {
   const rotatingRef = useRef(false);
   const invScale = scale > 0 ? 1 / scale : 1;
-  // Only populated while actively dragging the rotate handle — drives the
-  // little "-17°"-style badge below. Kept local (not read from the layer's
-  // own rotation prop) since it needs to update live on every pointermove,
-  // one render ahead of the parent's own state actually committing.
+  // Drives the little "-17°"-style badge below, live during an active
+  // rotate drag. Kept local (not read from the layer's own rotation prop)
+  // since it needs to update on every pointermove, one render ahead of the
+  // parent's own state actually committing.
   const [liveAngle, setLiveAngle] = useState<number | null>(null);
+  // This row's own "am I rotating" flag, for hiding the move button (and,
+  // via onRotatingChange, the parent's LayerToolbar/resize handles) — a
+  // dedicated state rather than reusing liveAngle !== null above, since
+  // liveAngle only starts updating on the FIRST pointermove after the
+  // rotate handle is grabbed; this flips immediately on pointerdown so
+  // nothing else stays visible for that first instant of the gesture.
+  const [isRotating, setIsRotating] = useState(false);
 
   const handleRotatePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     rotatingRef.current = true;
+    setIsRotating(true);
+    onRotatingChange?.(true);
   };
 
   const handleRotatePointerMove = (e: React.PointerEvent) => {
@@ -1439,10 +1677,12 @@ function RotateMoveHandleRow({
     } catch { }
     rotatingRef.current = false;
     setLiveAngle(null);
+    setIsRotating(false);
+    onRotatingChange?.(false);
   };
 
   const btn =
-    "grid h-7 w-7 place-items-center rounded-full bg-white text-[#394660] shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-background hover:text-white active:scale-95";
+    "grid h-7 w-7 place-items-center rounded-full bg-white text-black shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-[#15161c] hover:text-white active:scale-95";
 
   return (
     <>
@@ -1465,6 +1705,12 @@ function RotateMoveHandleRow({
           pointerEvents: "auto",
         }}
       >
+        {/* visibility (not unmounting) — this button is never the one
+            actively being dragged while isMoving is true (that's the move
+            button below), so hiding it this way is safe; unmounting it
+            would also be fine here, but visibility keeps the row's own
+            width/centering stable instead of the remaining button
+            re-centering itself for the duration. */}
         <button
           type="button"
           title="Drag to rotate"
@@ -1473,10 +1719,14 @@ function RotateMoveHandleRow({
           onPointerUp={handleRotatePointerUp}
           onPointerCancel={handleRotatePointerUp}
           className={btn}
-          style={{ cursor: "grab" }}
+          style={{ cursor: "grab", visibility: isMoving ? "hidden" : "visible" }}
         >
-          <ReloadIcon size={14} />
+          <CursorCircleSelection02Icon size={16} />
         </button>
+        {/* Same reasoning as the rotate button above, mirrored: hidden
+            (never unmounted) while THIS row's own rotate gesture is active,
+            since that gesture's pointer capture lives on the rotate button
+            above, not this one. */}
         <button
           type="button"
           title="Drag to move"
@@ -1485,9 +1735,9 @@ function RotateMoveHandleRow({
           onPointerUp={onMovePointerUp}
           onPointerCancel={onMovePointerUp}
           className={btn}
-          style={{ cursor: "grab" }}
+          style={{ cursor: "grab", visibility: isRotating ? "hidden" : "visible" }}
         >
-          <MoveIcon size={14} />
+          <HugeiconsIcon icon={HandGrabIcon} size={18} />
         </button>
       </div>
 
@@ -2020,7 +2270,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   selected: boolean;
   selectedCount: number;
   onSelect: (id: string, opts?: { toggle?: boolean }) => void;
-  onGroupDragStart: (clientX: number, clientY: number) => void;
+  onGroupDragStart: (clientX: number, clientY: number, duplicate?: boolean) => void;
   onGroupDragMove: (clientX: number, clientY: number) => void;
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
@@ -2052,6 +2302,9 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   // other 7 hide for the duration so the one in use isn't competing for
   // attention with a ring of handles the user isn't touching.
   const [activeHandle, setActiveHandle] = useState<HandleId | null>(null);
+  // See the matching state's own comment in DraggableShapeLayer.
+  const [isMoving, setIsMoving] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
   const editableRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dblClickPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -2158,10 +2411,12 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     moveDragRef.current = { px: t.x, py: t.y, x: e.clientX, y: e.clientY };
+    setIsMoving(true);
   };
   const handleMovePointerMove = (e: React.PointerEvent) => {
     if (suppressDragRef?.current) {
       moveDragRef.current = null;
+      setIsMoving(false);
       return;
     }
     const d = moveDragRef.current;
@@ -2189,6 +2444,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch { }
     moveDragRef.current = null;
+    setIsMoving(false);
     onGuides({ vCenter: false, hCenter: false });
   };
 
@@ -2502,6 +2758,22 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               onSelect(t.id);
               return;
             }
+            // See the matching setIsMoving comment in DraggableShapeLayer.
+            // Safe to call inside this memoized handler without adding it
+            // as a dependency — it's a stable state setter, only reading
+            // isMoving's value (which this block never does) would need
+            // that.
+            setIsMoving(true);
+
+            // Alt+drag on an existing multi-selection duplicates the whole
+            // group at once — see the matching block's comment in
+            // DraggableShapeLayer's handlePointerDown.
+            if (e.altKey && selected && selectedCount > 1) {
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              groupDraggingRef.current = true;
+              onGroupDragStart(e.clientX, e.clientY, true);
+              return;
+            }
 
             if (e.altKey && set) {
               const dup = withTextDuplicated(sRef.current, t.id);
@@ -2546,6 +2818,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             if (suppressDragRef?.current) {
               dragRef.current = null;
               groupDraggingRef.current = false;
+              setIsMoving(false);
               return;
             }
             if (groupDraggingRef.current) {
@@ -2591,6 +2864,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           groupDraggingRef.current = false;
           onGroupDragEnd();
         }
+        setIsMoving(false);
         onGuides({ vCenter: false, hCenter: false });
       };
 
@@ -2753,7 +3027,15 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               : t.verticalAlign === "bottom"
                 ? "flex-end"
                 : "flex-start",
-          zIndex: (selected ? 80 : 10) + index,
+          // The "float above everything" boost only applies to a SOLE
+          // selection (actively being edited, wants to stay visible over
+          // clutter) — a multi-selection needs to respect the plain
+          // layerOrder-based stacking instead, or Arrange (Forward/
+          // Backward/To Front/To Back in the multi-select toolbar) would
+          // have no visible effect: every selected layer would always
+          // render above every unselected one regardless of where
+          // withUnifiedLayersReordered actually placed it.
+          zIndex: (selected && selectedCount === 1 ? 80 : 10) + index,
           touchAction: "none",
           outline: "none",
         }}
@@ -2785,20 +3067,26 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                 pointerEvents: "none",
               }}
             />
-            <div style={{ pointerEvents: "auto" }}>
-              <LayerToolbar
-                locked={locked}
-                onToggleLock={() => update({ locked: !locked })}
-                onDuplicate={duplicate}
-                onDelete={remove}
-                scale={scale}
-                placement={isNearTop ? "bottom" : "top"}
-              />
-            </div>
+            {/* See the matching block's comment in DraggableShapeLayer for
+                why this hides (not just visually deprioritizes) for the
+                duration of a move/rotate drag. */}
+            {!(isMoving || isRotating) ? (
+              <div style={{ pointerEvents: "auto" }}>
+                <LayerToolbar
+                  locked={locked}
+                  onToggleLock={() => update({ locked: !locked })}
+                  onDuplicate={duplicate}
+                  onDelete={remove}
+                  scale={scale}
+                  placement={isNearTop ? "bottom" : "top"}
+                />
+              </div>
+            ) : null}
 
             {!locked ? (
               <>
-                {HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
+                {!(isMoving || isRotating)
+                  ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
                   <div
                     key={h.id}
                     onPointerDown={(e) => {
@@ -2882,7 +3170,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                       style={getHandleVisualStyle(h, scale)}
                     />
                   </div>
-                ))}
+                    ))
+                  : null}
                 <RotateMoveHandleRow
                   containerRef={containerRef}
                   scale={scale}
@@ -2890,6 +3179,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                   onMovePointerDown={handleMovePointerDown}
                   onMovePointerMove={handleMovePointerMove}
                   onMovePointerUp={handleMovePointerUp}
+                  isMoving={isMoving}
+                  onRotatingChange={setIsRotating}
                 />
               </>
             ) : null}
@@ -2927,7 +3218,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   selected: boolean;
   selectedCount: number;
   onSelect: (id: string, opts?: { toggle?: boolean }) => void;
-  onGroupDragStart: (clientX: number, clientY: number) => void;
+  onGroupDragStart: (clientX: number, clientY: number, duplicate?: boolean) => void;
   onGroupDragMove: (clientX: number, clientY: number) => void;
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
@@ -2959,6 +3250,9 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   // other 7 hide for the duration so the one in use isn't competing for
   // attention with a ring of handles the user isn't touching.
   const [activeHandle, setActiveHandle] = useState<HandleId | null>(null);
+  // See the matching state's own comment in DraggableShapeLayer.
+  const [isMoving, setIsMoving] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const canInteract = interactive && !!set && !s.locked;
@@ -2987,6 +3281,18 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
       }
       if (locked) {
         onSelect(img.id);
+        return;
+      }
+      // See the matching setIsMoving comment in DraggableShapeLayer.
+      setIsMoving(true);
+
+      // Alt+drag on an existing multi-selection duplicates the whole group
+      // at once — see the matching block's comment in DraggableShapeLayer's
+      // handlePointerDown.
+      if (e.altKey && selected && selectedCount > 1) {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        groupDraggingRef.current = true;
+        onGroupDragStart(e.clientX, e.clientY, true);
         return;
       }
 
@@ -3031,6 +3337,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
       if (suppressDragRef?.current) {
         dragRef.current = null;
         groupDraggingRef.current = false;
+        setIsMoving(false);
         return;
       }
       if (groupDraggingRef.current) {
@@ -3079,6 +3386,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
       groupDraggingRef.current = false;
       onGroupDragEnd();
     }
+    setIsMoving(false);
     onGuides({ vCenter: false, hCenter: false });
   };
 
@@ -3104,7 +3412,10 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
               ? `${img.height}px`
               : undefined,
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-          zIndex: selected
+          // See the matching comment on DraggableTextLayer's own zIndex for
+          // why this only boosts a SOLE selection, not every selected layer
+          // in a multi-selection.
+          zIndex: selected && selectedCount === 1
             ? 80 + index
             : img.layer === "behind"
               ? 10 + Math.min(index, textFloorIndex(s) - 1)
@@ -3170,20 +3481,26 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                 pointerEvents: "none",
               }}
             />
-            <div style={{ pointerEvents: "auto" }}>
-              <LayerToolbar
-                locked={locked}
-                onToggleLock={() => update({ locked: !locked })}
-                onDuplicate={duplicate}
-                onDelete={remove}
-                scale={scale}
-                placement={isNearTop ? "bottom" : "top"}
-              />
-            </div>
+            {/* See the matching block's comment in DraggableShapeLayer for
+                why this hides (not just visually deprioritizes) for the
+                duration of a move/rotate drag. */}
+            {!(isMoving || isRotating) ? (
+              <div style={{ pointerEvents: "auto" }}>
+                <LayerToolbar
+                  locked={locked}
+                  onToggleLock={() => update({ locked: !locked })}
+                  onDuplicate={duplicate}
+                  onDelete={remove}
+                  scale={scale}
+                  placement={isNearTop ? "bottom" : "top"}
+                />
+              </div>
+            ) : null}
 
             {!locked ? (
               <>
-                {HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
+                {!(isMoving || isRotating)
+                  ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
                   <div
                     key={h.id}
                     onPointerDown={(e) => {
@@ -3262,7 +3579,8 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                       style={getHandleVisualStyle(h, scale)}
                     />
                   </div>
-                ))}
+                    ))
+                  : null}
                 <RotateMoveHandleRow
                   containerRef={containerRef}
                   scale={scale}
@@ -3270,6 +3588,8 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                   onMovePointerDown={handlePointerDown}
                   onMovePointerMove={handlePointerMove}
                   onMovePointerUp={handlePointerUp}
+                  isMoving={isMoving}
+                  onRotatingChange={setIsRotating}
                 />
               </>
             ) : null}
@@ -3307,7 +3627,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   selected: boolean;
   selectedCount: number;
   onSelect: (id: string, opts?: { toggle?: boolean }) => void;
-  onGroupDragStart: (clientX: number, clientY: number) => void;
+  onGroupDragStart: (clientX: number, clientY: number, duplicate?: boolean) => void;
   onGroupDragMove: (clientX: number, clientY: number) => void;
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
@@ -3339,6 +3659,18 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   // other 7 hide for the duration so the one in use isn't competing for
   // attention with a ring of handles the user isn't touching.
   const [activeHandle, setActiveHandle] = useState<HandleId | null>(null);
+  // True for the duration of an active move drag (single-item, group, or an
+  // Alt+drag duplicate — every branch in handlePointerDown that actually
+  // starts dragging) — used to hide LayerToolbar, the resize handles, and
+  // (via RotateMoveHandleRow's own isMoving prop) its rotate button while
+  // the shape is being moved, same UI-declutter idea handleRotatePointerDown
+  // below applies in the other direction for isRotating.
+  const [isMoving, setIsMoving] = useState(false);
+  // Mirrors RotateMoveHandleRow's own rotate-drag state (reported via its
+  // onRotatingChange prop) purely so LayerToolbar/the resize handles can
+  // hide for that gesture too — RotateMoveHandleRow already hides its own
+  // move button internally without needing this passed back in.
+  const [isRotating, setIsRotating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const canInteract = interactive && !!set && !s.locked;
@@ -3377,8 +3709,23 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
         onSelect(shape.id);
         return;
       }
+      // From here down every remaining branch actually starts a drag (Alt
+      // group-duplicate, Alt single-duplicate, group, or single) — none of
+      // them return before this point without dragging, so setting it once
+      // here covers all four instead of repeating it in each branch.
+      setIsMoving(true);
       if (!selected) {
         onSelect(shape.id);
+      }
+      // Alt+drag on an existing multi-selection duplicates the whole group
+      // at once (see beginGroupDrag's `duplicate` param) — checked before
+      // the single-item Alt+drag branch below, same "was this already part
+      // of a multi-selection" condition the plain (non-Alt) group-vs-single
+      // drag decision right after it already uses.
+      if (e.altKey && selected && selectedCount > 1) {
+        groupDraggingRef.current = true;
+        onGroupDragStart(e.clientX, e.clientY, true);
+        return;
       }
       if (e.altKey && set) {
         const dup = withShapeDuplicated(sRef.current, shape.id);
@@ -3418,6 +3765,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
       if (suppressDragRef?.current) {
         dragRef.current = null;
         groupDraggingRef.current = false;
+        setIsMoving(false);
         return;
       }
       if (groupDraggingRef.current) {
@@ -3464,6 +3812,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
       groupDraggingRef.current = false;
       onGroupDragEnd();
     }
+    setIsMoving(false);
     onGuides({ vCenter: false, hCenter: false });
   };
 
@@ -3490,7 +3839,10 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               ? effectiveHeight
               : 200,
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-          zIndex: selected
+          // See the matching comment on DraggableTextLayer's own zIndex for
+          // why this only boosts a SOLE selection, not every selected layer
+          // in a multi-selection.
+          zIndex: selected && selectedCount === 1
             ? 80 + index
             : shape.layer === "behind"
               ? 10 + Math.min(index, textFloorIndex(s) - 1)
@@ -3544,20 +3896,31 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                 pointerEvents: "none",
               }}
             />
-            <div style={{ pointerEvents: "auto" }}>
-              <LayerToolbar
-                locked={locked}
-                onToggleLock={() => update({ locked: !locked })}
-                onDuplicate={duplicate}
-                onDelete={remove}
-                scale={scale}
-                placement={isNearTop ? "bottom" : "top"}
-              />
-            </div>
+            {/* Hidden (not just visually deprioritized) for the duration of
+                a move or rotate drag — see isMoving/isRotating's own
+                comments above for why, and RotateMoveHandleRow's matching
+                treatment of its own two buttons. Safe to fully unmount:
+                neither of these ever holds the pointer capture driving
+                the active gesture (that's either the shape's own body, or
+                RotateMoveHandleRow's move/rotate button, both separate
+                elements that stay mounted throughout). */}
+            {!(isMoving || isRotating) ? (
+              <div style={{ pointerEvents: "auto" }}>
+                <LayerToolbar
+                  locked={locked}
+                  onToggleLock={() => update({ locked: !locked })}
+                  onDuplicate={duplicate}
+                  onDelete={remove}
+                  scale={scale}
+                  placement={isNearTop ? "bottom" : "top"}
+                />
+              </div>
+            ) : null}
 
             {!locked ? (
               <>
-                {HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
+                {!(isMoving || isRotating)
+                  ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
                   <div
                     key={h.id}
                     onPointerDown={(e) => {
@@ -3638,7 +4001,8 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       style={getHandleVisualStyle(h, scale)}
                     />
                   </div>
-                ))}
+                    ))
+                  : null}
                 <RotateMoveHandleRow
                   containerRef={containerRef}
                   scale={scale}
@@ -3647,6 +4011,8 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                   onMovePointerDown={handlePointerDown}
                   onMovePointerMove={handlePointerMove}
                   onMovePointerUp={handlePointerUp}
+                  isMoving={isMoving}
+                  onRotatingChange={setIsRotating}
                 />
               </>
             ) : null}

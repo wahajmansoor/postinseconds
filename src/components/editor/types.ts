@@ -1988,6 +1988,58 @@ export function withImageReordered(s: EditorState, id: string, direction: "up" |
   return list;
 }
 
+// Batch image helpers — same shape/reasoning as withShapesUpdated/
+// withShapesLockSet/withShapesAligned/withShapesShifted in the Shapes
+// section below, for the multi-select Image toolbar's own Arrange/Align/
+// Advanced panel (withUnifiedLayersReordered above is already kind-
+// agnostic, so it's reused as-is for images — no image-specific arrange
+// helper needed).
+export function withImagesUpdated(
+  s: EditorState,
+  ids: string[],
+  patch: Partial<Omit<ImageLayer, "id">>,
+): ImageLayer[] {
+  const idSet = new Set(ids);
+  return getImageLayers(s).map((img) => (idSet.has(img.id) && !img.locked ? { ...img, ...patch } : img));
+}
+
+export function withImagesLockSet(s: EditorState, ids: string[], locked: boolean): ImageLayer[] {
+  const idSet = new Set(ids);
+  return getImageLayers(s).map((img) => (idSet.has(img.id) ? { ...img, locked } : img));
+}
+
+export function withImagesAligned(s: EditorState, ids: string[], edge: ShapeAlignEdge): ImageLayer[] {
+  const idSet = new Set(ids);
+  return getImageLayers(s).map((img) => {
+    if (!idSet.has(img.id) || img.locked) return img;
+    const w = img.size;
+    const h = img.height ?? img.size;
+    switch (edge) {
+      case "left":
+        return { ...img, x: (w / 2 / s.width) * 100 };
+      case "center-h":
+        return { ...img, x: 50 };
+      case "right":
+        return { ...img, x: 100 - (w / 2 / s.width) * 100 };
+      case "top":
+        return { ...img, y: (h / 2 / s.height) * 100 };
+      case "middle-v":
+        return { ...img, y: 50 };
+      case "bottom":
+        return { ...img, y: 100 - (h / 2 / s.height) * 100 };
+      default:
+        return img;
+    }
+  });
+}
+
+export function withImagesShifted(s: EditorState, ids: string[], dxPercent: number, dyPercent: number): ImageLayer[] {
+  const idSet = new Set(ids);
+  return getImageLayers(s).map((img) =>
+    idSet.has(img.id) && !img.locked ? { ...img, x: img.x + dxPercent, y: img.y + dyPercent } : img,
+  );
+}
+
 // --- Text gallery helpers -----------------------------------------------
 // Same shape as the images gallery helpers above, for extra draggable text
 // blocks beyond the fixed quote/name/tagline.
@@ -2121,6 +2173,29 @@ export function withShapeUpdated(
   return getShapeLayers(s).map((sh) => (sh.id === id ? { ...sh, ...patch } : sh));
 }
 
+// Same as withShapeUpdated but applies one patch to every id in a multi-
+// selection at once (e.g. the top toolbar's batch color/dimension controls
+// when several shapes are selected together) — locked shapes are skipped,
+// same guard withMultipleLayersRemoved below already uses for deletion.
+export function withShapesUpdated(
+  s: EditorState,
+  ids: string[],
+  patch: Partial<Omit<ShapeLayer, "id">>,
+): ShapeLayer[] {
+  const idSet = new Set(ids);
+  return getShapeLayers(s).map((sh) => (idSet.has(sh.id) && !sh.locked ? { ...sh, ...patch } : sh));
+}
+
+// Toggles the locked flag itself across a multi-selection — deliberately
+// NOT routed through withShapesUpdated above, since that skips already-
+// locked shapes (protecting them from bulk color/dimension edits); a
+// lock/unlock control has to reach locked shapes too, or "Unlock All"
+// could never actually unlock anything.
+export function withShapesLockSet(s: EditorState, ids: string[], locked: boolean): ShapeLayer[] {
+  const idSet = new Set(ids);
+  return getShapeLayers(s).map((sh) => (idSet.has(sh.id) ? { ...sh, locked } : sh));
+}
+
 export function withShapeRemoved(s: EditorState, id: string): ShapeLayer[] {
   return getShapeLayers(s).filter((sh) => sh.id !== id);
 }
@@ -2228,6 +2303,97 @@ export function withUnifiedLayerReordered(
   return { layerOrder: nextStack };
 }
 
+// Batch version of withUnifiedLayerReordered's "up"/"down" step, plus the
+// jump-to-either-end moves it didn't have — the multi-select "Arrange"
+// panel's Forward/Backward/To Front/To Back buttons. "front"/"back" are
+// simple: pull every selected id out (keeping their relative order) and put
+// the whole block at the corresponding end. "forward"/"backward" move the
+// whole selected block by one step as a unit: scan the stack from the edge
+// being moved TOWARD, and whenever a selected item sits directly next to an
+// unselected one on that side, swap them — repeating the scan across the
+// whole stack in one pass so a contiguous selected run moves together
+// rather than each item leapfrogging one at a time over multiple clicks.
+export function withUnifiedLayersReordered(
+  s: EditorState,
+  ids: string[],
+  direction: "forward" | "backward" | "front" | "back",
+): { layerOrder: UnifiedLayerRef[] } {
+  const idSet = new Set(ids);
+  const stack = getUnifiedLayers(s);
+
+  if (direction === "front" || direction === "back") {
+    const selectedItems = stack.filter((item) => idSet.has(item.id));
+    const otherItems = stack.filter((item) => !idSet.has(item.id));
+    if (selectedItems.length === 0) return { layerOrder: stack };
+    return {
+      layerOrder: direction === "front" ? [...otherItems, ...selectedItems] : [...selectedItems, ...otherItems],
+    };
+  }
+
+  const next = [...stack];
+  if (direction === "forward") {
+    for (let i = next.length - 2; i >= 0; i--) {
+      if (idSet.has(next[i]!.id) && !idSet.has(next[i + 1]!.id)) {
+        const tmp = next[i]!;
+        next[i] = next[i + 1]!;
+        next[i + 1] = tmp;
+      }
+    }
+  } else {
+    for (let i = 1; i < next.length; i++) {
+      if (idSet.has(next[i]!.id) && !idSet.has(next[i - 1]!.id)) {
+        const tmp = next[i]!;
+        next[i] = next[i - 1]!;
+        next[i - 1] = tmp;
+      }
+    }
+  }
+  return { layerOrder: next };
+}
+
+// Align edge, relative to the CANVAS (not the selection's own bounding
+// box) — same convention as Canva's own Position panel: each selected
+// shape moves independently to line up with the canvas edge/center, using
+// its own width/height, rather than lining up against each other.
+export type ShapeAlignEdge = "left" | "center-h" | "right" | "top" | "middle-v" | "bottom";
+
+export function withShapesAligned(s: EditorState, ids: string[], edge: ShapeAlignEdge): ShapeLayer[] {
+  const idSet = new Set(ids);
+  return getShapeLayers(s).map((sh) => {
+    if (!idSet.has(sh.id) || sh.locked) return sh;
+    const w = sh.size;
+    const h = sh.height ?? sh.size;
+    switch (edge) {
+      case "left":
+        return { ...sh, x: (w / 2 / s.width) * 100 };
+      case "center-h":
+        return { ...sh, x: 50 };
+      case "right":
+        return { ...sh, x: 100 - (w / 2 / s.width) * 100 };
+      case "top":
+        return { ...sh, y: (h / 2 / s.height) * 100 };
+      case "middle-v":
+        return { ...sh, y: 50 };
+      case "bottom":
+        return { ...sh, y: 100 - (h / 2 / s.height) * 100 };
+      default:
+        return sh;
+    }
+  });
+}
+
+// Shifts every selected shape by the same delta (in canvas % — same units
+// x/y are already stored in) — used by the multi-select "Advanced" panel's
+// X/Y fields to move the whole group together: the caller works out
+// dxPercent/dyPercent from the desired new group position vs the group's
+// current bounding box, this just applies that one delta uniformly.
+export function withShapesShifted(s: EditorState, ids: string[], dxPercent: number, dyPercent: number): ShapeLayer[] {
+  const idSet = new Set(ids);
+  return getShapeLayers(s).map((sh) =>
+    idSet.has(sh.id) && !sh.locked ? { ...sh, x: sh.x + dxPercent, y: sh.y + dyPercent } : sh,
+  );
+}
+
 export function withMultipleLayersRemoved(
   s: EditorState,
   selected: { kind: "text" | "image" | "shape"; id: string }[],
@@ -2254,4 +2420,60 @@ export function withMultipleLayersRemoved(
   const layerOrder = getUnifiedLayers(s).filter((item) => !deletedIds.has(item.id));
 
   return { texts, images, shapes, layerOrder };
+}
+
+// Duplicates every id in a multi-selection at once — same shape of input as
+// withMultipleLayersRemoved above, used for the Alt+drag "duplicate the
+// whole group" gesture in QuoteCanvas (single-item Alt+drag already used
+// withTextDuplicated/withImageDuplicated/withShapeDuplicated directly; this
+// is the batch equivalent so a multi-selection can be duplicated in one
+// state update instead of one id at a time). Each copy keeps its original's
+// exact x/y (no offset) — the caller immediately starts dragging the copies
+// from the mouse's current position, so an offset here would just be
+// discarded the instant the drag's own first move event lands. `newSelection`
+// carries each copy's starting x/y along with its kind/id so the caller can
+// seed a group-drag baseline without a second lookup pass; locked layers are
+// skipped (not duplicated), same guard every other bulk operation here uses.
+export function withMultipleLayersDuplicated(
+  s: EditorState,
+  selected: { kind: "text" | "image" | "shape"; id: string }[],
+): {
+  texts: TextLayer[];
+  images: ImageLayer[];
+  shapes: ShapeLayer[];
+  layerOrder: UnifiedLayerRef[];
+  newSelection: { kind: "text" | "image" | "shape"; id: string; startX: number; startY: number }[];
+} {
+  const textIds = new Set(selected.filter((item) => item.kind === "text").map((item) => item.id));
+  const imageIds = new Set(selected.filter((item) => item.kind === "image").map((item) => item.id));
+  const shapeIds = new Set(selected.filter((item) => item.kind === "shape").map((item) => item.id));
+
+  const newSelection: { kind: "text" | "image" | "shape"; id: string; startX: number; startY: number }[] = [];
+  const newRefs: UnifiedLayerRef[] = [];
+
+  const texts = getTextLayers(s).flatMap((t) => {
+    if (!textIds.has(t.id) || t.locked) return [t];
+    const copy: TextLayer = { ...t, id: newLayerId() };
+    newSelection.push({ kind: "text", id: copy.id, startX: copy.x, startY: copy.y });
+    newRefs.push({ kind: "text", id: copy.id });
+    return [t, copy];
+  });
+  const images = getImageLayers(s).flatMap((img) => {
+    if (!imageIds.has(img.id) || img.locked) return [img];
+    const copy: ImageLayer = { ...img, id: newLayerId() };
+    newSelection.push({ kind: "image", id: copy.id, startX: copy.x, startY: copy.y });
+    newRefs.push({ kind: "image", id: copy.id });
+    return [img, copy];
+  });
+  const shapes = getShapeLayers(s).flatMap((sh) => {
+    if (!shapeIds.has(sh.id) || sh.locked) return [sh];
+    const copy: ShapeLayer = { ...sh, id: newLayerId() };
+    newSelection.push({ kind: "shape", id: copy.id, startX: copy.x, startY: copy.y });
+    newRefs.push({ kind: "shape", id: copy.id });
+    return [sh, copy];
+  });
+
+  const layerOrder = [...getUnifiedLayers(s), ...newRefs];
+
+  return { texts, images, shapes, layerOrder, newSelection };
 }
