@@ -384,6 +384,23 @@ function ShapeGradientControl({
   );
 }
 
+// Placeholder for one TemplatePreview card (162px wide, matching its own
+// default aspect-ratio math for a 1200x1500 design: 162 * 1500/1200 ≈ 203)
+// — shown in the Free Templates grid while the real list is still loading,
+// instead of the bundled local TEMPLATES fallback flashing on screen and
+// then getting silently swapped for whatever's actually published.
+function TemplateCardSkeleton() {
+  return (
+    <div className="shrink-0 overflow-hidden rounded-2xl border border-border bg-card" style={{ width: 162 }}>
+      <div className="animate-pulse bg-secondary/70" style={{ width: 162, height: 203 }} />
+      <div className="space-y-1.5 px-2.5 py-2">
+        <div className="h-2.5 w-3/4 animate-pulse rounded-full bg-secondary/70" />
+        <div className="h-2 w-1/2 animate-pulse rounded-full bg-secondary/50" />
+      </div>
+    </div>
+  );
+}
+
 export function LeftPanel({
   s,
   set,
@@ -414,6 +431,15 @@ export function LeftPanel({
   const [croppingImage, setCroppingImage] = useState<ImageLayer | null>(null);
   const [userSavedQuotes, setUserSavedQuotes] = useState<DbSavedQuote[]>([]);
   const [platformTemplates, setPlatformTemplates] = useState<Template[]>(TEMPLATES);
+  // Starts true (not false) — platformTemplates itself starts pre-filled
+  // with the local TEMPLATES fallback so there's SOMETHING to compute
+  // starterTemplates/premiumTemplates from before the real fetch lands,
+  // but that fallback is a static bundled snapshot, not what's actually
+  // published right now — showing it as if it were live content, then
+  // silently swapping it out once fetchAllTemplates resolves, reads as a
+  // flash of wrong/stale templates. The Free Templates grid renders a
+  // skeleton instead of that fallback for as long as this is true.
+  const [templatesLoading, setTemplatesLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updatedId, setUpdatedId] = useState<string | null>(null);
 
@@ -426,6 +452,7 @@ export function LeftPanel({
     if (allTemplates && allTemplates.length > 0) {
       setPlatformTemplates(allTemplates);
     }
+    setTemplatesLoading(false);
   };
 
   const starterTemplates = useMemo(() => {
@@ -696,22 +723,28 @@ export function LeftPanel({
           <Panel title="Free Templates">
             <div className="mb-2.5 flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Select any starter template to edit</span>
-              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-foreground">
-                {starterTemplates.length} templates
-              </span>
+              {templatesLoading ? (
+                <span className="h-4 w-16 animate-pulse rounded-full bg-secondary" />
+              ) : (
+                <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-foreground">
+                  {starterTemplates.length} templates
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {starterTemplates.map((t) => (
-                <TemplatePreview
-                  key={t.id}
-                  template={t}
-                  width={162}
-                  onClick={() => {
-                    applyTemplate(t.state);
-                    onItemSelect?.();
-                  }}
-                />
-              ))}
+              {templatesLoading
+                ? Array.from({ length: 6 }, (_, i) => <TemplateCardSkeleton key={i} />)
+                : starterTemplates.map((t) => (
+                  <TemplatePreview
+                    key={t.id}
+                    template={t}
+                    width={162}
+                    onClick={() => {
+                      applyTemplate(t.state);
+                      onItemSelect?.();
+                    }}
+                  />
+                ))}
             </div>
           </Panel>
         ) : null}
