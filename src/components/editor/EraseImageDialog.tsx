@@ -6,8 +6,11 @@ import {
   CheckmarkCircle02Icon,
   ReloadIcon,
   ArrowTurnBackwardIcon,
+  Add01Icon,
+  MinusSignIcon,
+  HandGripIcon,
 } from "hugeicons-react";
-import { Chip, Range } from "./ui";
+import { Chip, Range, useHoldRepeat } from "./ui";
 
 interface EraseImageDialogProps {
   open: boolean;
@@ -65,6 +68,23 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
   // computed from the box's own bounding rect would be off by however big
   // that letterbox gap is. Defaults to 1 before the image has loaded.
   const [aspectRatio, setAspectRatio] = useState(1);
+  // Zoom/pan are pure VIEW state — magnifying the canvas via a CSS
+  // transform, not touching the image data at all, so they're untouched by
+  // Undo/Reset and don't need their own undo history. getCanvasPoint/
+  // getRadiusInCanvasPx below need no extra math for this: getBoundingClientRect
+  // already reflects the CSS transform applied to the canvas itself, so a
+  // bigger on-screen box at higher zoom naturally yields a smaller
+  // canvas-pixels-per-screen-pixel ratio — exactly the finer precision
+  // zooming in is supposed to buy.
+  const [zoom, setZoom] = useState(100); // 100-400, matching ImageCropDialog's own range convention
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  // Erase/Restore both drag to draw, so panning needs an explicit mode
+  // rather than competing for the same drag gesture — flip this on to
+  // reposition a zoomed-in view, then back off to keep brushing. (Multi-
+  // touch pinch/two-finger-pan was deliberately left out: real, but a much
+  // bigger surface to get right than a toggle, for a first pass.)
+  const [panMode, setPanMode] = useState(false);
+  const panDragRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // The checkerboard stage wrapping the canvas — needed because the cursor
@@ -101,6 +121,9 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
     setCanUndo(false);
     undoStackRef.current = [];
     setMode("erase");
+    setZoom(100);
+    setPan({ x: 0, y: 0 });
+    setPanMode(false);
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
@@ -158,12 +181,16 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    if (panMode) {
+      panDragRef.current = { startX: e.clientX, startY: e.clientY, startPanX: pan.x, startPanY: pan.y };
+      return;
+    }
     const canvas = canvasRef.current;
     const point = getCanvasPoint(e);
     if (!canvas || !point) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
     undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
     if (undoStackRef.current.length > MAX_UNDO) undoStackRef.current.shift();
@@ -180,6 +207,12 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (panMode) {
+      const drag = panDragRef.current;
+      if (!drag) return;
+      setPan({ x: drag.startPanX + (e.clientX - drag.startX), y: drag.startPanY + (e.clientY - drag.startY) });
+      return;
+    }
     const canvas = canvasRef.current;
     // Deliberately the STAGE's rect, not the canvas's own — the ring below
     // is an absolutely-positioned sibling of the canvas inside the stage,
@@ -207,10 +240,23 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
   const endStroke = (e: React.PointerEvent) => {
     isDrawingRef.current = false;
     lastPointRef.current = null;
+    panDragRef.current = null;
     try {
       (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
     } catch { }
   };
+
+  // Desktop convenience — matches ImageCropDialog's own wheel-to-zoom.
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 10 : -10;
+    setZoom((z) => Math.min(400, Math.max(100, z + delta)));
+  };
+
+  // Press-and-hold repeat for the Zoom -/+ buttons — see useHoldRepeat's
+  // own comment in ui.tsx.
+  const zoomDecHold = useHoldRepeat(() => setZoom((z) => Math.max(100, z - 10)));
+  const zoomIncHold = useHoldRepeat(() => setZoom((z) => Math.min(400, z + 10)));
 
   const handleUndo = () => {
     const canvas = canvasRef.current;
@@ -313,9 +359,13 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
             </button>
           </div>
 
-          {/* Canvas stage — checkerboard shows through wherever erased */}
+          {/* Canvas stage — checkerboard shows through wherever erased.
+              overflow-hidden here is what makes zooming in behave like a
+              viewport onto a bigger canvas instead of the dialog itself
+              growing — anything past the stage's own bounds is just clipped. */}
           <div
             ref={stageRef}
+            onWheel={handleWheel}
             style={{
               backgroundImage: `
                 linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
@@ -337,17 +387,26 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               onPointerCancel={endStroke}
               onPointerLeave={() => setCursorPos((p) => ({ ...p, visible: false }))}
               onPointerEnter={() => setCursorPos((p) => ({ ...p, visible: true }))}
-              // aspectRatio (not object-fit) is what keeps this pointer-
-              // accurate — sizing the element itself to the image's own
-              // ratio means its bounding rect IS the visible image area,
-              // with no separate letterboxed gap for getCanvasPoint's
-              // scale-factor math to silently ignore.
-              style={{ touchAction: "none", cursor: "none", aspectRatio: String(aspectRatio) }}
+              style={{
+                touchAction: "none",
+                cursor: panMode ? "grab" : "none",
+                // aspectRatio (not object-fit) is what keeps this pointer-
+                // accurate — sizing the element itself to the image's own
+                // ratio means its bounding rect IS the visible image area,
+                // with no separate letterboxed gap for getCanvasPoint's
+                // scale-factor math to silently ignore. The zoom/pan
+                // transform composes with that cleanly: getBoundingClientRect
+                // already reflects it, so getCanvasPoint needs no extra math.
+                aspectRatio: String(aspectRatio),
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`,
+              }}
               className="max-h-84 max-w-full select-none rounded-sm shadow-2xl ring-1 ring-white/20"
             />
             {/* Brush cursor — a live-sized ring following the pointer so
-                the actual erase area is obvious before you commit a stroke. */}
-            {cursorPos.visible ? (
+                the actual erase area is obvious before you commit a stroke.
+                Hidden in Pan mode, where dragging repositions the view
+                instead of brushing, so the ring would be misleading. */}
+            {cursorPos.visible && !panMode ? (
               <div
                 className="pointer-events-none absolute rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]"
                 style={{
@@ -359,6 +418,43 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
                 }}
               />
             ) : null}
+          </div>
+
+          {/* Zoom + Pan — zoom in for precise work on fine detail, then
+              toggle Pan to reposition the (now-clipped, per the stage's
+              overflow-hidden) view before zooming back out or continuing
+              to brush. Erase/Restore both drag-to-draw, so Pan needs to be
+              its own explicit mode rather than a modifier — see panMode's
+              own comment above. */}
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card/60 p-3">
+            <div className="flex-1 space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="font-semibold text-foreground">Zoom</span>
+                <span className="font-mono text-muted-foreground">{zoom}%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" {...zoomDecHold} className="text-muted-foreground hover:text-foreground">
+                  <MinusSignIcon size={14} />
+                </button>
+                <div className="flex-1">
+                  <Range value={zoom} min={100} max={400} showInput={false} onChange={setZoom} />
+                </div>
+                <button type="button" {...zoomIncHold} className="text-muted-foreground hover:text-foreground">
+                  <Add01Icon size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center border-l border-border pl-3">
+              <Chip
+                onClick={() => setPanMode((p) => !p)}
+                active={panMode}
+                className="h-8 w-8 p-0 flex items-center justify-center"
+                title={panMode ? "Exit pan mode" : "Pan the zoomed view"}
+              >
+                <HandGripIcon size={14} />
+              </Chip>
+            </div>
           </div>
 
           {/* Brush size + Undo/Reset */}

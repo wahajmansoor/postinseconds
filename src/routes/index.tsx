@@ -1993,6 +1993,13 @@ function Index() {
   // adding new callback plumbing through every toolbar component.
   const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
 
+  // Whether the canvas area should currently be lifted clear of a bottom
+  // sheet — the tool drawer or any property popover, both fixed at
+  // MOBILE_SHEET_MAX_HEIGHT_FRACTION's height (see where this is applied,
+  // below in the mobile layout). Not the Export drawer — see its own note
+  // there for why that one's excluded.
+  const mobileDrawerLiftActive = isMobile && (mobileToolDrawerOpen || anyPopoverOpen);
+
   // Trigger 3: a FloatingDropdown popover opening. On mobile these render as
   // a fixed max-h-[45vh] bottom sheet (see ui.tsx), same fixed fraction
   // trigger 2 above reasons about for the tool drawer.
@@ -2735,7 +2742,26 @@ function Index() {
 
             <div
               className="flex min-h-0 flex-1 flex-col p-3"
-              style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 12px)" }}
+              style={{
+                paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 12px)",
+                // Lifts the whole canvas area clear of the tool drawer/
+                // property-popover sheet while either is open — same idea
+                // as how the OS keyboard pushes page content up rather than
+                // just covering it, applied to our own bottom sheets. Both
+                // are fixed at MOBILE_SHEET_MAX_HEIGHT_FRACTION's height, so
+                // that's exactly how far up this needs to shift for the
+                // canvas to clear it. Same duration/easing vaul itself uses
+                // for the sheet's own slide (TRANSITIONS in vaul's source)
+                // so the two motions read as one connected movement instead
+                // of two separately-timed animations. The Export drawer is
+                // deliberately excluded — it already dims the canvas behind
+                // it (see its own comment), so there's no "keep glancing at
+                // the canvas" need to serve.
+                transform: mobileDrawerLiftActive
+                  ? `translateY(-${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh)`
+                  : undefined,
+                transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1)",
+              }}
             >
               {canvasStage}
             </div>
