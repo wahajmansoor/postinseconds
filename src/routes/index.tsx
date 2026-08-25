@@ -2963,7 +2963,19 @@ function Index() {
             >
               <DrawerContent
                 overlayClassName="bg-transparent pointer-events-none"
-                className="mt-0 flex max-h-[92vh] flex-col rounded-t-2xl"
+                // A fixed h-[92vh], not max-h — vaul's snap points only ever
+                // TRANSLATE this box between heights, they never resize it,
+                // so with a content-driven max-height a tab with modest
+                // content (Text/Uploads/Layers, next to something like a
+                // full template gallery) would just render shorter than
+                // 92vh outright and never actually look "tall" no matter
+                // which snap point is nominally active. Forcing a genuine
+                // fixed height fixes that — and doesn't break the short
+                // "peek" position either: since the box stays anchored to
+                // the screen's bottom edge, translating a 92vh-tall box down
+                // until only 45vh of it remains on screen looks IDENTICAL
+                // to a box that was only ever 45vh tall to begin with.
+                className="mt-0 flex h-[92vh] flex-col rounded-t-2xl"
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
                   <span className="text-sm font-bold text-foreground">
