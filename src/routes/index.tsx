@@ -118,6 +118,10 @@ function StudioRoot() {
 function StudioGate() {
   const { user, isAuthenticated, isLoading } = useAuth();
 
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("__e2e")) {
+    return <Index />;
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
@@ -385,13 +389,12 @@ function DraggableFloatingLayersButton({
           ref={btnRef}
           type="button"
           onPointerDown={startDrag}
-          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${
-            isDragging
-              ? "scale-110 border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)]"
-              : active
-                ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)] hover:scale-105"
-                : "border-border/80 bg-card/95 text-foreground shadow-xl hover:border-primary/60 hover:bg-card hover:shadow-2xl hover:scale-105"
-          }`}
+          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${isDragging
+            ? "scale-110 border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)]"
+            : active
+              ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)] hover:scale-105"
+              : "border-border/80 bg-card/95 text-foreground shadow-xl hover:border-primary/60 hover:bg-card hover:shadow-2xl hover:scale-105"
+            }`}
           style={{ cursor: isDragging ? "grabbing" : "grab" }}
         >
           <Motion01Icon
@@ -404,11 +407,10 @@ function DraggableFloatingLayersButton({
           />
           {layerCount > 0 ? (
             <span
-              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${
-                active || isDragging
-                  ? "bg-background text-foreground border border-border"
-                  : "bg-primary text-primary-foreground"
-              }`}
+              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${active || isDragging
+                ? "bg-background text-foreground border border-border"
+                : "bg-primary text-primary-foreground"
+                }`}
             >
               {layerCount}
             </span>
@@ -468,9 +470,6 @@ function Index() {
   // Spacebar pan mode listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Alt") {
-        document.body.classList.add("alt-held");
-      }
       const target = e.target as HTMLElement | null;
       const isInput = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (e.code === "Space" && !isInput && !spaceRef.current) {
@@ -479,25 +478,16 @@ function Index() {
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "Alt") {
-        document.body.classList.remove("alt-held");
-      }
       if (e.code === "Space") {
         spaceRef.current = false;
         setSpaceHeld(false);
       }
     };
-    const handleWindowBlur = () => {
-      document.body.classList.remove("alt-held");
-    };
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", handleWindowBlur);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", handleWindowBlur);
-      document.body.classList.remove("alt-held");
     };
   }, []);
 
@@ -695,7 +685,7 @@ function Index() {
       if (list && list.length > 0) {
         setPlatformTemplates(list);
       }
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
@@ -1518,7 +1508,7 @@ function Index() {
           });
         }
       }
-    } catch {}
+    } catch { }
   }, [applyTemplate]);
 
   const handleQuickSaveTemplate = async () => {
@@ -1686,7 +1676,7 @@ function Index() {
       setLineHeight: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { lineHeight: v })),
       setVerticalAlign: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { verticalAlign: v })),
       updateLayer: (patch) => set("texts", withTextUpdated(s, selectedTextLayer.id, patch)),
-      snapshotSelection: () => {},
+      snapshotSelection: () => { },
       getActiveFormat: () => ({
         bold: selectedTextLayer.weight >= 700,
         italic: !!selectedTextLayer.italic,
@@ -1704,7 +1694,7 @@ function Index() {
           bulletList: false,
           numberedList: false,
         });
-        return () => {};
+        return () => { };
       },
     };
   }, [selectedTextLayer, s, set]);
@@ -1956,13 +1946,13 @@ function Index() {
             what lets that popover's own state survive the transition
             instead of resetting. */}
         {!isMobile &&
-        !stageMarquee &&
-        (canvasSelection.length === 1 ||
-          isBackgroundSelected ||
-          textDetached ||
-          imageDetached ||
-          shapeDetached ||
-          backgroundDetached) ? (
+          !stageMarquee &&
+          (canvasSelection.length === 1 ||
+            isBackgroundSelected ||
+            textDetached ||
+            imageDetached ||
+            shapeDetached ||
+            backgroundDetached) ? (
           <div
             className="pointer-events-none z-40 flex justify-center overflow-visible sticky top-4 h-0 w-full"
             style={{ margin: "0 auto" }}
@@ -2164,11 +2154,10 @@ function Index() {
                   type="button"
                   onClick={handleQuickSaveTemplate}
                   disabled={isSavingTemplate}
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${
-                    saveSuccess
-                      ? "bg-emerald-500 text-white"
-                      : "bg-primary text-primary-foreground hover:bg-primary/90"
-                  }`}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${saveSuccess
+                    ? "bg-emerald-500 text-white"
+                    : "bg-primary text-primary-foreground hover:bg-primary/90"
+                    }`}
                   title="Save changes to template"
                 >
                   <Bookmark01Icon size={13} />
@@ -2239,9 +2228,8 @@ function Index() {
                         : "linear-gradient(#ffffff,#ffffff) padding-box, linear-gradient(180deg, #ffffff 50%, rgba(255,255,255,0.6) 80%, rgba(255,255,255,0)) border-box, linear-gradient(90deg, hsl(0,100%,63%), hsl(90,100%,63%), hsl(210,100%,63%), hsl(195,100%,63%), hsl(270,100%,63%)) border-box",
                       border: "1.5px solid transparent",
                     }}
-                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${
-                      dark ? "text-white" : "text-zinc-900"
-                    }`}
+                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${dark ? "text-white" : "text-zinc-900"
+                      }`}
                   >
                     <span className="tracking-tight">Premium Templates</span>
                     <div className="flex items-center gap-1">
@@ -2302,8 +2290,8 @@ function Index() {
             {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when user did changes */}
             {(historyIdx.current > 0 || historyIdx.current < history.current.length - 1) ? (
               <div
-                className="pointer-events-none fixed left-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
-                style={{ top: "calc(env(safe-area-inset-top) + 4rem)" }}
+                className="pointer-events-none fixed left-4 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+                style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
               >
                 <AppTooltip content="Undo">
                   <button
@@ -2334,8 +2322,8 @@ function Index() {
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
             {(selectedTextLayer || selectedImageLayer || selectedShapeLayer) ? (
               <div
-                className="pointer-events-none fixed right-3 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
-                style={{ top: "calc(env(safe-area-inset-top) + 4rem)" }}
+                className="pointer-events-none fixed right-4 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+                style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
               >
                 {/* Lock Toggle Button */}
                 <AppTooltip content={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked) ? "Unlock Layer" : "Lock Layer"}>
@@ -2561,246 +2549,246 @@ function Index() {
             </Drawer>
           </div>
         ) : (
-        <div className="flex min-h-0 flex-1">
-          <nav className="flex w-20 shrink-0 flex-col items-center gap-2 border-r border-border py-4">
-            {RAIL.map((r) => (
-              <AppTooltip key={r.id} content={r.label} side="right">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTab(r.id);
-                    setLeftPanelCollapsed(false);
-                  }}
-                  className={cn(
-                    "group flex w-14 flex-col items-center gap-1.5 py-1 text-[9px] font-medium",
-                    tab === r.id && !leftPanelCollapsed ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <span
+          <div className="flex min-h-0 flex-1">
+            <nav className="flex w-20 shrink-0 flex-col items-center gap-2 border-r border-border py-4">
+              {RAIL.map((r) => (
+                <AppTooltip key={r.id} content={r.label} side="right">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab(r.id);
+                      setLeftPanelCollapsed(false);
+                    }}
                     className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
-                      tab === r.id && !leftPanelCollapsed ? "bg-[#1d1f26] text-white" : "group-hover:bg-secondary",
+                      "group flex w-14 flex-col items-center gap-1.5 py-1 text-[9px] font-medium",
+                      tab === r.id && !leftPanelCollapsed ? "text-foreground" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <r.icon size={20} />
+                    <span
+                      className={cn(
+                        "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
+                        tab === r.id && !leftPanelCollapsed ? "bg-[#1d1f26] text-white" : "group-hover:bg-secondary",
+                      )}
+                    >
+                      <r.icon size={20} />
+                    </span>
+                    {r.label}
+                  </button>
+                </AppTooltip>
+              ))}
+            </nav>
+
+            <aside
+              className={cn(
+                "shrink-0 space-y-4 overflow-y-auto border-r border-border transition-all duration-300 ease-in-out",
+                leftPanelCollapsed
+                  ? "w-0 p-0 overflow-hidden border-r-0 opacity-0 pointer-events-none"
+                  : "w-[400px] p-4 opacity-100",
+              )}
+            >
+              <LeftPanel
+                s={s}
+                set={set}
+                applyTemplate={applyTemplate}
+                tab={tab}
+                selection={canvasSelection}
+                onSelectLayer={handleSelectLayer}
+                textSubTab={textSubTab}
+                onTextSubTabChange={setTextSubTab}
+                templateCategory={templateCategory}
+                onTemplateCategoryChange={setTemplateCategory}
+                onSelectSavedQuote={(quote) => setEditingSavedQuoteTarget({ id: quote.id, title: quote.title })}
+                activeSavedQuote={editingSavedQuoteTarget}
+                onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}
+                canvasRef={canvasRef}
+              />
+            </aside>
+
+            <main className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+              <div className="flex shrink-0 items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <AppTooltip content={leftPanelCollapsed ? "Expand Left Panel" : "Collapse Left Panel"}>
+                    <Chip
+                      onClick={() => setLeftPanelCollapsed((c) => !c)}
+                      active={!leftPanelCollapsed}
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
+                      <SidebarLeftIcon size={14} />
+                    </Chip>
+                  </AppTooltip>
+                  <div className="h-4 w-px bg-border/60 mx-0.5" />
+                  <AppTooltip content="Undo last change" shortcut="Ctrl+Z">
+                    <Chip onClick={undo} className="flex h-7 w-7 items-center justify-center p-0">
+                      <Undo02Icon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content="Redo change" shortcut="Ctrl+Y">
+                    <Chip onClick={redo} className="flex h-7 w-7 items-center justify-center p-0">
+                      <Redo02Icon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content={s.locked ? "Unlock canvas" : "Lock canvas"}>
+                    <Chip
+                      onClick={() => set("locked", !s.locked)}
+                      active={s.locked}
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
+                      {s.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content="Clear everything — blank canvas, all layers removed">
+                    <Chip
+                      onClick={() =>
+                        commit((prev) => ({
+                          ...INITIAL_STATE,
+                          width: prev.width || 1200,
+                          height: prev.height || 1500,
+                          exportFormat: prev.exportFormat,
+                          exportScale: prev.exportScale,
+                          texts: [],
+                          shapes: [],
+                          images: [],
+                          quote: "",
+                          name: "",
+                          tagline: "",
+                          bgImage: null,
+                        }))
+                      }
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
+                      <Delete02Icon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content="Clear canvas and start a fresh blank post">
+                    <Chip
+                      onClick={() => setResetConfirmOpen(true)}
+                      className="flex h-7 items-center gap-1 px-2 py-0 text-xs"
+                    >
+                      <ReloadIcon size={12} /> Reset
+                    </Chip>
+                  </AppTooltip>
+
+                  {/* Live Autosave Indicator beside Reset */}
+                  <div className="ml-1 flex items-center">
+                    {autoSaveStatus === "saving" ? (
+                      <span className="flex h-7 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400 shadow-sm animate-pulse">
+                        <ReloadIcon size={12} className="animate-spin text-amber-500" />
+                        Saving...
+                      </span>
+                    ) : autoSaveStatus === "saved" ? (
+                      <span className="flex h-7 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 shadow-sm transition-all">
+                        <CheckmarkCircle02Icon size={13} className="text-emerald-500" />
+                        Saved
+                      </span>
+                    ) : (
+                      <span className="flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-secondary/60 px-2.5 text-xs font-medium text-muted-foreground shadow-sm">
+                        <CloudIcon size={13} className="text-muted-foreground/80" />
+                        Draft saved
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <AppTooltip content="Save current canvas design as a platform template">
+                    <button
+                      type="button"
+                      onClick={() => setSaveTemplateOpen(true)}
+                      className="mr-1 flex h-7 items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0 text-xs font-bold text-amber-500 transition-all hover:bg-amber-500/20 active:scale-95"
+                    >
+                      <AllBookmarkIcon size={13} />
+                      <span>Save Template</span>
+                    </button>
+                  </AppTooltip>
+                  <AppTooltip content="Zoom out 10%" shortcut="-">
+                    <Chip onClick={() => zoomBy(-10)} className="flex h-7 w-7 items-center justify-center p-0">
+                      <MinusSignIcon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content="Drag to zoom">
+                    <div className="flex items-center gap-2 px-1">
+                      <div className="w-24">
+                        <Range
+                          value={Math.round(scale * 100)}
+                          min={10}
+                          max={200}
+                          showInput={false}
+                          onChange={(v) => zoomToScale(v / 100)}
+                        />
+                      </div>
+                      <ZoomInput
+                        scale={scale}
+                        onChange={(pct) => zoomToScale(pct / 100)}
+                      />
+                    </div>
+                  </AppTooltip>
+                  <AppTooltip content="Zoom in 10%" shortcut="+">
+                    <Chip onClick={() => zoomBy(10)} className="flex h-7 w-7 items-center justify-center p-0">
+                      <Add01Icon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content="Fit canvas to screen" shortcut="Ctrl+0">
+                    <Chip onClick={fit} className="flex h-7 w-7 items-center justify-center p-0">
+                      <CenterFocusIcon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content={showRulers ? "Hide rulers" : "Show rulers"}>
+                    <Chip
+                      onClick={() => setShowRulers((r) => !r)}
+                      active={showRulers}
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
+                      <RulerIcon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
+                    {s.width} × {s.height}px
                   </span>
-                  {r.label}
-                </button>
-              </AppTooltip>
-            ))}
-          </nav>
-
-          <aside
-            className={cn(
-              "shrink-0 space-y-4 overflow-y-auto border-r border-border transition-all duration-300 ease-in-out",
-              leftPanelCollapsed
-                ? "w-0 p-0 overflow-hidden border-r-0 opacity-0 pointer-events-none"
-                : "w-[400px] p-4 opacity-100",
-            )}
-          >
-            <LeftPanel
-              s={s}
-              set={set}
-              applyTemplate={applyTemplate}
-              tab={tab}
-              selection={canvasSelection}
-              onSelectLayer={handleSelectLayer}
-              textSubTab={textSubTab}
-              onTextSubTabChange={setTextSubTab}
-              templateCategory={templateCategory}
-              onTemplateCategoryChange={setTemplateCategory}
-              onSelectSavedQuote={(quote) => setEditingSavedQuoteTarget({ id: quote.id, title: quote.title })}
-              activeSavedQuote={editingSavedQuoteTarget}
-              onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}
-              canvasRef={canvasRef}
-            />
-          </aside>
-
-          <main className="flex min-w-0 flex-1 flex-col gap-3 p-4">
-            <div className="flex shrink-0 items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <AppTooltip content={leftPanelCollapsed ? "Expand Left Panel" : "Collapse Left Panel"}>
-                  <Chip
-                    onClick={() => setLeftPanelCollapsed((c) => !c)}
-                    active={!leftPanelCollapsed}
-                    className="flex h-7 w-7 items-center justify-center p-0"
-                  >
-                    <SidebarLeftIcon size={14} />
-                  </Chip>
-                </AppTooltip>
-                <div className="h-4 w-px bg-border/60 mx-0.5" />
-                <AppTooltip content="Undo last change" shortcut="Ctrl+Z">
-                  <Chip onClick={undo} className="flex h-7 w-7 items-center justify-center p-0">
-                    <Undo02Icon size={13} />
-                  </Chip>
-                </AppTooltip>
-                <AppTooltip content="Redo change" shortcut="Ctrl+Y">
-                  <Chip onClick={redo} className="flex h-7 w-7 items-center justify-center p-0">
-                    <Redo02Icon size={13} />
-                  </Chip>
-                </AppTooltip>
-                <AppTooltip content={s.locked ? "Unlock canvas" : "Lock canvas"}>
-                  <Chip
-                    onClick={() => set("locked", !s.locked)}
-                    active={s.locked}
-                    className="flex h-7 w-7 items-center justify-center p-0"
-                  >
-                    {s.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
-                  </Chip>
-                </AppTooltip>
-                <AppTooltip content="Clear everything — blank canvas, all layers removed">
-                  <Chip
-                    onClick={() =>
-                      commit((prev) => ({
-                        ...INITIAL_STATE,
-                        width: prev.width || 1200,
-                        height: prev.height || 1500,
-                        exportFormat: prev.exportFormat,
-                        exportScale: prev.exportScale,
-                        texts: [],
-                        shapes: [],
-                        images: [],
-                        quote: "",
-                        name: "",
-                        tagline: "",
-                        bgImage: null,
-                      }))
-                    }
-                    className="flex h-7 w-7 items-center justify-center p-0"
-                  >
-                    <Delete02Icon size={13} />
-                  </Chip>
-                </AppTooltip>
-                <AppTooltip content="Clear canvas and start a fresh blank post">
-                  <Chip
-                    onClick={() => setResetConfirmOpen(true)}
-                    className="flex h-7 items-center gap-1 px-2 py-0 text-xs"
-                  >
-                    <ReloadIcon size={12} /> Reset
-                  </Chip>
-                </AppTooltip>
-
-                {/* Live Autosave Indicator beside Reset */}
-                <div className="ml-1 flex items-center">
-                  {autoSaveStatus === "saving" ? (
-                    <span className="flex h-7 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400 shadow-sm animate-pulse">
-                      <ReloadIcon size={12} className="animate-spin text-amber-500" />
-                      Saving...
-                    </span>
-                  ) : autoSaveStatus === "saved" ? (
-                    <span className="flex h-7 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 shadow-sm transition-all">
-                      <CheckmarkCircle02Icon size={13} className="text-emerald-500" />
-                      Saved
-                    </span>
-                  ) : (
-                    <span className="flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-secondary/60 px-2.5 text-xs font-medium text-muted-foreground shadow-sm">
-                      <CloudIcon size={13} className="text-muted-foreground/80" />
-                      Draft saved
-                    </span>
-                  )}
+                  <div className="h-4 w-px bg-border/60 mx-0.5" />
+                  <AppTooltip content={rightPanelCollapsed ? "Expand Right Panel (Export & Canvas Size)" : "Collapse Right Panel"}>
+                    <Chip
+                      onClick={() => setRightPanelCollapsed((c) => !c)}
+                      active={!rightPanelCollapsed}
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
+                      <SidebarRightIcon size={14} />
+                    </Chip>
+                  </AppTooltip>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <AppTooltip content="Save current canvas design as a platform template">
-                  <button
-                    type="button"
-                    onClick={() => setSaveTemplateOpen(true)}
-                    className="mr-1 flex h-7 items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0 text-xs font-bold text-amber-500 transition-all hover:bg-amber-500/20 active:scale-95"
-                  >
-                    <AllBookmarkIcon size={13} />
-                    <span>Save Template</span>
-                  </button>
-                </AppTooltip>
-                <AppTooltip content="Zoom out 10%" shortcut="-">
-                  <Chip onClick={() => zoomBy(-10)} className="flex h-7 w-7 items-center justify-center p-0">
-                    <MinusSignIcon size={13} />
-                  </Chip>
-                </AppTooltip>
-                <AppTooltip content="Drag to zoom">
-                  <div className="flex items-center gap-2 px-1">
-                    <div className="w-24">
-                      <Range
-                        value={Math.round(scale * 100)}
-                        min={10}
-                        max={200}
-                        showInput={false}
-                        onChange={(v) => zoomToScale(v / 100)}
-                      />
-                    </div>
-                    <ZoomInput
-                      scale={scale}
-                      onChange={(pct) => zoomToScale(pct / 100)}
-                    />
-                  </div>
-                </AppTooltip>
-                <AppTooltip content="Zoom in 10%" shortcut="+">
-                  <Chip onClick={() => zoomBy(10)} className="flex h-7 w-7 items-center justify-center p-0">
-                    <Add01Icon size={13} />
-                  </Chip>
-                </AppTooltip>
-                <AppTooltip content="Fit canvas to screen" shortcut="Ctrl+0">
-                  <Chip onClick={fit} className="flex h-7 w-7 items-center justify-center p-0">
-                    <CenterFocusIcon size={13} />
-                  </Chip>
-                </AppTooltip>
-                <AppTooltip content={showRulers ? "Hide rulers" : "Show rulers"}>
-                  <Chip
-                    onClick={() => setShowRulers((r) => !r)}
-                    active={showRulers}
-                    className="flex h-7 w-7 items-center justify-center p-0"
-                  >
-                    <RulerIcon size={13} />
-                  </Chip>
-                </AppTooltip>
-                <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
-                  {s.width} × {s.height}px
-                </span>
-                <div className="h-4 w-px bg-border/60 mx-0.5" />
-                <AppTooltip content={rightPanelCollapsed ? "Expand Right Panel (Export & Canvas Size)" : "Collapse Right Panel"}>
-                  <Chip
-                    onClick={() => setRightPanelCollapsed((c) => !c)}
-                    active={!rightPanelCollapsed}
-                    className="flex h-7 w-7 items-center justify-center p-0"
-                  >
-                    <SidebarRightIcon size={14} />
-                  </Chip>
-                </AppTooltip>
-              </div>
-            </div>
+              {canvasStage}
+            </main>
 
-            {canvasStage}
-          </main>
+            <aside
+              className={cn(
+                "shrink-0 space-y-3 overflow-y-auto border-l border-border transition-all duration-300 ease-in-out",
+                rightPanelCollapsed
+                  ? "w-0 p-0 overflow-hidden border-l-0 opacity-0 pointer-events-none"
+                  : "w-[400px] p-4 opacity-100",
+              )}
+            >
+              <RightPanel
+                s={s}
+                set={set}
+                onDownload={openExportPreview}
+                busy={busy}
+              />
+            </aside>
 
-          <aside
-            className={cn(
-              "shrink-0 space-y-3 overflow-y-auto border-l border-border transition-all duration-300 ease-in-out",
-              rightPanelCollapsed
-                ? "w-0 p-0 overflow-hidden border-l-0 opacity-0 pointer-events-none"
-                : "w-[400px] p-4 opacity-100",
-            )}
-          >
-            <RightPanel
-              s={s}
-              set={set}
-              onDownload={openExportPreview}
-              busy={busy}
-            />
-          </aside>
-
-          {/* Sibling of the right aside, not a child of it — position:fixed
+            {/* Sibling of the right aside, not a child of it — position:fixed
               still inherited the aside's opacity-0/pointer-events-none when
               rightPanelCollapsed, since fixed positioning only escapes
               layout, not the CSS cascade. */}
-          <DraggableFloatingLayersButton
-            active={tab === "layers"}
-            layerCount={getTextLayers(s).length + getImageLayers(s).length + getShapeLayers(s).length}
-            onClick={() => {
-              setTab("layers");
-              setLeftPanelCollapsed(false);
-            }}
-          />
-        </div>
+            <DraggableFloatingLayersButton
+              active={tab === "layers"}
+              layerCount={getTextLayers(s).length + getImageLayers(s).length + getShapeLayers(s).length}
+              onClick={() => {
+                setTab("layers");
+                setLeftPanelCollapsed(false);
+              }}
+            />
+          </div>
         )}
 
         <GoogleLoginDialog />

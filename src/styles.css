@@ -330,51 +330,5 @@ s, strike, del {
   text-decoration: line-through !important;
 }
 
-/* ==========================================================================
-   Exact Custom Vector Cursor & Alt-Held Duplicate Cursor
-   ========================================================================== */
-:root {
-  --cursor-custom-default: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADK0lEQVR4AexV30uTURg+unKL8MLuwkQGIoJ3eiXpZHinIshUsi7yx4VKBtmFf4Csm9VNlBcGSwuWA/HKMkcwdrFIpG26C0VpRttqTtjIb5+uWq6ex/BHMoNtnwQyeZ5973fOed/3Oe95v2O++M9/RwXQPgc950EVmAeeOpiUSZhQHQwGb0SjUaPVai3H4AWQYk5VCAWQBX6//25xcfHE1NTUcGtr67IkSS9XVlauQ0QhqAYpEg9lweQMrEkkEpfHxsZEX1+fUKvVYmhoSB+JRCYw/nFjY+O+0+nUIfVFkFWhH8zssR8o32g0znR1dR1ENJvNora2VlRXV1+anJy8XVJSYo/FYrb19fU7EKrFQh4ReyarI6KAJILtjo+Ph8LhsLuzsxOvh/B6vayGKC0tFf39/Vfdbrepp6fHg+o8XV1dNWClBmQcPNIHHSngB1xlu90+093dDTM1LBaLaGtrE5WVlYUmk+maSqWyrq2t3cTqAjCjSlDALzhTwDaSv66rq5PKy/kRYPQExONxEQgExOLiokgmk1ewLCsB8Be7+ImD0tLSkq29vR3m36ipqdk7iunpaeFyueSRkRF3UVHR44qKiudYmQdmBFaAjqzCdxjy7OzsG1QC5iFQFYHyf2hpabGFQqFHzc3Nt8rKyoYbGhrMWCWDrCBjwEwP+wLo9RM/O9iZS6PReJEMr39AAbgnlvV6/cPBwcEXCwsLLsz4wM/gV1ARATyGbwgmeTweB5sN9h50Op1Ax7/HSwD8BAbBMMjkPDr64jV9HK0AvbmT7dHRUVtHR8eOVqsVZFVV1RbugndYEAGjoAQycQLPjEoPvz0cF8CdxOfm5vw+n+8tm7G+vl7IsrzscDi+wGMHpMiskiLGAY4L4J3AZozNz8/bBwYGhMFgEPif4ISH4skRUxwXwDGWVe7t7X2Fz+0eLpsHTU1NFkyw2zkHUzmkEsBj4G430YjPGhsbnyDdJsgxzsFUDqkE8Hx5zltIw04n2e08Gs5hWDmkEsDo3CkTsuwkP0+OcU5RniSASbhbNiVJm2OK818CFE+WKmBOQK4CuQrkKnD2K5Dq9js69hsAAP//ZjQrnwAAAAZJREFUAwC4TCNQwuZfKgAAAABJRU5ErkJggg==") 0 0, default;
-
-  --cursor-custom-alt: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAEbUlEQVR4AexVW0jkVRj/tqlxYpkH80lNMETyhiE9qKihCAreHrxEhqIoXkDENJoHWUx0fcgWfVFD0bRQjJTEmC0l2Ux0sxRG2NQUmXlwMhsvjTPj7pqu9vvNdlGa0RkNFpaV7+c5/3O+832/73LOPCdP+M8dAtR9AXwJBcZrwJWFRl0xQoce29vb1bu7uzf7+/tfxaEXAZK5EhFXCNCBcnl5Oc/Ly+uDoaEhTXZ29qLFYtFi7W2QUAMeAElicE9cJeChVCpf6+jokImJCVGpVFJVVZWwsbHRd3h4aNjc3Pxwenr6Dbi+DjArrtiFqsh5itegwaiex6isq6v7MicnR0ZHR+Xk5ESioqJEo9FIaGjoS52dnZXe3t53rFbruF6vfwffr+AMS8SztINPx+KMgALqKtT83Z2dnZtw5D8wMLB3cHBwLz09XVpbW6W0tFTm5+elu7tbDAaDhISESF5eXgwy0VxUVKTDuY9XVlayREQFOPPjMANkfLrm7zU0NPyANLdrtdo7aWlp0tLSApuPJS4uTnp7e8VoNEp8fLy0tbVJcHCwurm5+S2FQvHZ6upqATSVAO1iOCuOmFHRXvOuri4pLy+317y6uvr1gICAKmagsrJSEOE/ltbW1mRubk5MJpOgJ8RsNgsyIQsLC3J8fPwyFN0iAH1RIMqvCgsLObdjcHBQkpKSJCIiQnADBBmxr/NfYGCg1NTUcCr19fUsiRml+d7T07MtKCjoU2wwKAz/FUcZOIHao/b2duPW1tZPxcXF+PxX1tfXpampScLCwiQhIcGefkQpuJICZ58PDw/fUKvVRSjDjcTExG6ctAF/ALSL4aw4I3AItf3Z2dmv8/PzMXUsk5OTgoazl6ikpERiYmLeRI9ch7YB0AMbgBlwiwD0hQf28eCM4Lrth4eHc80pfHx85OjoSBYXF8Xf359dvwVl4neMD4BHgENxlAEqHuEfD1rQxTOZmZn4PCvs/traWhkbG7M7bmxs/BkP1EeRkZFd0GTaeZ52HKYeOnZxRoCHDqBhhQNtQQFvEr7+kujoaJmamrJ3fE9PDxvynp+fnyY5ObkHKhaAGaQNTM8XZwR4in1wH4/QXUS2yuvHRQJlkb6+vi/KysqEmdDpdN9i3Qj8CuwB/wuBYxh6CFiXlpa+y83NxfSx0CnuuW58fPwWat6KXvkEO5vAhTWHzhk5LwNMISOx4XW7nZWV9dDX11eQaomNjd1D6n+sqKgYysjI6ITFvyMnYRLHkmtyHgFaYBM9GBkZ0eO1u8tm5N232WxL2DQBvwCM3IyRPUPSmLouFxFgNIzKijfhG752/EXEozMNF3RKWDGnjtOrhn2nchEBHmQzWvEi3p6ZmXkfPzC3UlNTB7DBq8aoSdLtyHHeLq4QYGT3oW3Cz+1gSkoK7znTzzXuYevy4goBRsdIeb1+gyuCqeca97B0eXGFAK0zzXTItBOXrjmNnYarBHiG0ZIIwTnXrgx3CFzZmSMDzwg8y8DTnwFHnX967U8AAAD//wDwvNkAAAAGSURBVAMA5bS0UH5WtuAAAAAASUVORK5CYII=") 0 0, copy;
-}
-
-*,
-*::before,
-*::after,
-html,
-body,
-#root,
-button,
-[role="button"],
-a {
-  cursor: var(--cursor-custom-default);
-}
-
-body.alt-held,
-body.alt-held *,
-body.alt-held *::before,
-body.alt-held *::after {
-  cursor: var(--cursor-custom-alt) !important;
-}
-
-input,
-textarea,
-[contenteditable="true"] {
-  cursor: text !important;
-}
-
-input[type="range"],
-input[type="range"]::-webkit-slider-thumb,
-input[type="range"]::-moz-range-thumb {
-  cursor: grab !important;
-}
-
-input[type="range"]:active,
-input[type="range"]:active::-webkit-slider-thumb,
-input[type="range"]:active::-moz-range-thumb {
-  cursor: grabbing !important;
-}
-
 
 
