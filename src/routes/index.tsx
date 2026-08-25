@@ -100,6 +100,8 @@ import {
   AppTooltip,
   Chip,
   MOBILE_SHEET_MAX_HEIGHT_FRACTION,
+  MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
+  MOBILE_TOOL_DRAWER_SNAP_POINTS,
   Range,
 } from "@/components/editor/ui";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -1246,14 +1248,19 @@ function Index() {
   }, [isMobile, canvasSelection, panLayerIntoView]);
 
   // Trigger 2: the mobile tool drawer opening while a layer stays selected
-  // (e.g. tapping "Effects" on the selection toolbar) — the drawer covers
-  // the bottom MOBILE_SHEET_MAX_HEIGHT_FRACTION of the window (fixed, no
-  // snap points — see ui.tsx), which trigger 1 above has no way to know
-  // about since it only reasons about the stage's own (unchanged) size.
+  // (e.g. tapping "Effects" on the selection toolbar) — the drawer opens
+  // tall (MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION — see ui.tsx) by default,
+  // only shrinking to MOBILE_SHEET_MAX_HEIGHT_FRACTION once the user drags
+  // it down, which trigger 1 above has no way to know about since it only
+  // reasons about the stage's own (unchanged) size. Sized against the
+  // drawer's tallest possible extent, not the shrunk one — this only runs
+  // once, on open, so it can't react to the drag afterward; assuming the
+  // worst case up front means the selected layer stays visible regardless
+  // of which of the two heights they end up leaving it at.
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
     if (!isMobile || !mobileToolDrawerOpen || !only) return;
-    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_SHEET_MAX_HEIGHT_FRACTION);
+    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION);
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
   }, [isMobile, mobileToolDrawerOpen, canvasSelection, panLayerIntoView]);
@@ -1994,11 +2001,18 @@ function Index() {
   const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
 
   // Whether the canvas area should currently be lifted clear of a bottom
-  // sheet — the tool drawer or any property popover, both fixed at
-  // MOBILE_SHEET_MAX_HEIGHT_FRACTION's height (see where this is applied,
-  // below in the mobile layout). Not the Export drawer — see its own note
-  // there for why that one's excluded.
-  const mobileDrawerLiftActive = isMobile && (mobileToolDrawerOpen || anyPopoverOpen);
+  // sheet — property popovers only (fixed at MOBILE_SHEET_MAX_HEIGHT_FRACTION
+  // — see where this is applied, below in the mobile layout). The tool
+  // drawer is deliberately NOT included here anymore: it now opens tall by
+  // default (Canva's own pattern — see MOBILE_TOOL_DRAWER_SNAP_POINTS in
+  // ui.tsx) and only shrinks to a fixed height once dragged down, so a
+  // single fixed lift amount tied to "is it open at all" doesn't match its
+  // live height the way it still does for the property sheets, which never
+  // change size. It's fine for the tall drawer to simply cover the canvas
+  // the way any other tall sheet would — that's exactly how Canva's own
+  // version behaves too, and only reappears (with no extra animation
+  // needed) once the drawer's dragged down to its short height itself.
+  const mobileDrawerLiftActive = isMobile && anyPopoverOpen;
 
   // Trigger 3: a FloatingDropdown popover opening. On mobile these render as
   // a fixed max-h-[45vh] bottom sheet (see ui.tsx), same fixed fraction
@@ -2744,19 +2758,18 @@ function Index() {
               className="flex min-h-0 flex-1 flex-col p-3"
               style={{
                 paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 12px)",
-                // Lifts the whole canvas area clear of the tool drawer/
-                // property-popover sheet while either is open — same idea
-                // as how the OS keyboard pushes page content up rather than
-                // just covering it, applied to our own bottom sheets. Both
-                // are fixed at MOBILE_SHEET_MAX_HEIGHT_FRACTION's height, so
-                // that's exactly how far up this needs to shift for the
-                // canvas to clear it. Same duration/easing vaul itself uses
-                // for the sheet's own slide (TRANSITIONS in vaul's source)
-                // so the two motions read as one connected movement instead
-                // of two separately-timed animations. The Export drawer is
-                // deliberately excluded — it already dims the canvas behind
-                // it (see its own comment), so there's no "keep glancing at
-                // the canvas" need to serve.
+                // Lifts the whole canvas area clear of an open property-
+                // popover sheet — same idea as how the OS keyboard pushes
+                // page content up rather than just covering it, applied to
+                // our own bottom sheets. These are fixed at
+                // MOBILE_SHEET_MAX_HEIGHT_FRACTION's height, so that's
+                // exactly how far up this needs to shift for the canvas to
+                // clear it. Same duration/easing vaul itself uses for the
+                // sheet's own slide (TRANSITIONS in vaul's source) so the
+                // two motions read as one connected movement instead of two
+                // separately-timed animations. Deliberately NOT the tool
+                // drawer (see mobileDrawerLiftActive's own comment) or the
+                // Export drawer (already dims the canvas behind it).
                 transform: mobileDrawerLiftActive
                   ? `translateY(-${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh)`
                   : undefined,
@@ -2928,26 +2941,29 @@ function Index() {
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
                 just inside a bottom sheet instead of a fixed side aside.
-                Fixed max-h-[45vh], no snap points/drag-to-resize — short
-                enough that the canvas doesn't need any special
-                accommodation for it being open. No dark overlay/background
-                scale-down either (unlike the Export drawer below) — the
-                whole point of keeping this short is staying able to see the
-                canvas while it's open, which a dimmed/shrunk backdrop would
-                work against. pointer-events-none on the overlay on top of
-                that (not just transparent) so it doesn't swallow touches
-                either — the user can still drag/pan the canvas around in
-                the visible area above the sheet while it's open; tapping
-                the canvas no longer closes the drawer via the overlay
-                because of that, only the Done button/swipe-down do now. */}
+                Canva's own mobile pattern (see MOBILE_TOOL_DRAWER_SNAP_POINTS
+                in ui.tsx): opens tall by default — real room to browse/type
+                — and dragging it down locks it to a short "peek" height
+                instead of closing immediately, where the canvas is fully
+                visible again; dragging down again from there is what
+                actually closes it. No dark overlay/background scale-down
+                (unlike the Export drawer below) at either height, matching
+                Canva's own look — nothing dims even while it's tall.
+                pointer-events-none on the overlay on top of that (not just
+                transparent) so it doesn't swallow touches either — the user
+                can still drag/pan whatever sliver of canvas is visible above
+                the sheet; tapping it no longer closes the drawer via the
+                overlay because of that, only the Done button/swipe-down do
+                now. */}
             <Drawer
               open={mobileToolDrawerOpen}
               onOpenChange={setMobileToolDrawerOpen}
               shouldScaleBackground={false}
+              snapPoints={MOBILE_TOOL_DRAWER_SNAP_POINTS}
             >
               <DrawerContent
                 overlayClassName="bg-transparent pointer-events-none"
-                className="mt-0 flex max-h-[45vh] flex-col rounded-t-2xl"
+                className="mt-0 flex max-h-[92vh] flex-col rounded-t-2xl"
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
                   <span className="text-sm font-bold text-foreground">

@@ -11,18 +11,34 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker };
 
-// Max height for every mobile bottom sheet in the app — the big tool drawer
-// (index.tsx) AND every property popover routed through FloatingDropdown
-// below share this, so none of them ever eats more than a modest slice of
-// the screen. Deliberately a single fixed cap, no snap points/drag-to-resize
-// — at 45vh there's no real "peek vs full" to speak of, and the canvas
-// never needs special accommodation for a sheet this short in the first
-// place. Kept as a plain fraction for the JS-side safe-area math in
-// index.tsx's auto-pan triggers; the matching Tailwind class
+// Max height for every mobile bottom sheet in the app EXCEPT the main tool
+// drawer (see MOBILE_TOOL_DRAWER_SNAP_POINTS below) — every property
+// popover routed through FloatingDropdown shares this, so none of them
+// ever eats more than a modest slice of the screen. Deliberately a single
+// fixed cap, no snap points/drag-to-resize for THESE — at 45vh there's no
+// real "peek vs full" to speak of for a single property's controls, and
+// the canvas never needs special accommodation for a sheet this short in
+// the first place. Kept as a plain fraction for the JS-side safe-area math
+// in index.tsx's auto-pan triggers; the matching Tailwind class
 // (`max-h-[45vh]`) is a separate literal in each DrawerContent below since
 // arbitrary values have to be literal source text for Tailwind's scanner —
 // keep both in sync if this ever changes.
 export const MOBILE_SHEET_MAX_HEIGHT_FRACTION = 0.45;
+
+// The main tool drawer (index.tsx) — unlike the property-popover sheets
+// above, this hosts the entire LeftPanel, so it follows Canva's own mobile
+// pattern instead: opens tall (most of the screen, room to actually browse/
+// type) rather than a cramped peek, and dragging it DOWN locks it to this
+// same short MOBILE_SHEET_MAX_HEIGHT_FRACTION height instead of closing
+// immediately — only dragging down again from THAT closes it. Order
+// matters to vaul: the FIRST snap point is what it opens at by default, so
+// tall has to come first here for "opens tall, drag down to shrink" rather
+// than the reverse.
+export const MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION = 0.92;
+export const MOBILE_TOOL_DRAWER_SNAP_POINTS: (number | string)[] = [
+  MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
+  MOBILE_SHEET_MAX_HEIGHT_FRACTION,
+];
 
 // Shared by every floating toolbar's Popover dropdowns (Text/Shape/Image/
 // Background selection toolbars) so all of them can be dragged to wherever
