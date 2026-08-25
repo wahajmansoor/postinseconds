@@ -342,20 +342,36 @@ export async function fetchCloudActiveDraft(userId: string): Promise<EditorState
       .select("state")
       .eq("user_id", userId)
       .maybeSingle();
-    if (!error && data) return data.state as EditorState;
-  } catch {}
+    // Logged, not silently swallowed — this table/policy set is new
+    // (supabase_schema.sql), so a missing-migration or RLS mistake fails
+    // here first, silently, unless something says so out loud. A 42P01
+    // ("relation does not exist") code means the migration hasn't been run
+    // yet in this Supabase project.
+    if (error) {
+      console.warn("[cloud draft] fetch failed — is the user_active_draft migration applied?", error);
+      return null;
+    }
+    if (data) return data.state as EditorState;
+  } catch (err) {
+    console.warn("[cloud draft] fetch threw", err);
+  }
   return null;
 }
 
 export async function upsertCloudActiveDraft(userId: string, state: EditorState): Promise<void> {
   if (!isSupabaseConfigured || !userId) return;
   try {
-    await supabase.from("user_active_draft").upsert({
+    const { error } = await supabase.from("user_active_draft").upsert({
       user_id: userId,
       state,
       updated_at: new Date().toISOString(),
     });
-  } catch {}
+    if (error) {
+      console.warn("[cloud draft] upsert failed — is the user_active_draft migration applied?", error);
+    }
+  } catch (err) {
+    console.warn("[cloud draft] upsert threw", err);
+  }
 }
 
 // Fires `onRemoteChange` whenever a DIFFERENT tab/device updates this
@@ -381,7 +397,24 @@ export function subscribeToCloudActiveDraft(
         if (state) onRemoteChange(state);
       },
     )
-    .subscribe();
+    // status is 'SUBSCRIBED' once the realtime channel actually connects,
+    // 'CHANNEL_ERROR'/'TIMED_OUT'/'CLOSED' otherwise — logged because a
+    // channel that never reaches SUBSCRIBED (e.g. the table isn't in the
+    // supabase_realtime publication yet, or Realtime is off for the
+    // project) fails completely silently otherwise: fetch/upsert above
+    // would still work fine, so the draft loads correctly on open, it
+    // just never live-updates while both devices are open — which looks
+    // exactly like "each device shows something different" once they've
+    // each been edited independently from that shared starting point.
+    .subscribe((status, err) => {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        console.warn(
+          `[cloud draft] realtime subscription ${status} — check that user_active_draft is in the ` +
+          `supabase_realtime publication (see supabase_schema.sql) and that Realtime is enabled for this project.`,
+          err,
+        );
+      }
+    });
   return () => {
     supabase.removeChannel(channel);
   };
