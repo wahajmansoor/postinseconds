@@ -2038,6 +2038,14 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
   const [isEditing, setIsEditing] = useState(false);
 
+  // The dangerouslySetInnerHTML source for the contentEditable div below,
+  // frozen for the duration of an edit session — see editableNode's useMemo
+  // further down, which deliberately does NOT list `content` as a
+  // dependency, precisely so typing (which updates this ref every keystroke
+  // via syncFromLiveDom, to stay ready for the mid-edit-style-change case)
+  // doesn't itself force a recompute: re-applying dangerouslySetInnerHTML
+  // tears down and rebuilds the DOM regardless of whether the string
+  // actually changed, which resets the caret to the start every time.
   const editSnapshotRef = useRef<string>(sanitizeTextHtml(t.html || t.text));
   if (!isEditing) {
     editSnapshotRef.current = sanitizeTextHtml(t.html || t.text);
@@ -2091,6 +2099,28 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     [set, t.id],
   );
   const remove = () => set?.("texts", withTextRemoved(s, t.id));
+
+  // Every place that reads the live contentEditable DOM (typing, execCommand
+  // formatting, a highlighted-range color/style change) and pushes it into
+  // document state via update({text, html}) must ALSO refresh
+  // editSnapshotRef in the same breath, not just call update() — otherwise,
+  // if some unrelated re-render forces the memoized editableNode below to
+  // recompute while isEditing is still true (classically: changing font
+  // size from the toolbar mid-edit, since t.size is one of its deps), it
+  // re-applies dangerouslySetInnerHTML from whatever editSnapshotRef was
+  // last frozen at, silently discarding everything typed/formatted since —
+  // update() alone isn't enough because editSnapshotRef only otherwise
+  // resyncs from t.html once isEditing goes false (see the render-phase
+  // check right below), which is one render too late for a memo recompute
+  // that happens WHILE still editing. Same "recreating the element resets
+  // the DOM" bug class documented on editSnapshotRef's own declaration,
+  // just reached through a mid-edit state update instead of a fresh mount.
+  const syncFromLiveDom = (el: HTMLElement) => {
+    const text = el.textContent ?? "";
+    const html = sanitizeTextHtml(el.innerHTML);
+    editSnapshotRef.current = html;
+    update({ text, html });
+  };
 
   // Dedicated drag state/handlers for the overlay's Move handle — kept
   // separate from editableNode's memoized handlePointerDown above (which
@@ -2198,9 +2228,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       });
     }
 
-    const newText = el.textContent ?? "";
-    const newHtml = sanitizeTextHtml(el.innerHTML);
-    update({ text: newText, html: newHtml });
+    syncFromLiveDom(el);
     notifyActiveFormat();
   };
 
@@ -2324,9 +2352,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       update(wholeLayerPatch);
       return;
     }
-    const newText = el.textContent ?? "";
-    const newHtml = sanitizeTextHtml(el.innerHTML);
-    update({ text: newText, html: newHtml });
+    syncFromLiveDom(el);
   };
 
   // Font size and font family deliberately always apply to the WHOLE layer
@@ -2579,20 +2605,12 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           onKeyUp={() => {
             if (isEditing) {
               const el = editableRef.current;
-              if (el) {
-                update({
-                  text: el.textContent ?? "",
-                  html: sanitizeTextHtml(el.innerHTML),
-                });
-              }
+              if (el) syncFromLiveDom(el);
               notifyActiveFormat();
             }
           }}
           onBlur={(e) => {
-            update({
-              text: e.currentTarget.textContent ?? "",
-              html: sanitizeTextHtml(e.currentTarget.innerHTML),
-            });
+            syncFromLiveDom(e.currentTarget);
             setIsEditing(false);
           }}
           style={{
@@ -2659,7 +2677,19 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       t.effectSpread,
       t.shapeType,
       t.curveAmount,
-      content,
+      // content (editSnapshotRef.current) is deliberately NOT a dependency
+      // here, even though the memo body reads it for dangerouslySetInnerHTML
+      // — it's a ref, read via closure each time this callback actually
+      // runs, same as any other ref. Listing it WOULD recompute this memo
+      // (and thus re-apply dangerouslySetInnerHTML, which always tears down
+      // and rebuilds the DOM regardless of whether the string actually
+      // changed) on every single keystroke, since syncFromLiveDom now keeps
+      // it in sync while typing — resetting the caret to the start on every
+      // character typed. Omitting it relies on isEditing/the style fields
+      // above to trigger recomputation at the right moments (entering/
+      // leaving edit mode, a style change mid-edit) instead, at which point
+      // whatever editSnapshotRef currently holds (kept fresh by
+      // syncFromLiveDom regardless) is what gets read.
       onSelect,
       onGroupDragStart,
       onGroupDragMove,

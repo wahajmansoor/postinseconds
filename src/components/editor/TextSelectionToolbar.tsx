@@ -1,6 +1,7 @@
 import {
   Add01Icon,
   ArrowDown01Icon,
+  ArrowLeft01Icon,
   ExpandParagraphIcon,
   LeftToRightListBulletIcon,
   LeftToRightListNumberIcon,
@@ -20,6 +21,7 @@ import type React from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { loadGoogleFont } from "@/lib/fontLoader";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { AppTooltip } from "@/components/ui/tooltip";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
@@ -62,6 +64,7 @@ export function TextSelectionToolbar({
   // or not) for as long as at least one of its popovers is still open.
   onAnyPopoverOpenChange?: (open: boolean) => void;
 }) {
+  const isMobile = useIsMobile();
   const [spacingOpen, setSpacingOpen] = useState(false);
   const [spacingPinned, setSpacingPinned] = useState(false);
   const spacingDrag = useDraggableOffset();
@@ -96,17 +99,27 @@ export function TextSelectionToolbar({
     const q = fontSearch.trim().toLowerCase();
     return q ? FONTS.filter((f) => f.label.toLowerCase().includes(q)) : FONTS;
   }, [fontSearch]);
+  // Mobile-only: tapping Font swaps the whole toolbar row for a horizontal
+  // scrollable strip of font-name chips (each rendered in its own font,
+  // same as the full list below) instead of opening `fontOpen`'s popover
+  // directly — a Canva-style quick-switch that keeps the canvas fully
+  // visible while flicking through options, rather than a sheet covering
+  // part of it. The strip's own "expand" button still opens the existing
+  // `fontOpen` search+full-list sheet for anything not in quick reach.
+  // Desktop is completely unaffected — its Font button still opens
+  // `fontOpen` directly, same as before this existed.
+  const [fontStripOpen, setFontStripOpen] = useState(false);
   useEffect(() => {
-    if (!fontOpen) return;
+    if (!fontOpen && !fontStripOpen) return;
     FONTS.forEach((f) => loadGoogleFont(f.value));
-  }, [fontOpen]);
+  }, [fontOpen, fontStripOpen]);
 
   // Reports "is any popover in this toolbar open" up to index.tsx (see the
   // `detached`/`onAnyPopoverOpenChange` comments above) so it knows whether
   // to keep this whole component mounted — and thus keep every popover's
   // own state (search text, drag position, which one is open) intact —
   // even after `layer` stops being the live canvas selection.
-  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen;
+  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen || fontStripOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,6 +176,160 @@ export function TextSelectionToolbar({
   const [activeFormat, setActiveFormat] = useState<LiveTextFormat>(() => handle.getActiveFormat());
   useEffect(() => handle.subscribeActiveFormat(setActiveFormat), [handle]);
 
+  // Hoisted out of the main return below so it can also be reached from the
+  // mobile font-strip's own "expand" button (see fontStripOpen above) — both
+  // that branch and the normal toolbar row need the exact same search+full-
+  // list sheet, just triggered from a different button depending on mode.
+  const fontFloatingDropdown = (
+    <FloatingDropdown
+      anchor={fontAnchor}
+      offset={fontDrag.offset}
+      align="start"
+      pinned={fontPinned}
+      onRequestClose={() => setFontOpen(false)}
+      triggerRef={fontTriggerRef}
+    >
+      <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+        <DragHandle
+          label="Text Font"
+          {...fontDrag.dragHandleProps}
+          pinned={fontPinned}
+          onTogglePin={() => setFontPinned((p) => !p)}
+          onClose={() => setFontOpen(false)}
+        />
+        <div className="space-y-2 p-2.5">
+          <div className="relative">
+            <Search01Icon
+              size={13}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="text"
+              autoFocus
+              value={fontSearch}
+              onChange={(e) => setFontSearch(e.target.value)}
+              placeholder="Search fonts…"
+              className="w-full rounded-xl border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
+            />
+          </div>
+          <div className="max-h-72 space-y-0.5 overflow-y-auto pr-0.5">
+            {filteredFonts.length ? (
+              filteredFonts.map((f) => {
+                const active = f.value === layer.fontFamily;
+                return (
+                  <button
+                    key={f.value}
+                    type="button"
+                    // Deliberately does NOT close the popover — picking
+                    // a font is something people want to do several
+                    // times in a row while comparing options live on
+                    // the canvas, not a one-shot action. It only closes
+                    // via the X button or re-clicking the trigger.
+                    onClick={() => handle.setFontFamily(f.value)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
+                      active ? "bg-primary/15 text-primary" : "text-foreground hover:bg-secondary",
+                    )}
+                    style={{ fontFamily: f.value }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{f.label}</span>
+                    {active ? <Tick02Icon size={13} className="shrink-0 text-primary" /> : null}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
+                No fonts match "{fontSearch}"
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </FloatingDropdown>
+  );
+
+  // Mobile: font mode swaps the entire row for a back button + a horizontal
+  // scrollable strip of font-name chips (each previewed in its own font),
+  // matching a Canva-style quick font switcher — the canvas stays fully
+  // visible the whole time instead of being covered by a sheet. The
+  // trailing button opens the full search+list sheet (fontFloatingDropdown
+  // above) for anything not close enough to scroll to quickly; note its
+  // trigger ref is the SAME fontTriggerRef the normal toolbar's Font button
+  // uses below — only one of the two is ever mounted at a time, so whichever
+  // is currently on screen is what `fontAnchor` measures from.
+  if (isMobile && fontStripOpen) {
+    return (
+      <div
+        ref={rowRef}
+        style={
+          detached
+            ? {
+                position: "fixed",
+                top: lastLiveRectRef.current?.top ?? 0,
+                left: lastLiveRectRef.current?.left ?? 0,
+                visibility: "hidden",
+                pointerEvents: "none",
+              }
+            : undefined
+        }
+        className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap"
+      >
+        <AppTooltip content="Back">
+          <button
+            type="button"
+            onPointerDown={preserveSelection}
+            onMouseDown={preserveSelection}
+            onClick={() => setFontStripOpen(false)}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/50 text-foreground transition-colors hover:bg-secondary"
+          >
+            <ArrowLeft01Icon size={16} />
+          </button>
+        </AppTooltip>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth">
+          {FONTS.map((f) => {
+            const active = f.value === layer.fontFamily;
+            return (
+              <button
+                key={f.value}
+                type="button"
+                onPointerDown={preserveSelection}
+                onMouseDown={preserveSelection}
+                onClick={() => handle.setFontFamily(f.value)}
+                className={cn(
+                  "flex h-8 shrink-0 items-center whitespace-nowrap rounded-xl border px-3 text-sm font-semibold transition-colors",
+                  active
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border/60 bg-secondary/40 text-foreground hover:bg-secondary",
+                )}
+                style={{ fontFamily: f.value }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+        <AppTooltip content="Browse all fonts">
+          <button
+            ref={fontTriggerRef}
+            type="button"
+            onPointerDown={preserveSelection}
+            onMouseDown={preserveSelection}
+            onClick={() => {
+              fontDrag.reset();
+              setFontSearch("");
+              setFontPinned(false);
+              setFontOpen(true);
+            }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/50 text-foreground transition-colors hover:bg-secondary"
+          >
+            <ArrowDown01Icon size={16} className="rotate-180" />
+          </button>
+        </AppTooltip>
+        {fontFloatingDropdown}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={rowRef}
@@ -186,6 +353,10 @@ export function TextSelectionToolbar({
           onPointerDown={preserveSelection}
           onMouseDown={preserveSelection}
           onClick={() => {
+            if (isMobile) {
+              setFontStripOpen(true);
+              return;
+            }
             setFontOpen((wasOpen) => {
               // Reset lives on the OPEN edge, not the close edge: resetting
               // on close would snap the panel back to its anchor position
@@ -210,71 +381,7 @@ export function TextSelectionToolbar({
           <ArrowDown01Icon size={12} className="shrink-0 text-muted-foreground" />
         </button>
       </AppTooltip>
-      <FloatingDropdown
-        anchor={fontAnchor}
-        offset={fontDrag.offset}
-        align="start"
-        pinned={fontPinned}
-        onRequestClose={() => setFontOpen(false)}
-        triggerRef={fontTriggerRef}
-      >
-        <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-          <DragHandle
-            label="Text Font"
-            {...fontDrag.dragHandleProps}
-            pinned={fontPinned}
-            onTogglePin={() => setFontPinned((p) => !p)}
-            onClose={() => setFontOpen(false)}
-          />
-          <div className="space-y-2 p-2.5">
-            <div className="relative">
-              <Search01Icon
-                size={13}
-                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                type="text"
-                autoFocus
-                value={fontSearch}
-                onChange={(e) => setFontSearch(e.target.value)}
-                placeholder="Search fonts…"
-                className="w-full rounded-xl border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
-              />
-            </div>
-            <div className="max-h-72 space-y-0.5 overflow-y-auto pr-0.5">
-              {filteredFonts.length ? (
-                filteredFonts.map((f) => {
-                  const active = f.value === layer.fontFamily;
-                  return (
-                    <button
-                      key={f.value}
-                      type="button"
-                      // Deliberately does NOT close the popover — picking
-                      // a font is something people want to do several
-                      // times in a row while comparing options live on
-                      // the canvas, not a one-shot action. It only closes
-                      // via the X button or re-clicking the trigger.
-                      onClick={() => handle.setFontFamily(f.value)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
-                        active ? "bg-primary/15 text-primary" : "text-foreground hover:bg-secondary",
-                      )}
-                      style={{ fontFamily: f.value }}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{f.label}</span>
-                      {active ? <Tick02Icon size={13} className="shrink-0 text-primary" /> : null}
-                    </button>
-                  );
-                })
-              ) : (
-                <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
-                  No fonts match "{fontSearch}"
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      </FloatingDropdown>
+      {fontFloatingDropdown}
 
       <div className="flex h-8 items-center gap-0.5 rounded-xl bg-secondary/50 p-0.5">
         <AppTooltip content="Decrease size">
