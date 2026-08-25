@@ -26,7 +26,7 @@ import { AppTooltip } from "@/components/ui/tooltip";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
 import { FONTS, type TextLayer } from "./types";
-import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, useDraggableOffset, useStableAnchor } from "./ui";
+import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
 
 // Canva-style top-docked toolbar: appears the instant a single free-floating
 // text layer is selected (a plain click — well before, or entirely without,
@@ -164,6 +164,14 @@ export function TextSelectionToolbar({
     e.preventDefault();
     e.stopPropagation();
   };
+
+  // Press-and-hold repeat for the Decrease/Increase size buttons below —
+  // see useHoldRepeat's own comment in ui.tsx. Composed with
+  // preserveSelection (not replacing it) on pointerdown: that call still
+  // has to run first so the highlighted text selection survives the
+  // button press, same as every other control in this toolbar.
+  const sizeDecHold = useHoldRepeat(() => handle.setSize(Math.max(8, layer.size - 1)));
+  const sizeIncHold = useHoldRepeat(() => handle.setSize(layer.size + 1));
 
   // Mirrors handle.getActiveFormat() live so Bold/Italic/Underline/
   // Strikethrough/list here light up for whatever's actually under the
@@ -387,9 +395,14 @@ export function TextSelectionToolbar({
         <AppTooltip content="Decrease size">
           <Chip
             title="Decrease size"
-            onPointerDown={preserveSelection}
+            onPointerDown={(e) => {
+              preserveSelection(e);
+              sizeDecHold.onPointerDown(e);
+            }}
+            onPointerUp={sizeDecHold.onPointerUp}
+            onPointerLeave={sizeDecHold.onPointerLeave}
+            onPointerCancel={sizeDecHold.onPointerCancel}
             onMouseDown={preserveSelection}
-            onClick={() => handle.setSize(Math.max(8, layer.size - 1))}
             className="flex h-7 w-7 items-center justify-center rounded-lg p-0"
           >
             <MinusSignIcon size={14} />
@@ -399,9 +412,14 @@ export function TextSelectionToolbar({
         <AppTooltip content="Increase size">
           <Chip
             title="Increase size"
-            onPointerDown={preserveSelection}
+            onPointerDown={(e) => {
+              preserveSelection(e);
+              sizeIncHold.onPointerDown(e);
+            }}
+            onPointerUp={sizeIncHold.onPointerUp}
+            onPointerLeave={sizeIncHold.onPointerLeave}
+            onPointerCancel={sizeIncHold.onPointerCancel}
             onMouseDown={preserveSelection}
-            onClick={() => handle.setSize(layer.size + 1)}
             className="flex h-7 w-7 items-center justify-center rounded-lg p-0"
           >
             <Add01Icon size={14} />

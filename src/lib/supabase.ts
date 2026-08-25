@@ -321,3 +321,68 @@ export function clearActiveDraft(): void {
     localStorage.removeItem(LOCAL_AUTOSAVE_DRAFT_KEY);
   } catch {}
 }
+
+// --- Cloud-synced active draft (account-wide, live) ----------------------
+// Everything above this (getSavedDraft/saveActiveDraft/clearActiveDraft) is
+// a plain per-device localStorage mirror — the fast, always-available
+// local cache, and the only thing that exists at all when signed out or
+// Supabase isn't configured. These three add an account-scoped copy in
+// Supabase's `user_active_draft` table (see supabase_schema.sql) on top of
+// that, so opening the editor on a different device picks up the same
+// in-progress design, and a live subscription pushes further edits to any
+// other open tab/device in real time. index.tsx calls the local functions
+// unconditionally and these only when signed in — the local draft still
+// gets written every time as a fast/offline fallback.
+
+export async function fetchCloudActiveDraft(userId: string): Promise<EditorState | null> {
+  if (!isSupabaseConfigured || !userId) return null;
+  try {
+    const { data, error } = await supabase
+      .from("user_active_draft")
+      .select("state")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (!error && data) return data.state as EditorState;
+  } catch {}
+  return null;
+}
+
+export async function upsertCloudActiveDraft(userId: string, state: EditorState): Promise<void> {
+  if (!isSupabaseConfigured || !userId) return;
+  try {
+    await supabase.from("user_active_draft").upsert({
+      user_id: userId,
+      state,
+      updated_at: new Date().toISOString(),
+    });
+  } catch {}
+}
+
+// Fires `onRemoteChange` whenever a DIFFERENT tab/device updates this
+// user's active draft (Supabase Realtime doesn't echo a write back to the
+// exact client connection that made it, so this only ever fires for
+// changes actually made elsewhere — no extra de-dupe needed on that front,
+// though index.tsx still guards against re-uploading what it just
+// downloaded, to avoid a needless round-trip). Returns an unsubscribe
+// function — call it on cleanup (user change/sign-out, component unmount)
+// or the realtime channel leaks.
+export function subscribeToCloudActiveDraft(
+  userId: string,
+  onRemoteChange: (state: EditorState) => void,
+): () => void {
+  if (!isSupabaseConfigured || !userId) return () => {};
+  const channel = supabase
+    .channel(`active-draft-${userId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "user_active_draft", filter: `user_id=eq.${userId}` },
+      (payload) => {
+        const state = (payload.new as { state?: EditorState } | null)?.state;
+        if (state) onRemoteChange(state);
+      },
+    )
+    .subscribe();
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}

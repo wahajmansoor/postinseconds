@@ -173,6 +173,62 @@ create policy "Admins can view all saved quotes."
   on public.user_saved_quotes for select
   using ( public.is_admin() );
 
+-- 3b. USER ACTIVE DRAFT (the one in-progress canvas, live-synced across a
+-- user's own devices — separate from user_saved_quotes above, which is an
+-- explicit "save as a named design" library the user has to act on. This
+-- table instead mirrors whatever the editor currently has open, updated by
+-- the app's own debounced auto-save, so opening the editor on a different
+-- device (or another tab) picks up the same in-progress state, and a
+-- Realtime subscription pushes further edits to any other open tab/device
+-- live while both are open. One row per user (user_id IS the primary key,
+-- not a separate generated id) — there is only ever one "current" draft per
+-- account, so upserting on user_id is all the app needs.
+create table if not exists public.user_active_draft (
+  user_id uuid references public.profiles(id) on delete cascade primary key,
+  state jsonb not null,
+  updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.user_active_draft enable row level security;
+
+drop policy if exists "Users can view own active draft." on public.user_active_draft;
+create policy "Users can view own active draft."
+  on public.user_active_draft for select
+  using ( auth.uid() = user_id );
+
+drop policy if exists "Users can insert own active draft." on public.user_active_draft;
+create policy "Users can insert own active draft."
+  on public.user_active_draft for insert
+  with check ( auth.uid() = user_id );
+
+drop policy if exists "Users can update own active draft." on public.user_active_draft;
+create policy "Users can update own active draft."
+  on public.user_active_draft for update
+  using ( auth.uid() = user_id );
+
+drop policy if exists "Users can delete own active draft." on public.user_active_draft;
+create policy "Users can delete own active draft."
+  on public.user_active_draft for delete
+  using ( auth.uid() = user_id );
+
+-- Adds the table to Supabase's built-in realtime publication so UPDATE/
+-- INSERT events actually reach subscribed clients (postgres_changes
+-- subscriptions only fire for tables in this publication). Wrapped in a
+-- guard since `alter publication ... add table` errors instead of no-op-ing
+-- if the table's already a member — the only way to keep this file safely
+-- re-runnable in full like everything above it.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'user_active_draft'
+  ) then
+    alter publication supabase_realtime add table public.user_active_draft;
+  end if;
+end $$;
+
 -- 4. SYSTEM STATS TABLE
 create table if not exists public.system_stats (
   id text primary key default 'global',

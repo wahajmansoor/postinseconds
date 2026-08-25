@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { updateOwnProfile } from "@/lib/supabase";
+import { compressImageFile } from "@/lib/imageCompression";
 import { CheckmarkCircle02Icon, ImageUploadIcon, UserCircleIcon } from "hugeicons-react";
 
 interface EditProfileDialogProps {
@@ -31,13 +32,11 @@ export function EditProfileDialog({ open, onClose }: EditProfileDialogProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    // A profile avatar never needs to be more than a few hundred px on
+    // screen — capping much smaller than the general upload paths
+    // (imageCompression.ts's own 1920px default) keeps a full-resolution
+    // phone photo from bloating every profiles row that ever loads it.
+    compressImageFile(file, { maxDimension: 512 }).then(setAvatar);
     e.target.value = "";
   };
 

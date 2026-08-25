@@ -1919,14 +1919,25 @@ function newLayerId() {
 // Staggers each new layer slightly so dropping several in a row doesn't
 // stack them in one unmovable pile — every next one lands a bit further
 // down/right, still well inside the canvas.
-function makeImageLayer(position: number, src: string): ImageLayer {
+//
+// Default width is at least half the canvas width, not a flat 200px — on a
+// large canvas a flat 200px lands small enough to be hard to spot and a
+// fiddly target to grab/drag; scaling with the canvas keeps a freshly
+// added image comfortably visible and easy to grab no matter the canvas
+// size. Height is deliberately left unset ("auto"/aspect-ratio-driven, the
+// normal default for an untouched image) rather than also forced to 50%
+// canvas height — the image should show at its own original proportions
+// (just scaled up/down to a visible width), not stretched/cropped into a
+// box shaped by the canvas's own aspect ratio.
+function makeImageLayer(position: number, src: string, canvasWidth: number): ImageLayer {
   const offset = (position % 6) * 6;
+  const minVisibleWidth = Number.isFinite(canvasWidth) && canvasWidth > 0 ? canvasWidth * 0.5 : 200;
   return {
     id: newLayerId(),
     src,
     x: 50 + offset,
     y: 30 + offset,
-    size: 200,
+    size: Math.round(Math.max(200, minVisibleWidth)),
     radius: 0,
     shadow: false,
     shadowBlur: 24,
@@ -1936,7 +1947,7 @@ function makeImageLayer(position: number, src: string): ImageLayer {
 
 export function withImageAdded(s: EditorState, src: string): ImageLayer[] {
   const list = getImageLayers(s);
-  return [makeImageLayer(0, src), ...list];
+  return [makeImageLayer(0, src, s.width), ...list];
 }
 
 // Batched multi-file add — prepends every src in one array update
@@ -1945,7 +1956,7 @@ export function withImagesAdded(
   srcs: string[],
 ): { list: ImageLayer[]; layerOrder: UnifiedLayerRef[]; newIds: string[] } {
   const list = getImageLayers(s);
-  const newLayers = srcs.map((src, i) => makeImageLayer(list.length + i, src));
+  const newLayers = srcs.map((src, i) => makeImageLayer(list.length + i, src, s.width));
   const newImages = [...list, ...newLayers];
   const newRefs: UnifiedLayerRef[] = newLayers.map((img) => ({ kind: "image" as const, id: img.id }));
   const layerOrder = [...getUnifiedLayers(s), ...newRefs];
@@ -2064,7 +2075,7 @@ function isDarkBg(bg: string): boolean {
 
 function makeTextLayer(
   position: number,
-  opts?: { text?: string; size?: number; weight?: number; color?: string; fontFamily?: string },
+  opts?: { text?: string; size?: number; weight?: number; color?: string; fontFamily?: string; width?: number },
 ): TextLayer {
   const offset = (position % 6) * 6;
   return {
@@ -2080,12 +2091,19 @@ function makeTextLayer(
     italic: false,
     underline: false,
     strike: false,
+    // Only set when the caller already measured the text's real one-line
+    // pixel width (see addPresetText in LeftPanel.tsx) — an explicit width
+    // here skips the fit-content-up-to-a-canvas-relative-maxWidth sizing
+    // QuoteCanvas falls back to otherwise, which is only ever an estimate
+    // and can wrap short preset text (e.g. a large heading) that would
+    // actually fit on one line under its real font metrics.
+    ...(opts?.width !== undefined ? { width: opts.width } : {}),
   };
 }
 
 export function withTextAdded(
   s: EditorState,
-  opts?: { text?: string; size?: number; weight?: number; color?: string; fontFamily?: string },
+  opts?: { text?: string; size?: number; weight?: number; color?: string; fontFamily?: string; width?: number },
 ): { list: TextLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
   const list = getTextLayers(s);
   const dark = isDarkBg(s.background);

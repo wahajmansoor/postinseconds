@@ -4,6 +4,7 @@ import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinI
 import { cn } from "@/lib/utils";
 import { AppTooltip, InfoTooltip } from "@/components/ui/tooltip";
 import { loadGoogleFont } from "@/lib/fontLoader";
+import { compressImageFile } from "@/lib/imageCompression";
 import { ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker } from "@/components/ui/color-picker";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -22,6 +23,25 @@ export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, Co
 // arbitrary values have to be literal source text for Tailwind's scanner —
 // keep both in sync if this ever changes.
 export const MOBILE_SHEET_MAX_HEIGHT_FRACTION = 0.45;
+
+// The one exception to the fixed-height rule above — the main mobile tool
+// drawer (index.tsx), which hosts the entire LeftPanel rather than a single
+// property's controls. That's real content worth being able to see more
+// of, so unlike every other sheet it's draggable between two heights
+// instead of being capped short: MOBILE_SHEET_MAX_HEIGHT_FRACTION's usual
+// "peek" height, and this taller "full" one. vaul (the drawer primitive)
+// always resolves a release to whichever of the two snap points is
+// nearest, not a fully free-form height — so "stays wherever it's left"
+// means it stops snapping straight back down to peek height the moment
+// it's dragged, and holds whichever of the two it's closest to for the
+// rest of that open session. (It does reset back to the peek height once
+// fully closed and reopened — vaul's own built-in behavior, matching how
+// most bottom sheets behave elsewhere.)
+export const MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION = 0.85;
+export const MOBILE_TOOL_DRAWER_SNAP_POINTS: (number | string)[] = [
+  MOBILE_SHEET_MAX_HEIGHT_FRACTION,
+  MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION,
+];
 
 // Shared by every floating toolbar's Popover dropdowns (Text/Shape/Image/
 // Background selection toolbars) so all of them can be dragged to wherever
@@ -624,6 +644,66 @@ export const AreaInput = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<
 );
 AreaInput.displayName = "AreaInput";
 
+// Press-and-hold repeat for every +/- stepper button in the app (Range's
+// own below, plus the standalone font-size/zoom steppers elsewhere) — a
+// quick tap still fires `onStep` exactly once, immediately on press, same
+// as a plain onClick would; holding it down keeps firing at a steady pace
+// afterward, like a native OS spin-button, so covering a wide range doesn't
+// take twenty separate taps — especially awkward on a touchscreen. Wired
+// through pointer events (not a click/touchstart pair) so mouse, touch, and
+// pen all get the same behavior for free, and the caller's button should
+// drop its own onClick when using this (double-firing otherwise: one shot
+// from this hook's pointerdown, one from the browser's own synthesized
+// click right after).
+export function useHoldRepeat(onStep: () => void) {
+  // Ref, not a plain closure var — the repeat interval below is set up
+  // once per press and lives across renders, so without this it would
+  // keep calling whatever `onStep` closure existed at the moment the press
+  // started, ignoring any prop/state changes (e.g. the value it should be
+  // stepping from) that land mid-hold.
+  const onStepRef = useRef(onStep);
+  onStepRef.current = onStep;
+  const timersRef = useRef<{
+    delay: ReturnType<typeof setTimeout> | null;
+    interval: ReturnType<typeof setInterval> | null;
+  }>({ delay: null, interval: null });
+
+  const stop = () => {
+    if (timersRef.current.delay) {
+      clearTimeout(timersRef.current.delay);
+      timersRef.current.delay = null;
+    }
+    if (timersRef.current.interval) {
+      clearInterval(timersRef.current.interval);
+      timersRef.current.interval = null;
+    }
+  };
+
+  const start = (e: React.PointerEvent) => {
+    // Ignore a non-primary mouse button (e.g. right-click); touch/pen
+    // presses report button === -1/0 depending on browser, so only gate
+    // this for mouse specifically.
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    stop();
+    onStepRef.current();
+    // A short pause before the repeat kicks in — mirrors OS spin-button
+    // feel and stops a normal, slightly-too-long tap from double-stepping.
+    timersRef.current.delay = setTimeout(() => {
+      timersRef.current.interval = setInterval(() => onStepRef.current(), 60);
+    }, 400);
+  };
+
+  // Stop on unmount — e.g. the popover this button lives in closes mid-hold.
+  useEffect(() => stop, []);
+
+  return {
+    onPointerDown: start,
+    onPointerUp: stop,
+    onPointerLeave: stop,
+    onPointerCancel: stop,
+  };
+}
+
 export function Range({
   value,
   min = 0,
@@ -660,6 +740,9 @@ export function Range({
     }
   };
 
+  const decHold = useHoldRepeat(() => onChange(Math.max(min, Number((value - step).toFixed(2)))));
+  const incHold = useHoldRepeat(() => onChange(Math.min(max, Number((value + step).toFixed(2)))));
+
   return (
     <div className="flex min-w-0 items-center gap-2">
       <input
@@ -675,7 +758,7 @@ export function Range({
         <div className="flex shrink-0 items-center rounded-xl border border-border/80 bg-secondary/40 p-0.5 shadow-sm">
           <button
             type="button"
-            onClick={() => onChange(Math.max(min, Number((value - step).toFixed(2))))}
+            {...decHold}
             disabled={value <= min}
             className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background hover:text-foreground disabled:opacity-30"
             title="Decrease"
@@ -700,7 +783,7 @@ export function Range({
           />
           <button
             type="button"
-            onClick={() => onChange(Math.min(max, Number((value + step).toFixed(2))))}
+            {...incHold}
             disabled={value >= max}
             className="flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-background hover:text-foreground disabled:opacity-30"
             title="Increase"
@@ -736,16 +819,13 @@ export function UploadButton({
   const processFiles = (fileList: FileList | File[]) => {
     const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
     if (!files.length) return;
-    const readAsDataUrl = (file: File) =>
-      new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.readAsDataURL(file);
-      });
+    // Downscaled + re-encoded before ever becoming a data URL — see
+    // imageCompression.ts's own comment for why this matters (every image
+    // in this app is embedded as base64, not uploaded to object storage).
     if (multiple && onFiles) {
-      Promise.all(files.map(readAsDataUrl)).then(onFiles);
+      Promise.all(files.map((f) => compressImageFile(f))).then(onFiles);
     } else if (onFile && files[0]) {
-      readAsDataUrl(files[0]).then(onFile);
+      compressImageFile(files[0]).then(onFile);
     }
   };
 

@@ -1,6 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { fetchAllTemplates, upsertTemplate, updateSavedQuoteDesign, fetchSavedQuotes, getSavedDraft, saveActiveDraft, clearActiveDraft } from "@/lib/supabase";
+import {
+  fetchAllTemplates,
+  upsertTemplate,
+  updateSavedQuoteDesign,
+  fetchSavedQuotes,
+  getSavedDraft,
+  saveActiveDraft,
+  clearActiveDraft,
+  fetchCloudActiveDraft,
+  upsertCloudActiveDraft,
+  subscribeToCloudActiveDraft,
+} from "@/lib/supabase";
+import { compressImageFiles } from "@/lib/imageCompression";
 import {
   Add01Icon,
   Bookmark01Icon,
@@ -83,7 +95,14 @@ import {
   type ShapeLayer,
   type Template,
 } from "@/components/editor/types";
-import { AppTooltip, Chip, MOBILE_SHEET_MAX_HEIGHT_FRACTION, Range } from "@/components/editor/ui";
+import {
+  AppTooltip,
+  Chip,
+  MOBILE_SHEET_MAX_HEIGHT_FRACTION,
+  MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION,
+  MOBILE_TOOL_DRAWER_SNAP_POINTS,
+  Range,
+} from "@/components/editor/ui";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ExportPreviewDialog } from "@/components/editor/ExportPreviewDialog";
 import { Rulers, RULER_SIZE } from "@/components/editor/Rulers";
@@ -467,6 +486,12 @@ function Index() {
   const spaceRef = useRef(false);
   const dragCounterRef = useRef(0);
   const isInitialMountRef = useRef(true);
+  // Set right before applying a draft that came FROM Supabase (either the
+  // one-time load-on-sign-in below, or a live update from another open
+  // tab/device) so the very next run of the auto-save effect below knows
+  // to skip re-uploading it — otherwise every remote update would
+  // round-trip straight back out as a redundant write.
+  const applyingRemoteDraftRef = useRef(false);
 
   // Active template / saved post being edited targets
   const [editingTemplateTarget, setEditingTemplateTarget] = useState<{
@@ -504,19 +529,71 @@ function Index() {
     };
   }, []);
 
-  // Debounced Auto-Save Working Draft
+  // Debounced Auto-Save Working Draft — always writes the fast local
+  // (per-device) cache; additionally pushes to the signed-in account's
+  // cloud draft (see supabase.ts's "Cloud-synced active draft" section) so
+  // opening the editor elsewhere, or another already-open tab/device, sees
+  // the same in-progress design. Skips the cloud push specifically when
+  // this run was triggered by APPLYING a cloud update (see
+  // applyingRemoteDraftRef's own comment) — nothing changed to actually
+  // save, that state already lives on the server.
   useEffect(() => {
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
       return;
     }
+    const skipCloudPush = applyingRemoteDraftRef.current;
+    applyingRemoteDraftRef.current = false;
     setAutoSaveStatus("saving");
     const timer = setTimeout(() => {
       saveActiveDraft(s);
+      if (user?.id && !skipCloudPush) {
+        void upsertCloudActiveDraft(user.id, s);
+      }
       setAutoSaveStatus("saved");
     }, 600);
     return () => clearTimeout(timer);
-  }, [s]);
+  }, [s, user?.id]);
+
+  // Load-on-sign-in: once we know who's signed in, pull their cloud draft
+  // (if any — a brand new account, or one that's never used this device's
+  // browser before, won't have one yet) and let it win over whatever
+  // localStorage/INITIAL_STATE the initial useState above already picked,
+  // since the cloud copy is the account-wide source of truth this feature
+  // exists for. Only ever runs once per signed-in session (userId flips
+  // from undefined to a real id exactly once per sign-in) — an empty
+  // dependency-free re-check on every render would fight the user's own
+  // subsequent edits.
+  const loadedCloudDraftForUserRef = useRef<string | null>(null);
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId || loadedCloudDraftForUserRef.current === userId) return;
+    loadedCloudDraftForUserRef.current = userId;
+    let cancelled = false;
+    (async () => {
+      const cloudDraft = await fetchCloudActiveDraft(userId);
+      if (cancelled || !cloudDraft) return;
+      applyingRemoteDraftRef.current = true;
+      setS(migrateLegacyContentToLayers({ ...INITIAL_STATE, ...cloudDraft }));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  // Live sync: another open tab/device (same account) saving pushes its
+  // new state here in real time via Supabase Realtime — see
+  // subscribeToCloudActiveDraft's own comment for why no extra de-dupe is
+  // needed against this client's OWN writes.
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+    const unsubscribe = subscribeToCloudActiveDraft(userId, (remoteState) => {
+      applyingRemoteDraftRef.current = true;
+      setS(migrateLegacyContentToLayers({ ...INITIAL_STATE, ...remoteState }));
+    });
+    return unsubscribe;
+  }, [user?.id]);
 
   const [stageMarquee, setStageMarquee] = useState<{
     startX: number;
@@ -1168,13 +1245,18 @@ function Index() {
 
   // Trigger 2: the mobile tool drawer opening while a layer stays selected
   // (e.g. tapping "Effects" on the selection toolbar) — the drawer covers
-  // the bottom MOBILE_SHEET_MAX_HEIGHT_FRACTION of the window (fixed, no
-  // snap points — see ui.tsx), which trigger 1 above has no way to know
-  // about since it only reasons about the stage's own (unchanged) size.
+  // up to MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION of the window once
+  // dragged to its taller snap point (see ui.tsx), which trigger 1 above
+  // has no way to know about since it only reasons about the stage's own
+  // (unchanged) size. Sized against the drawer's tallest possible extent,
+  // not its default "peek" one — this only runs once, on open, so it can't
+  // react to the user dragging the drawer taller afterward; assuming the
+  // worst case up front means the selected layer stays visible regardless
+  // of which snap point they end up leaving it at.
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
     if (!isMobile || !mobileToolDrawerOpen || !only) return;
-    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_SHEET_MAX_HEIGHT_FRACTION);
+    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_TOOL_DRAWER_MAX_HEIGHT_FRACTION);
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
   }, [isMobile, mobileToolDrawerOpen, canvasSelection, panLayerIntoView]);
@@ -2060,17 +2142,11 @@ function Index() {
           );
           if (files.length === 0) return;
 
-          const readPromises = files.map((file) => {
-            return new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = (event) => {
-                resolve((event.target?.result as string) || "");
-              };
-              reader.readAsDataURL(file);
-            });
-          });
-
-          const dataUrls = (await Promise.all(readPromises)).filter(Boolean);
+          // Downscaled + re-encoded before ever becoming a data URL — see
+          // imageCompression.ts's own comment for why this matters (every
+          // image in this app is embedded as base64, not uploaded to
+          // object storage).
+          const dataUrls = (await compressImageFiles(files)).filter(Boolean);
           if (dataUrls.length === 0) return;
 
           const res = withImagesAdded(s, dataUrls);
@@ -2827,26 +2903,31 @@ function Index() {
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
                 just inside a bottom sheet instead of a fixed side aside.
-                Fixed max-h-[45vh], no snap points/drag-to-resize — short
-                enough that the canvas doesn't need any special
-                accommodation for it being open. No dark overlay/background
-                scale-down either (unlike the Export drawer below) — the
-                whole point of keeping this short is staying able to see the
-                canvas while it's open, which a dimmed/shrunk backdrop would
-                work against. pointer-events-none on the overlay on top of
-                that (not just transparent) so it doesn't swallow touches
-                either — the user can still drag/pan the canvas around in
-                the visible area above the sheet while it's open; tapping
-                the canvas no longer closes the drawer via the overlay
-                because of that, only the Done button/swipe-down do now. */}
+                Draggable between MOBILE_TOOL_DRAWER_SNAP_POINTS' two
+                heights (see ui.tsx) — unlike every other sheet in the app,
+                this one holds a whole panel's worth of content, so being
+                stuck at a short "peek" height with no way to see more of it
+                without scrolling a tiny window wasn't great; dragging it up
+                now holds there instead of springing back down. No dark
+                overlay/background scale-down either (unlike the Export
+                drawer below) — the whole point of keeping this short by
+                default is staying able to see the canvas while it's open,
+                which a dimmed/shrunk backdrop would work against.
+                pointer-events-none on the overlay on top of that (not just
+                transparent) so it doesn't swallow touches either — the user
+                can still drag/pan the canvas around in the visible area
+                above the sheet while it's open; tapping the canvas no
+                longer closes the drawer via the overlay because of that,
+                only the Done button/swipe-down do now. */}
             <Drawer
               open={mobileToolDrawerOpen}
               onOpenChange={setMobileToolDrawerOpen}
               shouldScaleBackground={false}
+              snapPoints={MOBILE_TOOL_DRAWER_SNAP_POINTS}
             >
               <DrawerContent
                 overlayClassName="bg-transparent pointer-events-none"
-                className="mt-0 flex max-h-[45vh] flex-col rounded-t-2xl"
+                className="mt-0 flex max-h-[85vh] flex-col rounded-t-2xl"
               >
                 <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
                   <span className="text-sm font-bold text-foreground">

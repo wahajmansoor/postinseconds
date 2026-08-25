@@ -1,4 +1,4 @@
-import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Copy01Icon,
@@ -661,7 +661,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
           guides.edgeTop ||
           guides.edgeBottom ||
           (guides.lines && guides.lines.length > 0)) ? (
-        <div className="pointer-events-none absolute inset-0 z-[100] overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 z-[100]">
           {/* Canvas Left Edge Indicator */}
           {guides.edgeLeft ? (
             <div
@@ -675,13 +675,20 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 boxShadow: "0 0 14px rgba(236,72,153,1)",
               }}
             >
+              {/* Floats outside the canvas's own left edge (right: calc
+                  (100% + 8px) — 100% of this parent strip's own 3px width,
+                  plus an 8px gap — so it hugs the edge regardless of the
+                  pill's own rendered width) instead of overlapping canvas
+                  content, and no longer collides with the Top/Bottom Edge
+                  labels the way it used to when both landed inside the
+                  same corner at once. */}
               <span
                 style={{
                   position: "absolute",
                   top: 24,
-                  left: 6,
+                  right: "calc(100% + 8px)",
                   transform: `scale(${multiSelectInvScale})`,
-                  transformOrigin: "left center",
+                  transformOrigin: "right center",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -711,13 +718,15 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 boxShadow: "0 0 14px rgba(236,72,153,1)",
               }}
             >
+              {/* See Left Edge's own comment above — same "float outside via
+                  calc(100% + 8px)" trick, mirrored. */}
               <span
                 style={{
                   position: "absolute",
                   top: 24,
-                  right: 6,
+                  left: "calc(100% + 8px)",
                   transform: `scale(${multiSelectInvScale})`,
-                  transformOrigin: "right center",
+                  transformOrigin: "left center",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -747,13 +756,17 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 boxShadow: "0 0 14px rgba(236,72,153,1)",
               }}
             >
+              {/* See Left Edge's own comment above — same "float outside via
+                  calc(100% + 8px)" trick, on the vertical axis (this
+                  strip's own height is 3px, so bottom: calc(100% + 8px)
+                  puts the label 8px above the canvas). */}
               <span
                 style={{
                   position: "absolute",
                   left: 24,
-                  top: 6,
+                  bottom: "calc(100% + 8px)",
                   transform: `scale(${multiSelectInvScale})`,
-                  transformOrigin: "left top",
+                  transformOrigin: "left bottom",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -783,13 +796,15 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 boxShadow: "0 0 14px rgba(236,72,153,1)",
               }}
             >
+              {/* See Left Edge's own comment above — same "float outside via
+                  calc(100% + 8px)" trick, mirrored on the vertical axis. */}
               <span
                 style={{
                   position: "absolute",
                   left: 24,
-                  bottom: 6,
+                  top: "calc(100% + 8px)",
                   transform: `scale(${multiSelectInvScale})`,
-                  transformOrigin: "left bottom",
+                  transformOrigin: "left top",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -856,12 +871,22 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 boxShadow: "0 0 10px rgba(236,72,153,0.9)",
               }}
             >
+              {/* transformOrigin "left center" (not the scale() default of
+                  the element's own center) — at low zoom, multiSelectInvScale
+                  grows past 1, and scaling from the default center origin
+                  expanded this pill symmetrically outward, pushing its left
+                  half past the canvas's own left edge (x=14 minus half the
+                  scaled-up width could go negative) and getting visually
+                  cut off. Anchoring the origin to the pill's own left edge
+                  instead makes it grow rightward, into the canvas, so it
+                  never crosses back out past x=0. */}
               <span
                 style={{
                   position: "absolute",
                   left: 14,
                   top: "50%",
                   transform: `translateY(-50%) scale(${multiSelectInvScale})`,
+                  transformOrigin: "left center",
                   background: "#ec4899",
                   color: "#ffffff",
                   fontSize: 10,
@@ -1503,7 +1528,7 @@ function LayerToolbar({
 }) {
   const invScale = scale > 0 ? 1 / scale : 1;
   const btn =
-    "flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white active:scale-95";
+    "flex h-6 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/15 hover:text-white active:scale-95";
   return (
     <div
       data-nopan=""
@@ -1570,7 +1595,7 @@ function LayerToolbar({
               onDelete();
             }}
             title="Delete"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400 active:scale-95"
+            className="flex h-6 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-red-500/20 hover:text-red-400 active:scale-95"
           >
             <Delete02Icon size={18} />
           </button>
@@ -1702,15 +1727,17 @@ function RotateMoveHandleRow({
           alignItems: "center",
           gap: 8,
           touchAction: "none",
+          // Hide BOTH handles the instant either gesture starts — including
+          // the one actively being dragged, since pointer capture keeps
+          // delivering move/up events to it even while visibility:hidden,
+          // so the gesture itself keeps working with nothing left on
+          // screen to clutter the view or get in the way of what's under
+          // the cursor. Kept as visibility (not unmount) so pointer capture
+          // on whichever button started the drag isn't lost mid-gesture.
+          visibility: isMoving || isRotating ? "hidden" : "visible",
           pointerEvents: "auto",
         }}
       >
-        {/* visibility (not unmounting) — this button is never the one
-            actively being dragged while isMoving is true (that's the move
-            button below), so hiding it this way is safe; unmounting it
-            would also be fine here, but visibility keeps the row's own
-            width/centering stable instead of the remaining button
-            re-centering itself for the duration. */}
         <button
           type="button"
           title="Drag to rotate"
@@ -1719,14 +1746,10 @@ function RotateMoveHandleRow({
           onPointerUp={handleRotatePointerUp}
           onPointerCancel={handleRotatePointerUp}
           className={btn}
-          style={{ cursor: "grab", visibility: isMoving ? "hidden" : "visible" }}
+          style={{ cursor: "grab" }}
         >
           <CursorCircleSelection02Icon size={16} />
         </button>
-        {/* Same reasoning as the rotate button above, mirrored: hidden
-            (never unmounted) while THIS row's own rotate gesture is active,
-            since that gesture's pointer capture lives on the rotate button
-            above, not this one. */}
         <button
           type="button"
           title="Drag to move"
@@ -1735,7 +1758,7 @@ function RotateMoveHandleRow({
           onPointerUp={onMovePointerUp}
           onPointerCancel={onMovePointerUp}
           className={btn}
-          style={{ cursor: "grab", visibility: isRotating ? "hidden" : "visible" }}
+          style={{ cursor: "grab" }}
         >
           <HugeiconsIcon icon={HandGrabIcon} size={18} />
         </button>
@@ -2312,6 +2335,30 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const selectionSnapshotRef = useRef<Range | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
+  // The controls-portal outline/handles below read this instead of
+  // reaching into containerRef.current directly during render — a plain
+  // render-time read reflects the DOM as of the LAST commit, not the one
+  // currently being computed, and on a layer's very first-ever render
+  // containerRef.current is still null outright (refs attach during
+  // commit, after render functions have already run). Either way the
+  // outline would size itself off a generic fallback for at least one
+  // frame — visibly too small/wrong, then snapping to the real size
+  // whenever some unrelated state change happened to trigger the next
+  // render. This measures the real box synchronously right after each
+  // commit, before the browser paints, so the outline is correctly sized
+  // from the very first frame it's visible instead of visibly correcting
+  // itself after the fact. The prev-value guard keeps this from causing
+  // extra renders once the size stops actually changing (this effect has
+  // no dependency array, so it reruns after every commit — cheap, but
+  // only worth turning into a state update when something moved).
+  const [measuredBox, setMeasuredBox] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    setMeasuredBox((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
+  });
 
   // The dangerouslySetInnerHTML source for the contentEditable div below,
   // frozen for the duration of an edit session — see editableNode's useMemo
@@ -3000,7 +3047,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
   const validTextWidth =
     typeof t.width === "number" && Number.isFinite(t.width) && t.width > 0 ? t.width : undefined;
-  const isNearTop = t.y < 18;
 
   if (t.hidden) return null;
 
@@ -3016,7 +3062,13 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           top: `${t.y}%`,
           transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
           width: validTextWidth ?? "fit-content",
-          maxWidth: validTextWidth ? undefined : Math.min(s.width * 0.92, 900),
+          // Only bounded by the canvas itself (a small margin in from each
+          // edge) — no separate flat px cap. A flat cap here (900 used to)
+          // sits well under a large canvas's own width, which forced short
+          // single-line presets (e.g. the "Add a heading" preset at its
+          // large default size) to wrap onto a second line immediately on
+          // add, well before actually running out of canvas room.
+          maxWidth: validTextWidth ? undefined : s.width * 0.92,
           minWidth: 40,
           minHeight: t.minHeight,
           display: t.minHeight ? "flex" : "block",
@@ -3052,8 +3104,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               left: `${t.x}%`,
               top: `${t.y}%`,
               transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-              width: containerRef.current?.offsetWidth ?? (validTextWidth ?? 200),
-              height: containerRef.current?.offsetHeight ?? (t.minHeight ?? 40),
+              width: measuredBox?.w ?? containerRef.current?.offsetWidth ?? (validTextWidth ?? 200),
+              height: measuredBox?.h ?? containerRef.current?.offsetHeight ?? (t.minHeight ?? 40),
               zIndex: 80 + index,
               pointerEvents: "none",
             }}
@@ -3071,15 +3123,33 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                 why this hides (not just visually deprioritizes) for the
                 duration of a move/rotate drag. */}
             {!(isMoving || isRotating) ? (
-              <div style={{ pointerEvents: "auto" }}>
-                <LayerToolbar
-                  locked={locked}
-                  onToggleLock={() => update({ locked: !locked })}
-                  onDuplicate={duplicate}
-                  onDelete={remove}
-                  scale={scale}
-                  placement={isNearTop ? "bottom" : "top"}
-                />
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  // Counter-rotates this wrapper by the layer's own rotation
+                  // so LayerToolbar always docks at the box's true
+                  // screen-space top and reads upright, no matter how far
+                  // the layer itself is turned. This div exactly overlaps
+                  // its rotated parent (inset: 0, same transform-origin —
+                  // the box's center), so its own rotate(-rotation) cancels
+                  // the parent's rotate(rotation) exactly, leaving nothing
+                  // inside it rotated at all. See the matching wrapper in
+                  // DraggableImageLayer/DraggableShapeLayer.
+                  transform: `rotate(${-rotation}deg)`,
+                  pointerEvents: "none",
+                }}
+              >
+                <div style={{ pointerEvents: "auto" }}>
+                  <LayerToolbar
+                    locked={locked}
+                    onToggleLock={() => update({ locked: !locked })}
+                    onDuplicate={duplicate}
+                    onDelete={remove}
+                    scale={scale}
+                    placement="top"
+                  />
+                </div>
               </div>
             ) : null}
 
@@ -3087,101 +3157,157 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               <>
                 {!(isMoving || isRotating)
                   ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
-                  <div
-                    key={h.id}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                      setActiveHandle(h.id);
-                      resizeRef.current = {
-                        startSize: t.size,
-                        startWidth: t.width ?? containerRef.current?.offsetWidth ?? 520,
-                        startMinHeight: t.minHeight ?? containerRef.current?.offsetHeight ?? 0,
-                        startPosX: t.x,
-                        startPosY: t.y,
-                        startMouseX: e.clientX,
-                        startMouseY: e.clientY,
-                        handle: h.id,
-                      };
-                    }}
-                    onPointerMove={(e) => {
-                      const r = resizeRef.current;
-                      if (!r || r.handle !== h.id) return;
-                      e.stopPropagation();
-                      const rawDx = (e.clientX - r.startMouseX) / scale;
-                      const rawDy = (e.clientY - r.startMouseY) / scale;
-                      const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
-                      if (h.kind === "corner") {
-                        const delta = resizeDelta(h.id, dx, dy);
-                        const nextSize = Math.round(Math.max(10, Math.min(300, r.startSize + delta / 2)));
-                        const scaleRatio = nextSize / r.startSize;
-                        const nextWidth = r.startWidth ? Math.round(Math.max(40, r.startWidth * scaleRatio)) : undefined;
-                        const nextMinHeight = r.startMinHeight ? Math.round(r.startMinHeight * scaleRatio) : undefined;
-                        const cleanHtml = t.html ? (() => {
-                          try {
-                            const tmp = document.createElement("div");
-                            tmp.innerHTML = t.html;
-                            tmp.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
-                              el.style.removeProperty("font-size");
-                              if (!el.getAttribute("style")?.trim()) el.removeAttribute("style");
-                            });
-                            return sanitizeTextHtml(tmp.innerHTML);
-                          } catch { return t.html; }
-                        })() : undefined;
-                        update({
-                          size: nextSize,
-                          ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                          ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-                          ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
-                        });
-                      } else {
-                        const dw = widthDeltaFor(h.id, dx);
-                        const dh = heightDeltaFor(h.id, dy);
-                        const nextWidth = Math.round(Math.max(40, r.startWidth + dw));
-                        const nextMinHeight = Math.round(Math.max(0, r.startMinHeight + dh));
-                        const appliedDw = nextWidth - r.startWidth;
-                        const appliedDh = nextMinHeight - r.startMinHeight;
-                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
-                        update({
-                          width: nextWidth,
-                          minHeight: nextMinHeight,
-                          x: r.startPosX + (shift.dx / s.width) * 100,
-                          y: r.startPosY + (shift.dy / s.height) * 100,
-                        });
-                      }
-                    }}
-                    onPointerUp={(e) => {
-                      e.stopPropagation();
-                      resizeRef.current = null;
-                      setActiveHandle(null);
-                    }}
-                    onPointerCancel={(e) => {
-                      e.stopPropagation();
-                      resizeRef.current = null;
-                      setActiveHandle(null);
-                    }}
-                    data-nopan=""
-                    className="group"
-                    style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
-                    title="Drag to resize text"
-                  >
                     <div
-                      className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
-                      style={getHandleVisualStyle(h, scale)}
-                    />
-                  </div>
-                    ))
+                      key={h.id}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        setActiveHandle(h.id);
+                        resizeRef.current = {
+                          startSize: t.size,
+                          startWidth: t.width ?? containerRef.current?.offsetWidth ?? 520,
+                          startMinHeight: t.minHeight ?? containerRef.current?.offsetHeight ?? 0,
+                          startPosX: t.x,
+                          startPosY: t.y,
+                          startMouseX: e.clientX,
+                          startMouseY: e.clientY,
+                          handle: h.id,
+                        };
+                      }}
+                      onPointerMove={(e) => {
+                        const r = resizeRef.current;
+                        if (!r || r.handle !== h.id) return;
+                        e.stopPropagation();
+                        const rawDx = (e.clientX - r.startMouseX) / scale;
+                        const rawDy = (e.clientY - r.startMouseY) / scale;
+                        const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                        if (h.kind === "corner") {
+                          const delta = resizeDelta(h.id, dx, dy);
+                          const nextSize = Math.round(Math.max(10, Math.min(300, r.startSize + delta / 2)));
+                          const scaleRatio = nextSize / r.startSize;
+                          const nextWidth = r.startWidth ? Math.round(Math.max(40, r.startWidth * scaleRatio)) : undefined;
+                          const nextMinHeight = r.startMinHeight ? Math.round(r.startMinHeight * scaleRatio) : undefined;
+                          const cleanHtml = t.html ? (() => {
+                            try {
+                              const tmp = document.createElement("div");
+                              tmp.innerHTML = t.html;
+                              tmp.querySelectorAll<HTMLElement>("[style]").forEach((el) => {
+                                el.style.removeProperty("font-size");
+                                if (!el.getAttribute("style")?.trim()) el.removeAttribute("style");
+                              });
+                              return sanitizeTextHtml(tmp.innerHTML);
+                            } catch { return t.html; }
+                          })() : undefined;
+                          update({
+                            size: nextSize,
+                            ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+                            ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+                            ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+                          });
+                          // Corner resize doesn't move x/y (it grows in
+                          // place), so the guide check runs against the
+                          // layer's existing position — see the edge branch
+                          // below for the same check when the box does shift.
+                          onGuides(
+                            calculateAlignmentSnap({
+                              currentId: t.id,
+                              rawX: t.x,
+                              rawY: t.y,
+                              width: nextWidth ?? (containerRef.current?.offsetWidth ?? 520),
+                              height: nextMinHeight ?? (containerRef.current?.offsetHeight ?? t.size * 1.3),
+                              s: sRef.current,
+                              otherElements: getAllCanvasElements(sRef.current),
+                            }).guides,
+                          );
+                        } else {
+                          const dw = widthDeltaFor(h.id, dx);
+                          const dh = heightDeltaFor(h.id, dy);
+                          const nextWidth = Math.round(Math.max(40, r.startWidth + dw));
+                          const nextMinHeight = Math.round(Math.max(0, r.startMinHeight + dh));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextMinHeight - r.startMinHeight;
+                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                          const nextX = r.startPosX + (shift.dx / s.width) * 100;
+                          const nextY = r.startPosY + (shift.dy / s.height) * 100;
+                          update({
+                            width: nextWidth,
+                            minHeight: nextMinHeight,
+                            x: nextX,
+                            y: nextY,
+                          });
+                          // Guide-only check against the resized box's own
+                          // new position/size (see calculateAlignmentSnap's
+                          // own comment on the spacing-badge/edge logic) —
+                          // its returned nextX/nextY are intentionally
+                          // discarded here, since resize already computed its
+                          // own correct position above; only `.guides` (what
+                          // to draw) is used.
+                          onGuides(
+                            calculateAlignmentSnap({
+                              currentId: t.id,
+                              rawX: nextX,
+                              rawY: nextY,
+                              width: nextWidth,
+                              height: nextMinHeight,
+                              s: sRef.current,
+                              otherElements: getAllCanvasElements(sRef.current),
+                            }).guides,
+                          );
+                        }
+                      }}
+                      onPointerUp={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                        setActiveHandle(null);
+                        onGuides({ vCenter: false, hCenter: false });
+                      }}
+                      onPointerCancel={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                        setActiveHandle(null);
+                        onGuides({ vCenter: false, hCenter: false });
+                      }}
+                      data-nopan=""
+                      className="group"
+                      style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+                      title="Drag to resize text"
+                    >
+                      <div
+                        className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                        style={getHandleVisualStyle(h, scale)}
+                      />
+                    </div>
+                  ))
                   : null}
-                <RotateMoveHandleRow
-                  containerRef={containerRef}
-                  scale={scale}
-                  onRotate={(deg) => update({ rotation: deg })}
-                  onMovePointerDown={handleMovePointerDown}
-                  onMovePointerMove={handleMovePointerMove}
-                  onMovePointerUp={handleMovePointerUp}
-                  isMoving={isMoving}
-                  onRotatingChange={setIsRotating}
-                />
+                {/* Counter-rotated for the same reason as LayerToolbar's
+                    own wrapper above — keeps this row docked at the box's
+                    true screen-space bottom (opposite LayerToolbar's fixed
+                    top) instead of swinging around with the layer's own
+                    rotation and potentially landing on top of it. Purely
+                    cosmetic: the rotate handle computes the drag angle from
+                    the pointer's real screen position against the box's
+                    actual center (see handleRotatePointerMove above), not
+                    from wherever this button visually sits, so this doesn't
+                    affect the rotate gesture's math at all. */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    transform: `rotate(${-rotation}deg)`,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <RotateMoveHandleRow
+                    containerRef={containerRef}
+                    scale={scale}
+                    onRotate={(deg) => update({ rotation: deg })}
+                    onMovePointerDown={handleMovePointerDown}
+                    onMovePointerMove={handleMovePointerMove}
+                    onMovePointerUp={handleMovePointerUp}
+                    isMoving={isMoving}
+                    onRotatingChange={setIsRotating}
+                  />
+                </div>
               </>
             ) : null}
           </div>,
@@ -3254,11 +3380,43 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   const [isMoving, setIsMoving] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Captured from the actual <img> the instant it decodes (see its onLoad
+  // below) — used to compute this layer's "auto height" (height/width *
+  // naturalAspect) everywhere that's needed (the selection outline box,
+  // the resize-start height) instead of reading containerRef's own
+  // offsetHeight. offsetHeight reflects the DOM's current layout at
+  // whatever moment it happens to be read, which right after a fresh
+  // upload can be a render or two behind the image actually finishing its
+  // decode — the outline/handles would size themselves off that stale (or
+  // still-zero) number and visibly sit off the actual picture until
+  // something else happened to force a re-render. This is set directly
+  // from the browser's own decoded dimensions instead, so it's correct as
+  // of the very first render after the image is ready, and re-computes
+  // itself whenever the src changes (a different image swapped in).
+  const [naturalAspect, setNaturalAspect] = useState<number | null>(null);
+  useEffect(() => {
+    setNaturalAspect(null);
+  }, [img.src]);
+  // Same idea as DraggableTextLayer's own measuredBox (see its comment) —
+  // the outline/handles box below prefers this actual post-commit
+  // measurement over a computed guess wherever it's available, since it
+  // reflects the container's real rendered size directly rather than
+  // trusting an aspect ratio computed from a separate onLoad event. Needs
+  // naturalAspect's onLoad to still trigger the re-render that lets this
+  // effect see the image's now-correct layout in the first place — decode
+  // finishing doesn't, by itself, cause this component to re-render.
+  const [measuredBox, setMeasuredBox] = useState<{ w: number; h: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    setMeasuredBox((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
+  });
 
   const canInteract = interactive && !!set && !s.locked;
   const locked = img.locked ?? false;
   const hasExplicitHeight = img.height !== undefined;
-  const isNearTop = img.y < 18;
   const rotation = img.rotation ?? 0;
   const update = (patch: Partial<Omit<ImageLayer, "id">>) => set?.("images", withImageUpdated(s, img.id, patch));
   const remove = () => set?.("images", withImageRemoved(s, img.id));
@@ -3360,7 +3518,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
       const dx = ((e.clientX - d.x) / scale / sRef.current.width) * 100;
       const dy = ((e.clientY - d.y) / scale / sRef.current.height) * 100;
       const width = img.size;
-      const height = img.height ?? img.size;
+      const height = img.height ?? (naturalAspect !== null ? img.size * naturalAspect : img.size);
       const otherElements = getAllCanvasElements(sRef.current);
       const targetId = d.activeId || img.id;
       const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
@@ -3430,6 +3588,10 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
           src={img.src}
           alt=""
           draggable={false}
+          onLoad={(e) => {
+            const el = e.currentTarget;
+            if (el.naturalWidth > 0) setNaturalAspect(el.naturalHeight / el.naturalWidth);
+          }}
           style={{
             display: "block",
             width: "100%",
@@ -3462,7 +3624,21 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
               height:
                 hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
                   ? `${img.height}px`
-                  : `${containerRef.current?.offsetHeight ?? img.size}px`,
+                  // Prefers the real post-commit measurement (measuredBox)
+                  // over a computed guess, and the decoded aspect ratio
+                  // (naturalAspect) over a raw live offsetHeight read —
+                  // right after a fresh upload, a raw read here can still
+                  // reflect the DOM from before the image finished
+                  // decoding, which is what made the outline and resize
+                  // handles land far from the image instead of hugging it.
+                  // measuredBox is only trusted once it's actually
+                  // non-zero — before the image decodes, the container
+                  // itself has no intrinsic height yet, so an early
+                  // measurement of exactly 0 means "not measured
+                  // meaningfully yet", not "the image is 0px tall".
+                  : `${(measuredBox && measuredBox.h > 0 ? measuredBox.h : null) ??
+                    (naturalAspect !== null ? img.size * naturalAspect : (containerRef.current?.offsetHeight ?? img.size))
+                  }px`,
               zIndex: 80 + index,
               pointerEvents: "none",
             }}
@@ -3485,15 +3661,27 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                 why this hides (not just visually deprioritizes) for the
                 duration of a move/rotate drag. */}
             {!(isMoving || isRotating) ? (
-              <div style={{ pointerEvents: "auto" }}>
-                <LayerToolbar
-                  locked={locked}
-                  onToggleLock={() => update({ locked: !locked })}
-                  onDuplicate={duplicate}
-                  onDelete={remove}
-                  scale={scale}
-                  placement={isNearTop ? "bottom" : "top"}
-                />
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  // See the matching wrapper's comment in DraggableTextLayer
+                  // for why this counter-rotation keeps LayerToolbar docked
+                  // at the box's true screen-space top and upright.
+                  transform: `rotate(${-rotation}deg)`,
+                  pointerEvents: "none",
+                }}
+              >
+                <div style={{ pointerEvents: "auto" }}>
+                  <LayerToolbar
+                    locked={locked}
+                    onToggleLock={() => update({ locked: !locked })}
+                    onDuplicate={duplicate}
+                    onDelete={remove}
+                    scale={scale}
+                    placement="top"
+                  />
+                </div>
               </div>
             ) : null}
 
@@ -3501,96 +3689,129 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
               <>
                 {!(isMoving || isRotating)
                   ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
-                  <div
-                    key={h.id}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                      setActiveHandle(h.id);
-                      const startHeight = img.height ?? containerRef.current?.offsetHeight ?? img.size;
-                      resizeRef.current = {
-                        startWidth: img.size,
-                        startHeight,
-                        startPosX: img.x,
-                        startPosY: img.y,
-                        startMouseX: e.clientX,
-                        startMouseY: e.clientY,
-                        handle: h.id,
-                      };
-                    }}
-                    onPointerMove={(e) => {
-                      const r = resizeRef.current;
-                      if (!r || r.handle !== h.id) return;
-                      e.stopPropagation();
-                      const rawDx = (e.clientX - r.startMouseX) / scale;
-                      const rawDy = (e.clientY - r.startMouseY) / scale;
-                      // Map the screen-space drag into the box's own
-                      // (unrotated) local axes so a corner/edge still
-                      // resizes along the box's actual rotated edges
-                      // instead of the screen's — see rotateVector.
-                      const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
-                      if (h.kind === "corner") {
-                        const delta = resizeDelta(h.id, dx, dy);
-                        const nextWidth = Math.round(Math.max(20, r.startWidth + delta));
-                        const ratio = r.startHeight > 0 ? r.startHeight / r.startWidth : 1;
-                        const nextHeight = Math.round(Math.max(20, nextWidth * ratio));
-                        const appliedDw = nextWidth - r.startWidth;
-                        const appliedDh = nextHeight - r.startHeight;
-                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
-                        update({
-                          size: nextWidth,
-                          height: nextHeight,
-                          x: r.startPosX + (shift.dx / s.width) * 100,
-                          y: r.startPosY + (shift.dy / s.height) * 100,
-                        });
-                      } else {
-                        const dw = widthDeltaFor(h.id, dx);
-                        const dh = heightDeltaFor(h.id, dy);
-                        const nextWidth = Math.round(Math.max(20, r.startWidth + dw));
-                        const nextHeight = Math.round(Math.max(20, r.startHeight + dh));
-                        const appliedDw = nextWidth - r.startWidth;
-                        const appliedDh = nextHeight - r.startHeight;
-                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
-                        update({
-                          size: nextWidth,
-                          height: nextHeight,
-                          x: r.startPosX + (shift.dx / s.width) * 100,
-                          y: r.startPosY + (shift.dy / s.height) * 100,
-                        });
-                      }
-                    }}
-                    onPointerUp={(e) => {
-                      e.stopPropagation();
-                      resizeRef.current = null;
-                      setActiveHandle(null);
-                    }}
-                    onPointerCancel={(e) => {
-                      e.stopPropagation();
-                      resizeRef.current = null;
-                      setActiveHandle(null);
-                    }}
-                    data-nopan=""
-                    className="group"
-                    style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
-                    title="Drag to resize image"
-                  >
                     <div
-                      className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
-                      style={getHandleVisualStyle(h, scale)}
-                    />
-                  </div>
-                    ))
+                      key={h.id}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        setActiveHandle(h.id);
+                        const startHeight =
+                          img.height ??
+                          (naturalAspect !== null ? img.size * naturalAspect : containerRef.current?.offsetHeight) ??
+                          img.size;
+                        resizeRef.current = {
+                          startWidth: img.size,
+                          startHeight,
+                          startPosX: img.x,
+                          startPosY: img.y,
+                          startMouseX: e.clientX,
+                          startMouseY: e.clientY,
+                          handle: h.id,
+                        };
+                      }}
+                      onPointerMove={(e) => {
+                        const r = resizeRef.current;
+                        if (!r || r.handle !== h.id) return;
+                        e.stopPropagation();
+                        const rawDx = (e.clientX - r.startMouseX) / scale;
+                        const rawDy = (e.clientY - r.startMouseY) / scale;
+                        // Map the screen-space drag into the box's own
+                        // (unrotated) local axes so a corner/edge still
+                        // resizes along the box's actual rotated edges
+                        // instead of the screen's — see rotateVector.
+                        const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                        // Guide-only check (via calculateAlignmentSnap) against
+                        // the resized box's own resulting position/size — its
+                        // returned nextX/nextY are intentionally discarded,
+                        // since the resize math above already computed the
+                        // correct position; only `.guides` (what to draw) is
+                        // used. Same treatment for both branches below, right
+                        // after each one's own update() call.
+                        const showResizeGuides = (nextX: number, nextY: number, w: number, h2: number) => {
+                          onGuides(
+                            calculateAlignmentSnap({
+                              currentId: img.id,
+                              rawX: nextX,
+                              rawY: nextY,
+                              width: w,
+                              height: h2,
+                              s: sRef.current,
+                              otherElements: getAllCanvasElements(sRef.current),
+                            }).guides,
+                          );
+                        };
+                        if (h.kind === "corner") {
+                          const delta = resizeDelta(h.id, dx, dy);
+                          const nextWidth = Math.round(Math.max(20, r.startWidth + delta));
+                          const ratio = r.startHeight > 0 ? r.startHeight / r.startWidth : 1;
+                          const nextHeight = Math.round(Math.max(20, nextWidth * ratio));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                          const nextX = r.startPosX + (shift.dx / s.width) * 100;
+                          const nextY = r.startPosY + (shift.dy / s.height) * 100;
+                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          showResizeGuides(nextX, nextY, nextWidth, nextHeight);
+                        } else {
+                          const dw = widthDeltaFor(h.id, dx);
+                          const dh = heightDeltaFor(h.id, dy);
+                          const nextWidth = Math.round(Math.max(20, r.startWidth + dw));
+                          const nextHeight = Math.round(Math.max(20, r.startHeight + dh));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                          const nextX = r.startPosX + (shift.dx / s.width) * 100;
+                          const nextY = r.startPosY + (shift.dy / s.height) * 100;
+                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          showResizeGuides(nextX, nextY, nextWidth, nextHeight);
+                        }
+                      }}
+                      onPointerUp={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                        setActiveHandle(null);
+                        onGuides({ vCenter: false, hCenter: false });
+                      }}
+                      onPointerCancel={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                        setActiveHandle(null);
+                        onGuides({ vCenter: false, hCenter: false });
+                      }}
+                      data-nopan=""
+                      className="group"
+                      style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+                      title="Drag to resize image"
+                    >
+                      <div
+                        className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                        style={getHandleVisualStyle(h, scale)}
+                      />
+                    </div>
+                  ))
                   : null}
-                <RotateMoveHandleRow
-                  containerRef={containerRef}
-                  scale={scale}
-                  onRotate={(deg) => update({ rotation: deg })}
-                  onMovePointerDown={handlePointerDown}
-                  onMovePointerMove={handlePointerMove}
-                  onMovePointerUp={handlePointerUp}
-                  isMoving={isMoving}
-                  onRotatingChange={setIsRotating}
-                />
+                {/* See the matching wrapper's comment in DraggableTextLayer
+                    for why this counter-rotation keeps the row docked at
+                    the box's true screen-space bottom. */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    transform: `rotate(${-rotation}deg)`,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <RotateMoveHandleRow
+                    containerRef={containerRef}
+                    scale={scale}
+                    onRotate={(deg) => update({ rotation: deg })}
+                    onMovePointerDown={handlePointerDown}
+                    onMovePointerMove={handlePointerMove}
+                    onMovePointerUp={handlePointerUp}
+                    isMoving={isMoving}
+                    onRotatingChange={setIsRotating}
+                  />
+                </div>
               </>
             ) : null}
           </div>,
@@ -3677,11 +3898,6 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const locked = shape.locked ?? false;
   const effectiveHeight = shape.height ?? shape.size;
   const rotation = shape.rotation ?? 0;
-  // LayerToolbar normally docks above the box; flipped below when the box
-  // sits too close to the canvas's top edge for that to fit on-screen. The
-  // rotate/move handle row mirrors this flip in reverse (see its usage
-  // below) so the two never land on top of each other.
-  const isNearTop = (shape.y / 100) * s.height - effectiveHeight / 2 < 45;
   const update = (patch: Partial<Omit<ShapeLayer, "id" | "kind">>) =>
     set?.("shapes", withShapeUpdated(s, shape.id, patch));
   const remove = () => set?.("shapes", withShapeRemoved(s, shape.id));
@@ -3905,15 +4121,27 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                 RotateMoveHandleRow's move/rotate button, both separate
                 elements that stay mounted throughout). */}
             {!(isMoving || isRotating) ? (
-              <div style={{ pointerEvents: "auto" }}>
-                <LayerToolbar
-                  locked={locked}
-                  onToggleLock={() => update({ locked: !locked })}
-                  onDuplicate={duplicate}
-                  onDelete={remove}
-                  scale={scale}
-                  placement={isNearTop ? "bottom" : "top"}
-                />
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  // See the matching wrapper's comment in DraggableTextLayer
+                  // for why this counter-rotation keeps LayerToolbar docked
+                  // at the box's true screen-space top and upright.
+                  transform: `rotate(${-rotation}deg)`,
+                  pointerEvents: "none",
+                }}
+              >
+                <div style={{ pointerEvents: "auto" }}>
+                  <LayerToolbar
+                    locked={locked}
+                    onToggleLock={() => update({ locked: !locked })}
+                    onDuplicate={duplicate}
+                    onDelete={remove}
+                    scale={scale}
+                    placement="top"
+                  />
+                </div>
               </div>
             ) : null}
 
@@ -3921,99 +4149,128 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               <>
                 {!(isMoving || isRotating)
                   ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
-                  <div
-                    key={h.id}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                      setActiveHandle(h.id);
-                      resizeRef.current = {
-                        startWidth: shape.size,
-                        startHeight: effectiveHeight,
-                        startPosX: shape.x,
-                        startPosY: shape.y,
-                        startMouseX: e.clientX,
-                        startMouseY: e.clientY,
-                        handle: h.id,
-                      };
-                    }}
-                    onPointerMove={(e) => {
-                      const r = resizeRef.current;
-                      if (!r || r.handle !== h.id) return;
-                      e.stopPropagation();
-                      const rawDx = (e.clientX - r.startMouseX) / scale;
-                      const rawDy = (e.clientY - r.startMouseY) / scale;
-                      const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
-                      const maxBound = Math.max(s.width, s.height, 4000);
-
-                      if (h.kind === "corner") {
-                        const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
-                          h.id,
-                          dx,
-                          dy,
-                          r.startWidth,
-                          r.startHeight,
-                          10,
-                          maxBound,
-                        );
-                        const appliedDw = nextWidth - r.startWidth;
-                        const appliedDh = nextHeight - r.startHeight;
-                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
-                        update({
-                          size: nextWidth,
-                          height: nextHeight,
-                          x: r.startPosX + (shift.dx / s.width) * 100,
-                          y: r.startPosY + (shift.dy / s.height) * 100,
-                        });
-                      } else {
-                        const dw = widthDeltaFor(h.id, dx);
-                        const dh = heightDeltaFor(h.id, dy);
-                        const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
-                        const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
-                        const appliedDw = nextWidth - r.startWidth;
-                        const appliedDh = nextHeight - r.startHeight;
-                        const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
-                        update({
-                          size: nextWidth,
-                          height: nextHeight,
-                          x: r.startPosX + (shift.dx / s.width) * 100,
-                          y: r.startPosY + (shift.dy / s.height) * 100,
-                        });
-                      }
-                    }}
-                    onPointerUp={(e) => {
-                      e.stopPropagation();
-                      resizeRef.current = null;
-                      setActiveHandle(null);
-                    }}
-                    onPointerCancel={(e) => {
-                      e.stopPropagation();
-                      resizeRef.current = null;
-                      setActiveHandle(null);
-                    }}
-                    data-nopan=""
-                    className="group"
-                    style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
-                    title="Drag to resize shape"
-                  >
                     <div
-                      className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
-                      style={getHandleVisualStyle(h, scale)}
-                    />
-                  </div>
-                    ))
+                      key={h.id}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        setActiveHandle(h.id);
+                        resizeRef.current = {
+                          startWidth: shape.size,
+                          startHeight: effectiveHeight,
+                          startPosX: shape.x,
+                          startPosY: shape.y,
+                          startMouseX: e.clientX,
+                          startMouseY: e.clientY,
+                          handle: h.id,
+                        };
+                      }}
+                      onPointerMove={(e) => {
+                        const r = resizeRef.current;
+                        if (!r || r.handle !== h.id) return;
+                        e.stopPropagation();
+                        const rawDx = (e.clientX - r.startMouseX) / scale;
+                        const rawDy = (e.clientY - r.startMouseY) / scale;
+                        const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                        const maxBound = Math.max(s.width, s.height, 4000);
+
+                        // Guide-only check (via calculateAlignmentSnap) against
+                        // the resized box's own resulting position/size — its
+                        // returned nextX/nextY are intentionally discarded,
+                        // since the resize math above already computed the
+                        // correct position; only `.guides` (what to draw) is
+                        // used. Same treatment for both branches below, right
+                        // after each one's own update() call.
+                        const showResizeGuides = (nextX: number, nextY: number, w: number, h2: number) => {
+                          onGuides(
+                            calculateAlignmentSnap({
+                              currentId: shape.id,
+                              rawX: nextX,
+                              rawY: nextY,
+                              width: w,
+                              height: h2,
+                              s: sRef.current,
+                              otherElements: getAllCanvasElements(sRef.current),
+                            }).guides,
+                          );
+                        };
+                        if (h.kind === "corner") {
+                          const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
+                            h.id,
+                            dx,
+                            dy,
+                            r.startWidth,
+                            r.startHeight,
+                            10,
+                            maxBound,
+                          );
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                          const nextX = r.startPosX + (shift.dx / s.width) * 100;
+                          const nextY = r.startPosY + (shift.dy / s.height) * 100;
+                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          showResizeGuides(nextX, nextY, nextWidth, nextHeight);
+                        } else {
+                          const dw = widthDeltaFor(h.id, dx);
+                          const dh = heightDeltaFor(h.id, dy);
+                          const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
+                          const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
+                          const appliedDw = nextWidth - r.startWidth;
+                          const appliedDh = nextHeight - r.startHeight;
+                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                          const nextX = r.startPosX + (shift.dx / s.width) * 100;
+                          const nextY = r.startPosY + (shift.dy / s.height) * 100;
+                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          showResizeGuides(nextX, nextY, nextWidth, nextHeight);
+                        }
+                      }}
+                      onPointerUp={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                        setActiveHandle(null);
+                        onGuides({ vCenter: false, hCenter: false });
+                      }}
+                      onPointerCancel={(e) => {
+                        e.stopPropagation();
+                        resizeRef.current = null;
+                        setActiveHandle(null);
+                        onGuides({ vCenter: false, hCenter: false });
+                      }}
+                      data-nopan=""
+                      className="group"
+                      style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+                      title="Drag to resize shape"
+                    >
+                      <div
+                        className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                        style={getHandleVisualStyle(h, scale)}
+                      />
+                    </div>
+                  ))
                   : null}
-                <RotateMoveHandleRow
-                  containerRef={containerRef}
-                  scale={scale}
-                  placement={isNearTop ? "top" : "bottom"}
-                  onRotate={(deg) => update({ rotation: deg })}
-                  onMovePointerDown={handlePointerDown}
-                  onMovePointerMove={handlePointerMove}
-                  onMovePointerUp={handlePointerUp}
-                  isMoving={isMoving}
-                  onRotatingChange={setIsRotating}
-                />
+                {/* See the matching wrapper's comment in DraggableTextLayer
+                    for why this counter-rotation keeps the row docked at
+                    the box's true screen-space bottom. */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    transform: `rotate(${-rotation}deg)`,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <RotateMoveHandleRow
+                    containerRef={containerRef}
+                    scale={scale}
+                    onRotate={(deg) => update({ rotation: deg })}
+                    onMovePointerDown={handlePointerDown}
+                    onMovePointerMove={handlePointerMove}
+                    onMovePointerUp={handlePointerUp}
+                    isMoving={isMoving}
+                    onRotatingChange={setIsRotating}
+                  />
+                </div>
               </>
             ) : null}
           </div>,

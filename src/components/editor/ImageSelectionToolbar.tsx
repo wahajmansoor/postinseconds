@@ -7,6 +7,7 @@ import {
   Upload01Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
+import { compressImageFile } from "@/lib/imageCompression";
 import type { ImageLayer } from "./types";
 import {
   Chip,
@@ -93,14 +94,12 @@ export function ImageSelectionToolbar({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        onUpdate({ src: dataUrl });
-      }
-    };
-    reader.readAsDataURL(file);
+    // Downscaled + re-encoded before ever becoming a data URL — see
+    // imageCompression.ts's own comment for why this matters (every image
+    // in this app is embedded as base64, not uploaded to object storage).
+    compressImageFile(file).then((dataUrl) => {
+      if (dataUrl) onUpdate({ src: dataUrl });
+    });
     e.target.value = "";
   };
 

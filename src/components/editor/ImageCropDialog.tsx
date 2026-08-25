@@ -11,7 +11,7 @@ import {
   Add01Icon,
   MinusSignIcon,
 } from "hugeicons-react";
-import { Chip, Range } from "./ui";
+import { Chip, Range, useHoldRepeat } from "./ui";
 
 interface ImageCropDialogProps {
   open: boolean;
@@ -40,6 +40,11 @@ export function ImageCropDialog({
   const imgRef = useRef<HTMLImageElement>(null);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
+  // Press-and-hold repeat for the Zoom -/+ buttons — see useHoldRepeat's
+  // own comment in ui.tsx.
+  const zoomDecHold = useHoldRepeat(() => setZoom((z) => Math.max(30, z - 10)));
+  const zoomIncHold = useHoldRepeat(() => setZoom((z) => Math.min(400, z + 10)));
 
   // Reset controls when opened with a new image
   useEffect(() => {
@@ -358,7 +363,7 @@ export function ImageCropDialog({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setZoom((z) => Math.max(30, z - 10))}
+                  {...zoomDecHold}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <MinusSignIcon size={14} />
@@ -374,7 +379,7 @@ export function ImageCropDialog({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setZoom((z) => Math.min(400, z + 10))}
+                  {...zoomIncHold}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Add01Icon size={14} />

@@ -22,8 +22,10 @@ import {
   ViewIcon,
   ViewOffIcon,
   Bookmark01Icon,
+  DragDropVerticalIcon,
 } from "hugeicons-react";
 import { useAuth } from "@/lib/auth";
+import { loadGoogleFont } from "@/lib/fontLoader";
 import { fetchSavedQuotes, deleteSavedQuote, updateSavedQuoteDesign, fetchAllTemplates, type DbSavedQuote } from "@/lib/supabase";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ImageCropDialog } from "./ImageCropDialog";
@@ -83,6 +85,7 @@ import {
   TextInput,
   Toggle,
   UploadButton,
+  useHoldRepeat,
 } from "./ui";
 import { cn } from "@/lib/utils";
 
@@ -571,6 +574,69 @@ export function LeftPanel({
     } catch { }
   };
 
+  // Hoisted out of the `tab === "text"` branch below (it's recomputed
+  // there too, from the same props) purely so the two hold-repeat hooks
+  // right after it can see it — every hook in this component has to be
+  // called unconditionally, on every render, regardless of which `tab` is
+  // active, or React throws once the user switches tabs and the hook count
+  // between renders no longer matches.
+  const activeTextLayerForSizeStepper = (() => {
+    const textLayersList = getTextLayers(s);
+    const selectedTextSel = selection?.find((sel) => sel.kind === "text");
+    return selectedTextSel
+      ? textLayersList.find((t) => t.id === selectedTextSel.id) ?? null
+      : textLayersList.length > 0
+        ? textLayersList[0]
+        : null;
+  })();
+  // Press-and-hold repeat for the Font Size -/+ buttons in the Text tab —
+  // see useHoldRepeat's own comment in ui.tsx.
+  const fontSizeDecHold = useHoldRepeat(() => {
+    const layer = activeTextLayerForSizeStepper;
+    if (!layer) return;
+    const newSize = Math.max(10, (layer.size || 32) - 2);
+    const ratio = newSize / (layer.size || 32);
+    const nextWidth = layer.width ? Math.round(Math.max(40, layer.width * ratio)) : undefined;
+    const nextMinHeight = layer.minHeight ? Math.round(layer.minHeight * ratio) : undefined;
+    set("texts", withTextUpdated(s, layer.id, {
+      size: newSize,
+      ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+      ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+    }));
+  });
+  const fontSizeIncHold = useHoldRepeat(() => {
+    const layer = activeTextLayerForSizeStepper;
+    if (!layer) return;
+    const newSize = Math.min(300, (layer.size || 32) + 2);
+    const ratio = newSize / (layer.size || 32);
+    const nextWidth = layer.width ? Math.round(Math.max(40, layer.width * ratio)) : undefined;
+    const nextMinHeight = layer.minHeight ? Math.round(layer.minHeight * ratio) : undefined;
+    set("texts", withTextUpdated(s, layer.id, {
+      size: newSize,
+      ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+      ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+    }));
+  });
+
+  // Drag-to-reorder state for the Layers tab's list (see its own grip
+  // handle/pointer handlers below) — declared up here with every other
+  // hook in this component, not inside the `tab === "layers"` branch that
+  // actually uses it, for the same Rules-of-Hooks reason fontSizeDecHold/
+  // fontSizeIncHold above are: every hook has to run on every render
+  // regardless of which `tab` is active, or React throws once the user
+  // switches tabs and the hook count between renders no longer matches.
+  const [dragLayerId, setDragLayerId] = useState<string | null>(null);
+  // Index (within the Layers tab's top-to-bottom display order — see
+  // displayLayers below) the dragged row is currently hovering over; null
+  // while nothing is being dragged.
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  // How far the dragged row itself has moved from its start position —
+  // applied as a translateY so it visibly follows the pointer/finger for
+  // the whole gesture, independent of dragOverIndex (which jumps in whole-
+  // row increments; this is continuous).
+  const [dragDeltaY, setDragDeltaY] = useState(0);
+  const dragStateRef = useRef<{ startIndex: number; startY: number; rowPitch: number } | null>(null);
+
   if (tab === "templates") {
     return (
       <>
@@ -869,8 +935,71 @@ export function LeftPanel({
       }
     };
 
-    const addPresetText = (preset: { text: string; size: number; weight: number }) => {
-      const res = withTextAdded(s, preset);
+    // Waits for the exact font/weight/size a new preset text is about to
+    // render with to actually be ready before the layer is ever added —
+    // without this, the layer would render for one frame in whatever
+    // fallback font the browser has on hand (its default sans-serif is
+    // usually wider than Outfit), then visibly reflow/un-wrap once the
+    // real webfont's stylesheet+file finish loading and the browser swaps
+    // it in. loadGoogleFont's own <link> injection dedupes per family, but
+    // that alone doesn't wait for the fetch — document.fonts.load is what
+    // actually blocks until this specific weight is usable, matching the
+    // CSS font shorthand text itself renders with (family alone isn't
+    // enough: a bold heading can still trigger its own separate fetch/swap
+    // even after a lighter weight of the same family already loaded).
+    // Resolves near-instantly once a font's been loaded once this session
+    // (browser cache), so this only adds a perceptible pause the very
+    // first time a given family/weight combo is used.
+    const ensureFontReady = async (fontFamily: string, weight: number, size: number) => {
+      loadGoogleFont(fontFamily);
+      if (typeof document === "undefined" || !("fonts" in document)) return;
+      try {
+        await Promise.race([
+          document.fonts.load(`${weight} ${size}px ${fontFamily}`),
+          new Promise((resolve) => setTimeout(resolve, 800)), // never block on a slow/offline connection
+        ]);
+      } catch {
+        // Best-effort only — worst case, today's occasional flash/reflow.
+      }
+    };
+
+    // Measures the preset's real one-line rendered width (now that
+    // ensureFontReady has guaranteed the actual webfont, not a fallback,
+    // is what gets measured) so the new layer can be given that as an
+    // explicit width — skipping QuoteCanvas's fit-content-up-to-a-canvas-
+    // relative-maxWidth sizing, which is only ever an estimate and was
+    // wrapping short presets like "Add a heading" onto two lines even
+    // though they'd comfortably fit on one under their real metrics. Falls
+    // back to `undefined` (today's estimate-based sizing) if canvas
+    // measurement isn't available for any reason.
+    const measureSingleLineWidth = (text: string, weight: number, size: number): number | undefined => {
+      if (typeof document === "undefined") return undefined;
+      try {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return undefined;
+        ctx.font = `${weight} ${size}px "Outfit", sans-serif`;
+        const measured = ctx.measureText(text).width;
+        if (!Number.isFinite(measured) || measured <= 0) return undefined;
+        // A little breathing room — canvas measureText and the actual
+        // contentEditable's own text layout engine don't round/kern
+        // identically down to the pixel, so a bare-minimum width can still
+        // wrap by a hair in the real DOM.
+        const withMargin = Math.ceil(measured) + 16;
+        // Still bounded by the canvas itself, same margin QuoteCanvas's own
+        // estimate used — a genuinely too-long preset should wrap rather
+        // than spill off the canvas, this only replaces the estimate with
+        // a real measurement for the common case where it comfortably fits.
+        return Math.min(withMargin, Math.round(s.width * 0.92));
+      } catch {
+        return undefined;
+      }
+    };
+
+    const addPresetText = async (preset: { text: string; size: number; weight: number }) => {
+      await ensureFontReady('"Outfit", sans-serif', preset.weight, preset.size);
+      const width = measureSingleLineWidth(preset.text, preset.weight, preset.size);
+      const res = withTextAdded(s, { ...preset, ...(width !== undefined ? { width } : {}) });
       set("texts", res.list);
       set("layerOrder", res.layerOrder);
       if (res.newId) {
@@ -951,7 +1080,7 @@ export function LeftPanel({
                   <button
                     type="button"
                     onClick={() =>
-                      addPresetText({ text: "Add a heading", size: 40, weight: 700 })
+                      addPresetText({ text: "Add a heading", size: 100, weight: 700 })
                     }
                     className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-3 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
                   >
@@ -967,7 +1096,7 @@ export function LeftPanel({
                   <button
                     type="button"
                     onClick={() =>
-                      addPresetText({ text: "Add a subheading", size: 24, weight: 600 })
+                      addPresetText({ text: "Add a subheading", size: 75, weight: 600 })
                     }
                     className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-2.5 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
                   >
@@ -985,7 +1114,7 @@ export function LeftPanel({
                     onClick={() =>
                       addPresetText({
                         text: "Add a little bit of body text",
-                        size: 16,
+                        size: 50,
                         weight: 400,
                       })
                     }
@@ -1098,17 +1227,7 @@ export function LeftPanel({
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => {
-                              const newSize = Math.max(10, (activeTextLayer.size || 32) - 2);
-                              const ratio = newSize / (activeTextLayer.size || 32);
-                              const nextWidth = activeTextLayer.width ? Math.round(Math.max(40, activeTextLayer.width * ratio)) : undefined;
-                              const nextMinHeight = activeTextLayer.minHeight ? Math.round(activeTextLayer.minHeight * ratio) : undefined;
-                              updateActiveLayer({
-                                size: newSize,
-                                ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                                ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-                              });
-                            }}
+                            {...fontSizeDecHold}
                             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border bg-secondary/50 text-foreground hover:bg-secondary"
                           >
                             <MinusSignIcon size={13} />
@@ -1131,17 +1250,7 @@ export function LeftPanel({
                           />
                           <button
                             type="button"
-                            onClick={() => {
-                              const newSize = Math.min(300, (activeTextLayer.size || 32) + 2);
-                              const ratio = newSize / (activeTextLayer.size || 32);
-                              const nextWidth = activeTextLayer.width ? Math.round(Math.max(40, activeTextLayer.width * ratio)) : undefined;
-                              const nextMinHeight = activeTextLayer.minHeight ? Math.round(activeTextLayer.minHeight * ratio) : undefined;
-                              updateActiveLayer({
-                                size: newSize,
-                                ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                                ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-                              });
-                            }}
+                            {...fontSizeIncHold}
                             className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border bg-secondary/50 text-foreground hover:bg-secondary"
                           >
                             <Add01Icon size={13} />
@@ -1400,6 +1509,68 @@ export function LeftPanel({
     const isLayerSelected = (kind: "image" | "text" | "shape", id: string) =>
       selection?.some((item) => item.kind === kind && item.id === id) ?? false;
 
+    // Commits a drag-to-reorder gesture (see the grip handle's pointer
+    // handlers in each row branch below) — moves the dragged layer from
+    // its start position to wherever dragOverIndex ended up, in one shot,
+    // rather than mutating layerOrder on every pointermove. displayLayers
+    // is top-to-bottom (front-most layer first); reversing the result
+    // converts back to layerOrder's own back-to-front storage order.
+    const commitLayerDrag = () => {
+      const st = dragStateRef.current;
+      if (st && dragOverIndex !== null && dragOverIndex !== st.startIndex) {
+        const reordered = [...displayLayers];
+        const [moved] = reordered.splice(st.startIndex, 1);
+        if (moved) {
+          reordered.splice(dragOverIndex, 0, moved);
+          set("layerOrder", [...reordered].reverse());
+        }
+      }
+      dragStateRef.current = null;
+      setDragLayerId(null);
+      setDragOverIndex(null);
+      setDragDeltaY(0);
+    };
+
+    // Starts a drag from any row's grip handle — shared across the text/
+    // image/shape row branches below since the gesture itself doesn't
+    // care which kind of layer it's holding, only its display index.
+    const startLayerDrag = (e: React.PointerEvent, id: string, panelIdx: number) => {
+      e.stopPropagation();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      const rowEl = (e.currentTarget as HTMLElement).closest("[data-layer-row]") as HTMLElement | null;
+      // +6 accounts for the list's own space-y-1.5 gap between rows, so a
+      // drag crosses into the next row exactly when it visually would.
+      const rowPitch = rowEl ? rowEl.getBoundingClientRect().height + 6 : 44;
+      dragStateRef.current = { startIndex: panelIdx, startY: e.clientY, rowPitch };
+      setDragLayerId(id);
+      setDragOverIndex(panelIdx);
+      setDragDeltaY(0);
+    };
+
+    const moveLayerDrag = (e: React.PointerEvent) => {
+      const st = dragStateRef.current;
+      if (!st) return;
+      e.stopPropagation();
+      const deltaY = e.clientY - st.startY;
+      setDragDeltaY(deltaY);
+      const shift = Math.round(deltaY / st.rowPitch);
+      setDragOverIndex(Math.min(displayLayers.length - 1, Math.max(0, st.startIndex + shift)));
+    };
+
+    const endLayerDrag = (e: React.PointerEvent) => {
+      e.stopPropagation();
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch { }
+      commitLayerDrag();
+    };
+
+    // The dragged row itself follows the pointer continuously via this
+    // translateY, independent of dragOverIndex (which only moves in whole-
+    // row increments) — see moveLayerDrag above.
+    const dragRowStyle = (id: string): React.CSSProperties | undefined =>
+      dragLayerId === id ? { transform: `translateY(${dragDeltaY}px)`, position: "relative", zIndex: 50 } : undefined;
+
     const allSelected =
       totalCount > 0 &&
       textLayers.every((t) => isLayerSelected("text", t.id)) &&
@@ -1464,7 +1635,24 @@ export function LeftPanel({
 
             {/* Unified Layers List — single list for all text, image, and shape layers */}
             {displayLayers.length > 0 ? (
-              <div className="space-y-1.5">
+              <div className="relative space-y-1.5">
+                {/* Drop-position indicator — a thin line showing exactly
+                    where the dragged row will land, instead of (just)
+                    highlighting a whole target row. Positioned off
+                    dragStateRef's rowPitch (the row height + gap measured
+                    when the drag started), same approximation the drag's
+                    own index math uses, so the line and the actual drop
+                    slot always agree. -3px centers the 2px line in the
+                    3px half of the list's 6px (space-y-1.5) row gap. */}
+                {dragLayerId !== null && dragOverIndex !== null && dragStateRef.current ? (
+                  <div
+                    className="pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-primary shadow-[0_0_6px_1px_rgba(0,33,255,0.5)]"
+                    style={{
+                      top: dragOverIndex * dragStateRef.current.rowPitch - 3,
+                      transition: "top 100ms ease-out",
+                    }}
+                  />
+                ) : null}
                 {displayLayers.map(({ kind, id }, panelIdx) => {
                   const selected = isLayerSelected(kind, id);
                   const isTop = panelIdx === 0;
@@ -1476,17 +1664,32 @@ export function LeftPanel({
                     return (
                       <div
                         key={t.id}
+                        data-layer-row=""
                         onClick={(e) =>
                           onSelectLayer?.({ kind: "text", id: t.id }, { toggle: e.shiftKey })
                         }
+                        style={dragRowStyle(t.id)}
                         className={cn(
                           "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
                           selected
                             ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
                             : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
                           t.hidden && "opacity-55",
+                          dragLayerId === t.id && "shadow-lg ring-1 ring-primary/50",
                         )}
                       >
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => startLayerDrag(e, t.id, panelIdx)}
+                          onPointerMove={moveLayerDrag}
+                          onPointerUp={endLayerDrag}
+                          onPointerCancel={endLayerDrag}
+                          className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
+                          title="Drag to reorder"
+                        >
+                          <DragDropVerticalIcon size={14} />
+                        </button>
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <span
                             className={cn(
@@ -1563,17 +1766,32 @@ export function LeftPanel({
                     return (
                       <div
                         key={img.id}
+                        data-layer-row=""
                         onClick={(e) =>
                           onSelectLayer?.({ kind: "image", id: img.id }, { toggle: e.shiftKey })
                         }
+                        style={dragRowStyle(img.id)}
                         className={cn(
                           "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
                           selected
                             ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
                             : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
                           img.hidden && "opacity-55",
+                          dragLayerId === img.id && "shadow-lg ring-1 ring-primary/50",
                         )}
                       >
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => startLayerDrag(e, img.id, panelIdx)}
+                          onPointerMove={moveLayerDrag}
+                          onPointerUp={endLayerDrag}
+                          onPointerCancel={endLayerDrag}
+                          className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
+                          title="Drag to reorder"
+                        >
+                          <DragDropVerticalIcon size={14} />
+                        </button>
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <img
                             src={img.src}
@@ -1648,17 +1866,32 @@ export function LeftPanel({
                     return (
                       <div
                         key={sh.id}
+                        data-layer-row=""
                         onClick={(e) =>
                           onSelectLayer?.({ kind: "shape", id: sh.id }, { toggle: e.shiftKey })
                         }
+                        style={dragRowStyle(sh.id)}
                         className={cn(
                           "group flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-xs transition-all",
                           selected
                             ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary/40"
                             : "border-border/80 bg-secondary/30 hover:border-border hover:bg-secondary/60",
                           sh.hidden && "opacity-55",
+                          dragLayerId === sh.id && "shadow-lg ring-1 ring-primary/50",
                         )}
                       >
+                        <button
+                          type="button"
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => startLayerDrag(e, sh.id, panelIdx)}
+                          onPointerMove={moveLayerDrag}
+                          onPointerUp={endLayerDrag}
+                          onPointerCancel={endLayerDrag}
+                          className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
+                          title="Drag to reorder"
+                        >
+                          <DragDropVerticalIcon size={14} />
+                        </button>
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <div
                             className="h-5 w-5 shrink-0 border border-border/80"
