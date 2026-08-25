@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
-import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, Upload01Icon } from "hugeicons-react";
+import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinIcon, Upload01Icon } from "hugeicons-react";
 import { cn } from "@/lib/utils";
 import { AppTooltip, InfoTooltip } from "@/components/ui/tooltip";
 import { loadGoogleFont } from "@/lib/fontLoader";
@@ -59,25 +59,34 @@ export function useDraggableOffset() {
 // Font", "Corner Radius", ...) so with several of these things floating
 // around the canvas at once, each one is identifiable at a glance instead
 // of just being an anonymous grip. The grip line itself always renders too
-// (absolutely centered, independent of the label/close button's widths on
+// (absolutely centered, independent of the other controls' widths on
 // either side) — it's the visual cue that this whole bar is draggable, not
 // just a plain title bar, so it stays even once a label is doing most of
-// that identifying work. `onClose`, when passed, renders a small X button
-// at the right end of the bar so the popover has an explicit, unmissable
-// way to dismiss it — every popover that uses this now blocks Radix's own
-// click/focus-outside auto-dismiss (see the `onPointerDownOutside`/
-// `onInteractOutside` props set wherever this is used), since that
-// auto-dismiss was firing mid-drag: once setPointerCapture redirects
-// pointermove/up to the handle, a fast drag can still cross over the canvas
-// or another control on the way, and Radix was reading that as an outside
-// interaction and closing the popover out from under the user while they
-// were still moving it.
+// that identifying work.
+//
+// `onTogglePin`, when passed, renders a pin toggle: unpinned (the default
+// each time a dropdown opens) means clicking anywhere outside it — another
+// control, a different layer, the canvas background — closes it
+// automatically, same as a normal dropdown; pinning it suspends that so it
+// stays open through all of that instead, until explicitly closed. See
+// FloatingDropdown's own `pinned`/`onRequestClose` for where this is
+// enforced.
+//
+// `onClose`, when passed, renders a small X button at the right end of the
+// bar — an explicit, unmissable way to dismiss it regardless of pin state.
 export function DragHandle({
   label,
+  pinned,
+  onTogglePin,
   onClose,
   className,
   ...props
-}: React.HTMLAttributes<HTMLDivElement> & { label?: string; onClose?: () => void }) {
+}: React.HTMLAttributes<HTMLDivElement> & {
+  label?: string;
+  pinned?: boolean;
+  onTogglePin?: () => void;
+  onClose?: () => void;
+}) {
   return (
     <div
       {...props}
@@ -97,20 +106,37 @@ export function DragHandle({
         <span />
       )}
       <div className="pointer-events-none absolute left-1/2 top-1/2 h-1 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border" />
-      {onClose ? (
-        <button
-          type="button"
-          data-nopan=""
-          title="Close"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={onClose}
-          className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-        >
-          <MultiplicationSignIcon size={12} />
-        </button>
-      ) : (
-        <span />
-      )}
+      <div className="relative flex shrink-0 items-center gap-0.5">
+        {onTogglePin ? (
+          <button
+            type="button"
+            data-nopan=""
+            title={pinned ? "Unpin (will auto-hide when you click elsewhere)" : "Pin (keep open until closed)"}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onTogglePin}
+            className={cn(
+              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
+              pinned
+                ? "bg-destructive/15 text-destructive"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+            )}
+          >
+            <PinIcon size={14} />
+          </button>
+        ) : null}
+        {onClose ? (
+          <button
+            type="button"
+            data-nopan=""
+            title="Close"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={onClose}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <MultiplicationSignIcon size={12} />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -149,11 +175,10 @@ export function useStableAnchor(open: boolean, triggerRef: React.RefObject<HTMLE
 // ref the way Radix's own Popper positioning works, which is the point:
 // nothing else on the page can nudge it once it's open. Replaces Radix's
 // Popover/PopoverContent for these dropdowns entirely (not just its
-// positioning) — that also drops the need for the onPointerDownOutside/
-// onInteractOutside dismiss-prevention these used to need, since a plain
-// portaled div has no built-in "close on outside click" behavior to fight
-// in the first place; closing is purely up to the caller (the trigger's
-// own toggle, or the drag handle's X).
+// positioning), including its outside-click dismissal — reimplemented
+// below, gated on `pinned`, instead of Radix's own all-or-nothing version
+// (which these used to have to block outright with onPointerDownOutside/
+// onInteractOutside, since it was firing mid-drag).
 export function FloatingDropdown({
   anchor,
   offset,
@@ -161,6 +186,9 @@ export function FloatingDropdown({
   gap = 10,
   className,
   children,
+  pinned = false,
+  onRequestClose,
+  triggerRef,
 }: {
   anchor: { top: number; left: number; width: number; height: number } | null;
   offset: { x: number; y: number };
@@ -168,8 +196,34 @@ export function FloatingDropdown({
   gap?: number;
   className?: string;
   children: ReactNode;
+  // Unpinned (the default each time a dropdown opens — see DragHandle's pin
+  // button) means any pointerdown outside this panel and its own trigger
+  // closes it automatically, same as a normal dropdown. Pinning suspends
+  // that so it stays open through anything else the user does — selecting
+  // a different layer, clicking another control, clicking the canvas
+  // background — until explicitly closed instead.
+  pinned?: boolean;
+  onRequestClose?: () => void;
+  triggerRef?: React.RefObject<HTMLElement | null>;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!anchor || pinned || !onRequestClose) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef?.current?.contains(target)) return;
+      onRequestClose();
+    };
+    // Capture phase: catches the interaction before anything it's aimed at
+    // (a different trigger, the canvas) gets to act on it, so this dropdown
+    // is already closing by the time that other click's own effect (e.g.
+    // opening a different dropdown, or deselecting this one's layer) lands.
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [anchor, pinned, onRequestClose, triggerRef]);
   // One-time collision check, the instant a fresh anchor shows up (i.e.
   // every time this opens) — Radix used to give this for free (flipping
   // above the trigger, or nudging sideways, whenever there wasn't room),

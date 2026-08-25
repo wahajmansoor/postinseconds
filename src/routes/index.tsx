@@ -118,10 +118,6 @@ function StudioRoot() {
 function StudioGate() {
   const { user, isAuthenticated, isLoading } = useAuth();
 
-  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("__e2e")) {
-    return <Index />;
-  }
-
   if (isLoading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">

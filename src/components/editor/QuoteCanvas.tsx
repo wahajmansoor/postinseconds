@@ -2003,6 +2003,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     startMouseY: number;
     handle: HandleId;
   } | null>(null);
+  // Which single resize handle (a round corner or a pill-shaped edge — see
+  // HANDLE_POSITIONS' own comment) is currently being dragged, if any — the
+  // other 7 hide for the duration so the one in use isn't competing for
+  // attention with a ring of handles the user isn't touching.
+  const [activeHandle, setActiveHandle] = useState<HandleId | null>(null);
   const editableRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dblClickPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -2714,12 +2719,13 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
             {!locked ? (
               <>
-                {HANDLE_POSITIONS.map((h) => (
+                {HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
                   <div
                     key={h.id}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      setActiveHandle(h.id);
                       resizeRef.current = {
                         startSize: t.size,
                         startWidth: t.width ?? containerRef.current?.offsetWidth ?? 520,
@@ -2780,10 +2786,12 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                     onPointerUp={(e) => {
                       e.stopPropagation();
                       resizeRef.current = null;
+                      setActiveHandle(null);
                     }}
                     onPointerCancel={(e) => {
                       e.stopPropagation();
                       resizeRef.current = null;
+                      setActiveHandle(null);
                     }}
                     data-nopan=""
                     className="group"
@@ -2867,6 +2875,11 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
     startMouseY: number;
     handle: HandleId;
   } | null>(null);
+  // Which single resize handle (a round corner or a pill-shaped edge — see
+  // HANDLE_POSITIONS' own comment) is currently being dragged, if any — the
+  // other 7 hide for the duration so the one in use isn't competing for
+  // attention with a ring of handles the user isn't touching.
+  const [activeHandle, setActiveHandle] = useState<HandleId | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const canInteract = interactive && !!set && !s.locked;
@@ -3086,12 +3099,13 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
 
             {!locked ? (
               <>
-                {HANDLE_POSITIONS.map((h) => (
+                {HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
                   <div
                     key={h.id}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      setActiveHandle(h.id);
                       const startHeight = img.height ?? containerRef.current?.offsetHeight ?? img.size;
                       resizeRef.current = {
                         startWidth: img.size,
@@ -3147,10 +3161,12 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                     onPointerUp={(e) => {
                       e.stopPropagation();
                       resizeRef.current = null;
+                      setActiveHandle(null);
                     }}
                     onPointerCancel={(e) => {
                       e.stopPropagation();
                       resizeRef.current = null;
+                      setActiveHandle(null);
                     }}
                     data-nopan=""
                     className="group"
@@ -3234,6 +3250,11 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
     startMouseY: number;
     handle: HandleId;
   } | null>(null);
+  // Which single resize handle (a round corner or a pill-shaped edge — see
+  // HANDLE_POSITIONS' own comment) is currently being dragged, if any — the
+  // other 7 hide for the duration so the one in use isn't competing for
+  // attention with a ring of handles the user isn't touching.
+  const [activeHandle, setActiveHandle] = useState<HandleId | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const canInteract = interactive && !!set && !s.locked;
@@ -3449,12 +3470,13 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
 
             {!locked ? (
               <>
-                {HANDLE_POSITIONS.map((h) => (
+                {HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
                   <div
                     key={h.id}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      setActiveHandle(h.id);
                       resizeRef.current = {
                         startWidth: shape.size,
                         startHeight: effectiveHeight,
@@ -3512,10 +3534,12 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                     onPointerUp={(e) => {
                       e.stopPropagation();
                       resizeRef.current = null;
+                      setActiveHandle(null);
                     }}
                     onPointerCancel={(e) => {
                       e.stopPropagation();
                       resizeRef.current = null;
+                      setActiveHandle(null);
                     }}
                     data-nopan=""
                     className="group"

@@ -63,6 +63,7 @@ export function TextSelectionToolbar({
   onAnyPopoverOpenChange?: (open: boolean) => void;
 }) {
   const [spacingOpen, setSpacingOpen] = useState(false);
+  const [spacingPinned, setSpacingPinned] = useState(false);
   const spacingDrag = useDraggableOffset();
   const spacingTriggerRef = useRef<HTMLButtonElement>(null);
   const spacingAnchor = useStableAnchor(spacingOpen, spacingTriggerRef);
@@ -73,6 +74,7 @@ export function TextSelectionToolbar({
   // popover in this toolbar. Uses ColorPickerContent directly, same as the
   // Background toolbar's own Solid swatch.
   const [textColorOpen, setTextColorOpen] = useState(false);
+  const [textColorPinned, setTextColorPinned] = useState(false);
   const textColorDrag = useDraggableOffset();
   const textColorTriggerRef = useRef<HTMLButtonElement>(null);
   const textColorAnchor = useStableAnchor(textColorOpen, textColorTriggerRef);
@@ -84,6 +86,7 @@ export function TextSelectionToolbar({
   // font. loadGoogleFont dedupes internally (module-level Set), so
   // reopening / re-filtering costs nothing once loaded.
   const [fontOpen, setFontOpen] = useState(false);
+  const [fontPinned, setFontPinned] = useState(false);
   const [fontSearch, setFontSearch] = useState("");
   const fontDrag = useDraggableOffset();
   const fontTriggerRef = useRef<HTMLButtonElement>(null);
@@ -191,6 +194,7 @@ export function TextSelectionToolbar({
               if (!wasOpen) {
                 fontDrag.reset();
                 setFontSearch("");
+                setFontPinned(false);
               }
               return !wasOpen;
             });
@@ -206,9 +210,22 @@ export function TextSelectionToolbar({
           <ArrowDown01Icon size={12} className="shrink-0 text-muted-foreground" />
         </button>
       </AppTooltip>
-      <FloatingDropdown anchor={fontAnchor} offset={fontDrag.offset} align="start">
+      <FloatingDropdown
+        anchor={fontAnchor}
+        offset={fontDrag.offset}
+        align="start"
+        pinned={fontPinned}
+        onRequestClose={() => setFontOpen(false)}
+        triggerRef={fontTriggerRef}
+      >
         <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-          <DragHandle label="Text Font" {...fontDrag.dragHandleProps} onClose={() => setFontOpen(false)} />
+          <DragHandle
+            label="Text Font"
+            {...fontDrag.dragHandleProps}
+            pinned={fontPinned}
+            onTogglePin={() => setFontPinned((p) => !p)}
+            onClose={() => setFontOpen(false)}
+          />
           <div className="space-y-2 p-2.5">
             <div className="relative">
               <Search01Icon
@@ -291,7 +308,10 @@ export function TextSelectionToolbar({
         onPointerDown={() => handle.snapshotSelection()}
         onClick={() => {
           setTextColorOpen((wasOpen) => {
-            if (!wasOpen) textColorDrag.reset();
+            if (!wasOpen) {
+              textColorDrag.reset();
+              setTextColorPinned(false);
+            }
             return !wasOpen;
           });
         }}
@@ -299,9 +319,22 @@ export function TextSelectionToolbar({
         className="h-7 w-7 shrink-0 overflow-hidden rounded-xl border border-border/80 shadow-sm transition-transform hover:scale-105"
         style={{ backgroundColor: layer.color || "#000000" }}
       />
-      <FloatingDropdown anchor={textColorAnchor} offset={textColorDrag.offset} align="center">
+      <FloatingDropdown
+        anchor={textColorAnchor}
+        offset={textColorDrag.offset}
+        align="center"
+        pinned={textColorPinned}
+        onRequestClose={() => setTextColorOpen(false)}
+        triggerRef={textColorTriggerRef}
+      >
         <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl">
-          <DragHandle label="Text Color" {...textColorDrag.dragHandleProps} onClose={() => setTextColorOpen(false)} />
+          <DragHandle
+            label="Text Color"
+            {...textColorDrag.dragHandleProps}
+            pinned={textColorPinned}
+            onTogglePin={() => setTextColorPinned((p) => !p)}
+            onClose={() => setTextColorOpen(false)}
+          />
           <ColorPickerContent value={layer.color} onChange={handle.setColor} />
         </div>
       </FloatingDropdown>
@@ -432,7 +465,10 @@ export function TextSelectionToolbar({
             setSpacingOpen((wasOpen) => {
               // Reset on the OPEN edge, not the close edge — see the
               // matching comment on the font popover above.
-              if (!wasOpen) spacingDrag.reset();
+              if (!wasOpen) {
+                spacingDrag.reset();
+                setSpacingPinned(false);
+              }
               return !wasOpen;
             });
           }}
@@ -442,9 +478,22 @@ export function TextSelectionToolbar({
         </Chip>
       </AppTooltip>
 
-      <FloatingDropdown anchor={spacingAnchor} offset={spacingDrag.offset} align="start">
+      <FloatingDropdown
+        anchor={spacingAnchor}
+        offset={spacingDrag.offset}
+        align="start"
+        pinned={spacingPinned}
+        onRequestClose={() => setSpacingOpen(false)}
+        triggerRef={spacingTriggerRef}
+      >
         <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-xl">
-          <DragHandle label="Spacing" {...spacingDrag.dragHandleProps} onClose={() => setSpacingOpen(false)} />
+          <DragHandle
+            label="Spacing"
+            {...spacingDrag.dragHandleProps}
+            pinned={spacingPinned}
+            onTogglePin={() => setSpacingPinned((p) => !p)}
+            onClose={() => setSpacingOpen(false)}
+          />
           <div className="space-y-4 p-4">
             {/* Letter spacing */}
             <div className="space-y-2">

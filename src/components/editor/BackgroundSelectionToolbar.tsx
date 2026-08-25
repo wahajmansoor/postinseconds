@@ -56,6 +56,13 @@ export function BackgroundSelectionToolbar({
   const [solidOpen, setSolidOpen] = useState(false);
   const [gradientOpen, setGradientOpen] = useState(false);
   const [imagePopoverOpen, setImagePopoverOpen] = useState(false);
+
+  // Each dropdown opens unpinned by default — see DragHandle's own comment
+  // on `onTogglePin` for what that means.
+  const [solidPinned, setSolidPinned] = useState(false);
+  const [gradientPinned, setGradientPinned] = useState(false);
+  const [imagePinned, setImagePinned] = useState(false);
+
   const solidDrag = useDraggableOffset();
   const gradientDrag = useDraggableOffset();
   const imageDrag = useDraggableOffset();
@@ -144,7 +151,10 @@ export function BackgroundSelectionToolbar({
         type="button"
         onClick={() => {
           setSolidOpen((wasOpen) => {
-            if (!wasOpen) solidDrag.reset();
+            if (!wasOpen) {
+              solidDrag.reset();
+              setSolidPinned(false);
+            }
             return !wasOpen;
           });
         }}
@@ -158,9 +168,22 @@ export function BackgroundSelectionToolbar({
         Solid
         <ArrowDown01Icon size={12} className="text-muted-foreground" />
       </button>
-      <FloatingDropdown anchor={solidAnchor} offset={solidDrag.offset} align="start">
+      <FloatingDropdown
+        anchor={solidAnchor}
+        offset={solidDrag.offset}
+        align="start"
+        pinned={solidPinned}
+        onRequestClose={() => setSolidOpen(false)}
+        triggerRef={solidTriggerRef}
+      >
         <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl">
-          <DragHandle label="Solid Color" {...solidDrag.dragHandleProps} onClose={() => setSolidOpen(false)} />
+          <DragHandle
+            label="Solid Color"
+            {...solidDrag.dragHandleProps}
+            pinned={solidPinned}
+            onTogglePin={() => setSolidPinned((p) => !p)}
+            onClose={() => setSolidOpen(false)}
+          />
           <ColorPickerContent value={isSolidActive ? s.background : "#ffffff"} onChange={applyColor} />
         </div>
       </FloatingDropdown>
@@ -176,6 +199,7 @@ export function BackgroundSelectionToolbar({
               // wherever Custom was left last time.
               setShowCustomGradient(false);
               gradientDrag.reset();
+              setGradientPinned(false);
             }
             return !wasOpen;
           });
@@ -190,9 +214,22 @@ export function BackgroundSelectionToolbar({
         Gradient
         <ArrowDown01Icon size={12} className="text-muted-foreground" />
       </button>
-      <FloatingDropdown anchor={gradientAnchor} offset={gradientDrag.offset} align="start">
+      <FloatingDropdown
+        anchor={gradientAnchor}
+        offset={gradientDrag.offset}
+        align="start"
+        pinned={gradientPinned}
+        onRequestClose={() => setGradientOpen(false)}
+        triggerRef={gradientTriggerRef}
+      >
         <div className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-          <DragHandle label="Gradient" {...gradientDrag.dragHandleProps} onClose={() => setGradientOpen(false)} />
+          <DragHandle
+            label="Gradient"
+            {...gradientDrag.dragHandleProps}
+            pinned={gradientPinned}
+            onTogglePin={() => setGradientPinned((p) => !p)}
+            onClose={() => setGradientOpen(false)}
+          />
           <div className="space-y-3 p-3">
           {!showCustomGradient ? (
             // Preset view — swapped out entirely for the Custom editor below
@@ -315,7 +352,10 @@ export function BackgroundSelectionToolbar({
         type="button"
         onClick={() => {
           setImagePopoverOpen((wasOpen) => {
-            if (!wasOpen) imageDrag.reset();
+            if (!wasOpen) {
+              imageDrag.reset();
+              setImagePinned(false);
+            }
             return !wasOpen;
           });
         }}
@@ -325,9 +365,22 @@ export function BackgroundSelectionToolbar({
         <Image01Icon size={15} />
         Image
       </button>
-      <FloatingDropdown anchor={imageAnchor} offset={imageDrag.offset} align="start">
+      <FloatingDropdown
+        anchor={imageAnchor}
+        offset={imageDrag.offset}
+        align="start"
+        pinned={imagePinned}
+        onRequestClose={() => setImagePopoverOpen(false)}
+        triggerRef={imageTriggerRef}
+      >
         <div className="w-80 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-          <DragHandle label="Background Image" {...imageDrag.dragHandleProps} onClose={() => setImagePopoverOpen(false)} />
+          <DragHandle
+            label="Background Image"
+            {...imageDrag.dragHandleProps}
+            pinned={imagePinned}
+            onTogglePin={() => setImagePinned((p) => !p)}
+            onClose={() => setImagePopoverOpen(false)}
+          />
           <div className="max-h-[75vh] space-y-3 overflow-y-auto p-3">
           <UploadButton
             label={s.bgImage ? "Change background image" : "Upload background image"}

@@ -58,6 +58,14 @@ export function ShapeSelectionToolbar({
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
 
+  // Each dropdown opens unpinned by default — see DragHandle's own comment
+  // on `onTogglePin` for what that means.
+  const [shapePickerPinned, setShapePickerPinned] = useState(false);
+  const [stylePinned, setStylePinned] = useState(false);
+  const [radiusPinned, setRadiusPinned] = useState(false);
+  const [opacityPinned, setOpacityPinned] = useState(false);
+  const [shadowPinned, setShadowPinned] = useState(false);
+
   // Every popover below can be dragged to wherever the user wants — see
   // useDraggableOffset's own comment in ui.tsx for why the offset applies
   // to an inner wrapper rather than PopoverContent itself.
@@ -137,7 +145,10 @@ export function ShapeSelectionToolbar({
           type="button"
           onClick={() => {
             setShapePickerOpen((wasOpen) => {
-              if (!wasOpen) shapeDrag.reset();
+              if (!wasOpen) {
+                shapeDrag.reset();
+                setShapePickerPinned(false);
+              }
               return !wasOpen;
             });
           }}
@@ -155,13 +166,26 @@ export function ShapeSelectionToolbar({
           <span className="text-[10px] text-muted-foreground">▾</span>
         </button>
       </AppTooltip>
-      <FloatingDropdown anchor={shapeAnchor} offset={shapeDrag.offset} align="start">
+      <FloatingDropdown
+        anchor={shapeAnchor}
+        offset={shapeDrag.offset}
+        align="start"
+        pinned={shapePickerPinned}
+        onRequestClose={() => setShapePickerOpen(false)}
+        triggerRef={shapeTriggerRef}
+      >
         <div
           data-nopan=""
           data-keep-text-editing=""
           className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
         >
-          <DragHandle label="Shape" {...shapeDrag.dragHandleProps} onClose={() => setShapePickerOpen(false)} />
+          <DragHandle
+            label="Shape"
+            {...shapeDrag.dragHandleProps}
+            pinned={shapePickerPinned}
+            onTogglePin={() => setShapePickerPinned((p) => !p)}
+            onClose={() => setShapePickerOpen(false)}
+          />
           <div className="space-y-2 p-3">
             <span className="text-xs font-semibold text-foreground">Select Shape</span>
             <div className="grid grid-cols-4 gap-1.5 pt-1">
@@ -205,7 +229,10 @@ export function ShapeSelectionToolbar({
           type="button"
           onClick={() => {
             setStyleOpen((wasOpen) => {
-              if (!wasOpen) styleDrag.reset();
+              if (!wasOpen) {
+                styleDrag.reset();
+                setStylePinned(false);
+              }
               return !wasOpen;
             });
           }}
@@ -230,13 +257,26 @@ export function ShapeSelectionToolbar({
           <span className="capitalize text-xs">{currentStyle}</span>
         </button>
       </AppTooltip>
-      <FloatingDropdown anchor={styleAnchor} offset={styleDrag.offset} align="center">
+      <FloatingDropdown
+        anchor={styleAnchor}
+        offset={styleDrag.offset}
+        align="center"
+        pinned={stylePinned}
+        onRequestClose={() => setStyleOpen(false)}
+        triggerRef={styleTriggerRef}
+      >
         <div
           data-nopan=""
           data-keep-text-editing=""
           className="w-72 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
         >
-          <DragHandle label="Fill & Style" {...styleDrag.dragHandleProps} onClose={() => setStyleOpen(false)} />
+          <DragHandle
+            label="Fill & Style"
+            {...styleDrag.dragHandleProps}
+            pinned={stylePinned}
+            onTogglePin={() => setStylePinned((p) => !p)}
+            onClose={() => setStyleOpen(false)}
+          />
           <div className="space-y-3 p-3">
               <div className="space-y-1.5">
                 <span className="text-xs font-semibold text-foreground">Style Mode</span>
@@ -330,7 +370,10 @@ export function ShapeSelectionToolbar({
               type="button"
               onClick={() => {
                 setRadiusOpen((wasOpen) => {
-                  if (!wasOpen) radiusDrag.reset();
+                  if (!wasOpen) {
+                    radiusDrag.reset();
+                    setRadiusPinned(false);
+                  }
                   return !wasOpen;
                 });
               }}
@@ -345,13 +388,26 @@ export function ShapeSelectionToolbar({
               </span>
             </button>
           </AppTooltip>
-          <FloatingDropdown anchor={radiusAnchor} offset={radiusDrag.offset} align="center">
+          <FloatingDropdown
+            anchor={radiusAnchor}
+            offset={radiusDrag.offset}
+            align="center"
+            pinned={radiusPinned}
+            onRequestClose={() => setRadiusOpen(false)}
+            triggerRef={radiusTriggerRef}
+          >
             <div
               data-nopan=""
               data-keep-text-editing=""
               className="w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
             >
-              <DragHandle label="Corner Radius" {...radiusDrag.dragHandleProps} onClose={() => setRadiusOpen(false)} />
+              <DragHandle
+                label="Corner Radius"
+                {...radiusDrag.dragHandleProps}
+                pinned={radiusPinned}
+                onTogglePin={() => setRadiusPinned((p) => !p)}
+                onClose={() => setRadiusOpen(false)}
+              />
               <div className="space-y-3 p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-foreground">Corner Radius</span>
@@ -392,7 +448,10 @@ export function ShapeSelectionToolbar({
           type="button"
           onClick={() => {
             setOpacityOpen((wasOpen) => {
-              if (!wasOpen) opacityDrag.reset();
+              if (!wasOpen) {
+                opacityDrag.reset();
+                setOpacityPinned(false);
+              }
               return !wasOpen;
             });
           }}
@@ -406,13 +465,26 @@ export function ShapeSelectionToolbar({
           <span className="text-xs font-semibold">{layer.opacity ?? 100}%</span>
         </button>
       </AppTooltip>
-      <FloatingDropdown anchor={opacityAnchor} offset={opacityDrag.offset} align="center">
+      <FloatingDropdown
+        anchor={opacityAnchor}
+        offset={opacityDrag.offset}
+        align="center"
+        pinned={opacityPinned}
+        onRequestClose={() => setOpacityOpen(false)}
+        triggerRef={opacityTriggerRef}
+      >
         <div
           data-nopan=""
           data-keep-text-editing=""
           className="w-56 overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
         >
-          <DragHandle label="Opacity" {...opacityDrag.dragHandleProps} onClose={() => setOpacityOpen(false)} />
+          <DragHandle
+            label="Opacity"
+            {...opacityDrag.dragHandleProps}
+            pinned={opacityPinned}
+            onTogglePin={() => setOpacityPinned((p) => !p)}
+            onClose={() => setOpacityOpen(false)}
+          />
           <div className="space-y-3 p-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-foreground">Opacity</span>
@@ -447,7 +519,10 @@ export function ShapeSelectionToolbar({
           type="button"
           onClick={() => {
             setShadowOpen((wasOpen) => {
-              if (!wasOpen) shadowDrag.reset();
+              if (!wasOpen) {
+                shadowDrag.reset();
+                setShadowPinned(false);
+              }
               return !wasOpen;
             });
           }}
@@ -461,13 +536,26 @@ export function ShapeSelectionToolbar({
           <span className="text-xs">Shadow</span>
         </button>
       </AppTooltip>
-      <FloatingDropdown anchor={shadowAnchor} offset={shadowDrag.offset} align="center">
+      <FloatingDropdown
+        anchor={shadowAnchor}
+        offset={shadowDrag.offset}
+        align="center"
+        pinned={shadowPinned}
+        onRequestClose={() => setShadowOpen(false)}
+        triggerRef={shadowTriggerRef}
+      >
         <div
           data-nopan=""
           data-keep-text-editing=""
           className="w-[350px] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-md"
         >
-          <DragHandle label="Drop Shadow" {...shadowDrag.dragHandleProps} onClose={() => setShadowOpen(false)} />
+          <DragHandle
+            label="Drop Shadow"
+            {...shadowDrag.dragHandleProps}
+            pinned={shadowPinned}
+            onTogglePin={() => setShadowPinned((p) => !p)}
+            onClose={() => setShadowOpen(false)}
+          />
           <div className="space-y-3.5 p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-foreground">Drop Shadow</span>
