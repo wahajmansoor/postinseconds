@@ -8,8 +8,12 @@ import {
   ArrowTurnBackwardIcon,
   Add01Icon,
   MinusSignIcon,
-  HandGripIcon,
 } from "hugeicons-react";
+// HandGrabIcon (the "Drag to move" icon used elsewhere in the editor, e.g.
+// QuoteCanvas.tsx) only exists in this newer icon package, not the
+// hugeicons-react one everything else on this page comes from.
+import { HugeiconsIcon } from "@hugeicons/react";
+import { HandGrabIcon } from "@hugeicons/core-free-icons";
 import { Chip, Range, useHoldRepeat } from "./ui";
 
 interface EraseImageDialogProps {
@@ -452,7 +456,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
                 className="h-8 w-8 p-0 flex items-center justify-center"
                 title={panMode ? "Exit pan mode" : "Pan the zoomed view"}
               >
-                <HandGripIcon size={14} />
+                <HugeiconsIcon icon={HandGrabIcon} size={14} />
               </Chip>
             </div>
           </div>
