@@ -1519,6 +1519,8 @@ function Index() {
       });
     };
 
+    let suppressCooldownTimer: ReturnType<typeof setTimeout> | null = null;
+
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length >= 2) {
         // Upgrading from a single-finger pan (or starting fresh) into a
@@ -1534,6 +1536,13 @@ function Index() {
         if (!stageEl) return;
         pinchActive = true;
         suppressDragRef.current = true;
+        if (suppressCooldownTimer) {
+          clearTimeout(suppressCooldownTimer);
+          suppressCooldownTimer = null;
+        }
+        // Deselect any object immediately so two-finger zooming never leaves or triggers a selection
+        setCanvasSelection([]);
+        setIsBackgroundSelected(false);
         initialPinchDist = getTouchDist(t1, t2);
         initialScale = scaleRef.current;
         initialStageRect = stageEl.getBoundingClientRect();
@@ -1548,7 +1557,7 @@ function Index() {
         return;
       }
 
-      if (e.touches.length === 1 && !pinchActive) {
+      if (e.touches.length === 1 && !pinchActive && !suppressDragRef.current) {
         const touch = e.touches[0];
         if (!touch) return;
         const target = touch.target as HTMLElement | null;
@@ -1615,12 +1624,25 @@ function Index() {
 
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length < 2) {
+        if (pinchActive) {
+          // Keep suppressDragRef active during gesture end cooldown so trailing tap events do not select objects
+          suppressDragRef.current = true;
+          if (suppressCooldownTimer) clearTimeout(suppressCooldownTimer);
+          suppressCooldownTimer = setTimeout(() => {
+            suppressDragRef.current = false;
+            suppressCooldownTimer = null;
+          }, 300);
+        } else if (!suppressCooldownTimer) {
+          suppressDragRef.current = false;
+        }
         pinchActive = false;
-        suppressDragRef.current = false;
         initialStageRect = null;
         pendingScale = null;
         pendingDragX = 0;
         pendingDragY = 0;
+      }
+      if (e.touches.length === 0 && suppressCooldownTimer) {
+        // Cooldown timer will reset suppressDragRef
       }
       if (panTouchId !== null) {
         let stillDown = false;

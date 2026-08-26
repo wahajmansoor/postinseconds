@@ -503,6 +503,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       {/* Clips images, shapes, text, and shadows strictly at the canvas border like Canva */}
       <div
         onClick={(e) => {
+          if (suppressDragRef?.current) return;
           if (interactive && e.target === e.currentTarget) onSelectBackground?.();
         }}
         style={{
