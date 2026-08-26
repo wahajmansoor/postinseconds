@@ -334,12 +334,14 @@ export function clearActiveDraft(): void {
 // unconditionally and these only when signed in — the local draft still
 // gets written every time as a fast/offline fallback.
 
-export async function fetchCloudActiveDraft(userId: string): Promise<EditorState | null> {
+export async function fetchCloudActiveDraft(
+  userId: string,
+): Promise<{ state: EditorState; updatedAt: string } | null> {
   if (!isSupabaseConfigured || !userId) return null;
   try {
     const { data, error } = await supabase
       .from("user_active_draft")
-      .select("state")
+      .select("state, updated_at")
       .eq("user_id", userId)
       .maybeSingle();
     // Logged, not silently swallowed — this table/policy set is new
@@ -351,40 +353,60 @@ export async function fetchCloudActiveDraft(userId: string): Promise<EditorState
       console.warn("[cloud draft] fetch failed — is the user_active_draft migration applied?", error);
       return null;
     }
-    if (data) return data.state as EditorState;
+    if (data) return { state: data.state as EditorState, updatedAt: data.updated_at as string };
   } catch (err) {
     console.warn("[cloud draft] fetch threw", err);
   }
   return null;
 }
 
-export async function upsertCloudActiveDraft(userId: string, state: EditorState): Promise<void> {
-  if (!isSupabaseConfigured || !userId) return;
+// Returns the `updated_at` this write was stamped with, so the caller can
+// remember "the newest point I myself pushed" — see subscribeToCloudActiveDraft's
+// comment for why that's needed to keep a fast-editing client from
+// clobbering its own newer local state with a delayed echo of this write.
+export async function upsertCloudActiveDraft(userId: string, state: EditorState): Promise<string | null> {
+  if (!isSupabaseConfigured || !userId) return null;
+  const updatedAt = new Date().toISOString();
   try {
     const { error } = await supabase.from("user_active_draft").upsert({
       user_id: userId,
       state,
-      updated_at: new Date().toISOString(),
+      updated_at: updatedAt,
     });
     if (error) {
       console.warn("[cloud draft] upsert failed — is the user_active_draft migration applied?", error);
+      return null;
     }
+    return updatedAt;
   } catch (err) {
     console.warn("[cloud draft] upsert threw", err);
+    return null;
   }
 }
 
-// Fires `onRemoteChange` whenever a DIFFERENT tab/device updates this
-// user's active draft (Supabase Realtime doesn't echo a write back to the
-// exact client connection that made it, so this only ever fires for
-// changes actually made elsewhere — no extra de-dupe needed on that front,
-// though index.tsx still guards against re-uploading what it just
-// downloaded, to avoid a needless round-trip). Returns an unsubscribe
+// Fires `onRemoteChange` whenever this user's active draft row changes,
+// carrying the row's own `updated_at` alongside the new state.
+//
+// IMPORTANT — this DOES also fire for writes made by this exact client, not
+// just a different tab/device: Supabase's `postgres_changes` mirrors actual
+// table changes (via Postgres's replication stream) to every subscribed
+// client whose filter matches, with no built-in exclusion of the socket
+// that made the write (that self-suppression only exists for the separate
+// "Broadcast" feature, not postgres_changes). A previous version of this
+// comment claimed otherwise — confirmed wrong by a real repro: fast
+// dragging on a single device/tab, no other device involved, still showed a
+// layer snap back to an older position, which is only possible if this
+// client received its own echoed write back. Callers MUST compare the
+// passed `updatedAt` against the newest `updatedAt` they already know about
+// (their own most recent push, or the newest remote update already
+// applied) and ignore anything not strictly newer — otherwise a delayed
+// echo of an earlier local state races the user's own subsequent edits and
+// silently reverts them (the exact bug above). Returns an unsubscribe
 // function — call it on cleanup (user change/sign-out, component unmount)
 // or the realtime channel leaks.
 export function subscribeToCloudActiveDraft(
   userId: string,
-  onRemoteChange: (state: EditorState) => void,
+  onRemoteChange: (state: EditorState, updatedAt: string) => void,
 ): () => void {
   if (!isSupabaseConfigured || !userId) return () => {};
   const channel = supabase
@@ -393,8 +415,8 @@ export function subscribeToCloudActiveDraft(
       "postgres_changes",
       { event: "*", schema: "public", table: "user_active_draft", filter: `user_id=eq.${userId}` },
       (payload) => {
-        const state = (payload.new as { state?: EditorState } | null)?.state;
-        if (state) onRemoteChange(state);
+        const row = payload.new as { state?: EditorState; updated_at?: string } | null;
+        if (row?.state && row.updated_at) onRemoteChange(row.state, row.updated_at);
       },
     )
     // status is 'SUBSCRIBED' once the realtime channel actually connects,

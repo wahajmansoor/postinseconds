@@ -4,7 +4,11 @@ import {
   CropIcon,
   Eraser01Icon,
   EyeIcon,
+  LayerBringForwardIcon,
+  LayerBringToFrontIcon,
   Layers01Icon,
+  LayerSendBackwardIcon,
+  LayerSendToBackIcon,
   Upload01Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
@@ -12,7 +16,7 @@ import { compressImageFile } from "@/lib/imageCompression";
 import type { ImageLayer } from "./types";
 import {
   Chip,
-  ColorInput,
+  ColorPickerContent,
   DragHandle,
   Field,
   FloatingDropdown,
@@ -28,6 +32,8 @@ import { EraseImageDialog } from "./EraseImageDialog";
 interface ImageSelectionToolbarProps {
   layer: ImageLayer;
   onUpdate: (patch: Partial<Omit<ImageLayer, "id">>) => void;
+  onArrange?: (direction: "forward" | "backward" | "front" | "back") => void;
+  canArrange?: { canForward: boolean; canBackward: boolean; canFront: boolean; canBack: boolean };
   onOpenCrop?: () => void;
   // Same reasoning as onOpenCrop above: when provided, index.tsx renders
   // EraseImageDialog itself, driven by its own top-level state, instead of
@@ -46,6 +52,8 @@ interface ImageSelectionToolbarProps {
 export function ImageSelectionToolbar({
   layer,
   onUpdate,
+  onArrange,
+  canArrange,
   onOpenCrop,
   onOpenErase,
   detached = false,
@@ -57,12 +65,14 @@ export function ImageSelectionToolbar({
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
+  const [arrangeOpen, setArrangeOpen] = useState(false);
 
   // Each dropdown opens unpinned by default — see DragHandle's own comment
   // on `onTogglePin` for what that means.
   const [radiusPinned, setRadiusPinned] = useState(false);
   const [opacityPinned, setOpacityPinned] = useState(false);
   const [shadowPinned, setShadowPinned] = useState(false);
+  const [arrangePinned, setArrangePinned] = useState(false);
 
   // Every popover below can be dragged to wherever the user wants — see
   // useDraggableOffset's own comment in ui.tsx for why the offset applies
@@ -70,13 +80,16 @@ export function ImageSelectionToolbar({
   const radiusDrag = useDraggableOffset();
   const opacityDrag = useDraggableOffset();
   const shadowDrag = useDraggableOffset();
+  const arrangeDrag = useDraggableOffset();
 
   const radiusTriggerRef = useRef<HTMLButtonElement>(null);
   const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
+  const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
   const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
   const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
+  const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
 
   // Each popover blocks Radix's own click/focus-outside auto-dismiss (see
   // onPointerDownOutside/onInteractOutside below) — a fast drag was tripping
@@ -89,7 +102,7 @@ export function ImageSelectionToolbar({
   // wherever the user actually left it.
 
   // See the matching block's comment in TextSelectionToolbar.tsx.
-  const anyPopoverOpen = radiusOpen || opacityOpen || shadowOpen;
+  const anyPopoverOpen = radiusOpen || opacityOpen || shadowOpen || arrangeOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -478,14 +491,22 @@ export function ImageSelectionToolbar({
                   />
                 </Field>
 
-                {/* Color Picker at Bottom */}
-                <div className="flex items-center justify-between border-t border-border/40 pt-2.5">
+                {/* ColorPickerContent directly, not ColorInput/ColorPicker
+                    — that export owns a separate Radix Popover that portals
+                    its hue/saturation area to <body> as a DOM sibling of
+                    this whole dropdown, not a descendant of it.
+                    FloatingDropdown's outside-click dismissal is a real
+                    Node.contains() check against its own panel, blind to
+                    React's component tree, so any click inside that nested
+                    portal reads as "outside" and instantly collapses this
+                    entire panel — see ShapeSelectionToolbar's matching
+                    Shadow Color comment for the full mechanism (same bug,
+                    same fix, found and fixed there first). */}
+                <div className="space-y-1.5 border-t border-border/40 pt-2.5">
                   <span className="text-xs font-semibold text-muted-foreground">Shadow Color</span>
-                  <ColorInput
+                  <ColorPickerContent
                     value={layer.shadowColor ?? "#000000"}
                     onChange={(v) => onUpdate({ shadowColor: v })}
-                    showHex={true}
-                    swatchClassName="h-7 w-7 rounded-lg border-border"
                   />
                 </div>
               </div>
@@ -521,23 +542,106 @@ export function ImageSelectionToolbar({
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
-      {/* 6. Layer Stacking Order */}
-      <AppTooltip
-        content={
-          layer.layer === "behind"
-            ? "Currently behind text (click to bring to front)"
-            : "Currently in front of text (click to send behind)"
-        }
-      >
-        <button
-          type="button"
-          onClick={() => onUpdate({ layer: layer.layer === "behind" ? "front" : "behind" })}
-          className={cn(btnClass, "gap-1.5 text-xs text-muted-foreground hover:text-foreground")}
-        >
-          <Layers01Icon size={15} />
-          <span>{layer.layer === "behind" ? "Behind Text" : "In Front"}</span>
-        </button>
-      </AppTooltip>
+      {/* 6. Arrange Layer Stacking Order */}
+      {onArrange ? (
+        <>
+          <AppTooltip content="Arrange layer order">
+            <button
+              ref={arrangeTriggerRef}
+              type="button"
+              onClick={() => {
+                setArrangeOpen((wasOpen) => {
+                  if (!wasOpen) {
+                    arrangeDrag.reset();
+                    setArrangePinned(false);
+                  }
+                  return !wasOpen;
+                });
+              }}
+              className={cn(btnClass, arrangeOpen && "bg-secondary text-primary")}
+            >
+              <LayerBringToFrontIcon size={15} />
+              <span className="text-xs">Arrange</span>
+            </button>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={arrangeAnchor}
+            offset={arrangeDrag.offset}
+            align="center"
+            pinned={arrangePinned}
+            onRequestClose={() => setArrangeOpen(false)}
+            triggerRef={arrangeTriggerRef}
+          >
+            <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl">
+              <DragHandle
+                label="Arrange Layer"
+                {...arrangeDrag.dragHandleProps}
+                pinned={arrangePinned}
+                onTogglePin={() => setArrangePinned((p) => !p)}
+                onClose={() => setArrangeOpen(false)}
+              />
+              <div className="grid grid-cols-2 gap-2 p-3">
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canForward}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("forward")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canForward && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerBringForwardIcon size={16} />
+                  Forward
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canBackward}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("backward")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canBackward && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerSendBackwardIcon size={16} />
+                  Backward
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canFront}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("front")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canFront && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerBringToFrontIcon size={16} />
+                  To front
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canBack}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("back")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canBack && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerSendToBackIcon size={16} />
+                  To back
+                </button>
+              </div>
+            </div>
+          </FloatingDropdown>
+        </>
+      ) : null}
     </div>
   );
 }

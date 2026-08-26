@@ -66,7 +66,10 @@ type Props = {
   /** enables in-canvas dragging and inline text editing */
   interactive?: boolean;
   scale?: number;
-  set?: <K extends keyof EditorState>(k: K, v: EditorState[K]) => void;
+  set?: <K extends keyof EditorState>(
+    k: K,
+    v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+  ) => void;
   selection?: { kind: "image" | "text" | "shape"; id: string }[];
   /** Fires whenever the canvas's own selection changes — lets a consumer
    * outside the canvas (index.tsx's top-docked text-selection toolbar)
@@ -272,6 +275,11 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     [selected, set, onSelectionChange],
   );
 
+  const unifiedLayers = useMemo(
+    () => getUnifiedLayers(s),
+    [s.layerOrder, s.texts, s.images, s.shapes],
+  );
+
   // Computes aggregate bounding box of all currently selected layers
   const selectedBounds = useMemo(() => {
     if (selected.length <= 1) return null;
@@ -367,31 +375,37 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
 
       const imageItems = g.items.filter((it) => it.kind === "image");
       if (imageItems.length) {
-        let next = getImageLayers(s);
-        for (const it of imageItems) {
-          next = next.map((img) =>
-            img.id === it.id ? { ...img, x: it.startX + dxPct, y: it.startY + dyPct } : img,
-          );
-        }
-        set("images", next);
+        set("images", (_, prevState) => {
+          let next = getImageLayers(prevState);
+          for (const it of imageItems) {
+            next = next.map((img) =>
+              img.id === it.id ? { ...img, x: it.startX + dxPct, y: it.startY + dyPct } : img,
+            );
+          }
+          return next;
+        });
       }
       const textItems = g.items.filter((it) => it.kind === "text");
       if (textItems.length) {
-        let next = getTextLayers(s);
-        for (const it of textItems) {
-          next = next.map((t) => (t.id === it.id ? { ...t, x: it.startX + dxPct, y: it.startY + dyPct } : t));
-        }
-        set("texts", next);
+        set("texts", (_, prevState) => {
+          let next = getTextLayers(prevState);
+          for (const it of textItems) {
+            next = next.map((t) => (t.id === it.id ? { ...t, x: it.startX + dxPct, y: it.startY + dyPct } : t));
+          }
+          return next;
+        });
       }
       const shapeItems = g.items.filter((it) => it.kind === "shape");
       if (shapeItems.length) {
-        let next = getShapeLayers(s);
-        for (const it of shapeItems) {
-          next = next.map((sh) =>
-            sh.id === it.id ? { ...sh, x: it.startX + dxPct, y: it.startY + dyPct } : sh,
-          );
-        }
-        set("shapes", next);
+        set("shapes", (_, prevState) => {
+          let next = getShapeLayers(prevState);
+          for (const it of shapeItems) {
+            next = next.map((sh) =>
+              sh.id === it.id ? { ...sh, x: it.startX + dxPct, y: it.startY + dyPct } : sh,
+            );
+          }
+          return next;
+        });
       }
     },
     [set],
@@ -435,16 +449,19 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         const selShapes = currentSelected.filter((sel) => sel.kind === "shape").map((sel) => sel.id);
 
         if (selImages.length) {
-          const next = getImageLayers(currentS).filter((img) => !selImages.includes(img.id) || img.locked);
-          set("images", next);
+          set("images", (_, prevS) =>
+            getImageLayers(prevS).filter((img) => !selImages.includes(img.id) || img.locked),
+          );
         }
         if (selTexts.length) {
-          const next = getTextLayers(currentS).filter((t) => !selTexts.includes(t.id) || t.locked);
-          set("texts", next);
+          set("texts", (_, prevS) =>
+            getTextLayers(prevS).filter((t) => !selTexts.includes(t.id) || t.locked),
+          );
         }
         if (selShapes.length) {
-          const next = getShapeLayers(currentS).filter((sh) => !selShapes.includes(sh.id) || sh.locked);
-          set("shapes", next);
+          set("shapes", (_, prevS) =>
+            getShapeLayers(prevS).filter((sh) => !selShapes.includes(sh.id) || sh.locked),
+          );
         }
 
         onSelectionChangeRef.current?.([]);
@@ -463,27 +480,33 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
 
       const selImages = currentSelected.filter((sel) => sel.kind === "image").map((sel) => sel.id);
       if (selImages.length) {
-        let next = getImageLayers(currentS);
-        for (const id of selImages) {
-          next = next.map((img) => (img.id === id && !img.locked ? { ...img, x: img.x + dx, y: img.y + dy } : img));
-        }
-        set("images", next);
+        set("images", (_, prevS) => {
+          let next = getImageLayers(prevS);
+          for (const id of selImages) {
+            next = next.map((img) => (img.id === id && !img.locked ? { ...img, x: img.x + dx, y: img.y + dy } : img));
+          }
+          return next;
+        });
       }
       const selTexts = currentSelected.filter((sel) => sel.kind === "text").map((sel) => sel.id);
       if (selTexts.length) {
-        let next = getTextLayers(currentS);
-        for (const id of selTexts) {
-          next = next.map((t) => (t.id === id && !t.locked ? { ...t, x: t.x + dx, y: t.y + dy } : t));
-        }
-        set("texts", next);
+        set("texts", (_, prevS) => {
+          let next = getTextLayers(prevS);
+          for (const id of selTexts) {
+            next = next.map((t) => (t.id === id && !t.locked ? { ...t, x: t.x + dx, y: t.y + dy } : t));
+          }
+          return next;
+        });
       }
       const selShapes = currentSelected.filter((sel) => sel.kind === "shape").map((sel) => sel.id);
       if (selShapes.length) {
-        let next = getShapeLayers(currentS);
-        for (const id of selShapes) {
-          next = next.map((sh) => (sh.id === id && !sh.locked ? { ...sh, x: sh.x + dx, y: sh.y + dy } : sh));
-        }
-        set("shapes", next);
+        set("shapes", (_, prevS) => {
+          let next = getShapeLayers(prevS);
+          for (const id of selShapes) {
+            next = next.map((sh) => (sh.id === id && !sh.locked ? { ...sh, x: sh.x + dx, y: sh.y + dy } : sh));
+          }
+          return next;
+        });
       }
 
       // Show live distance gap / snap guides during keyboard nudge
@@ -611,7 +634,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         ) : null}
 
         {/* Unified Layer Visual Content (Images, Shapes, Text graphics) */}
-        {getUnifiedLayers(s).map((layerRef, i) => {
+        {unifiedLayers.map((layerRef, i) => {
           if (layerRef.kind === "shape") {
             const shape = getShapeLayers(s).find((sh) => sh.id === layerRef.id);
             if (!shape) return null;
@@ -2049,25 +2072,7 @@ function getHandleVisualStyle(h: (typeof HANDLE_POSITIONS)[number], scale: numbe
 // positioned purely in canvas-space (percentages/pixels of the unscaled
 // design), untouched by the canvas's own outer `transform: scale(zoom)` —
 // so it has nothing to redraw when only `scale` changes. Without this, a
-// live pinch/wheel zoom re-rendered and reconciled every single layer on
-// canvas on every animation frame regardless of selection, which was the
-// biggest remaining contributor to zoom feeling laggy with more than a
-// couple of layers on the canvas. Wrapped around DraggableTextLayer/
-// DraggableImageLayer/DraggableShapeLayer below via React.memo.
-function scaleAwarePropsEqual<P extends { scale: number; selected: boolean }>(
-  prev: Readonly<P>,
-  next: Readonly<P>,
-): boolean {
-  for (const key in next) {
-    if (key === "scale") continue;
-    if (!Object.is((prev as Record<string, unknown>)[key], (next as Record<string, unknown>)[key])) {
-      return false;
-    }
-  }
-  if (prev.scale === next.scale) return true;
-  // scale itself changed — only a selected layer needs to re-render for it.
-  return !next.selected;
-}
+
 
 // The lowest unified-stack position occupied by any text layer. Shapes/
 // images explicitly pinned "Behind Text" (see the toggle in
@@ -2382,7 +2387,12 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   s: EditorState;
   scale: number;
   interactive: boolean;
-  set: (<K extends keyof EditorState>(k: K, v: EditorState[K]) => void) | undefined;
+  set:
+    | (<K extends keyof EditorState>(
+        k: K,
+        v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+      ) => void)
+    | undefined;
   selected: boolean;
   selectedCount: number;
   onSelect: (id: string, opts?: { toggle?: boolean }) => void;
@@ -2510,11 +2520,14 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const rotation = t.rotation ?? 0;
   const sRef = useRef(s);
   sRef.current = s;
+  const tRef = useRef(t);
+  tRef.current = t;
   const update = useCallback(
-    (patch: Partial<Omit<TextLayer, "id">>) => set?.("texts", withTextUpdated(sRef.current, t.id, patch)),
+    (patch: Partial<Omit<TextLayer, "id">>) =>
+      set?.("texts", (_, prevState) => withTextUpdated(prevState, t.id, patch)),
     [set, t.id],
   );
-  const remove = () => set?.("texts", withTextRemoved(s, t.id));
+  const remove = () => set?.("texts", (_, prevState) => withTextRemoved(prevState, t.id));
 
   // Every place that reads the live contentEditable DOM (typing, execCommand
   // formatting, a highlighted-range color/style change) and pushes it into
@@ -2546,48 +2559,56 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   // already-selected layer" behavior, unconditionally.
   const moveDragRef = useRef<{ px: number; py: number; x: number; y: number } | null>(null);
   const handleMovePointerDown = (e: React.PointerEvent) => {
-    // A second touch is also down — this is a pinch, not a drag (see
-    // suppressDragRef's own comment on QuoteCanvas's Props).
     if (suppressDragRef?.current) return;
     e.stopPropagation();
+    // Same reasoning as the unconditional capture at the top of
+    // editableNode's own handlePointerDown above — without it, a fast drag
+    // that outruns the browser viewport stops receiving the window-level
+    // pointermove/pointerup below, stranding this handle's drag mid-gesture.
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    moveDragRef.current = { px: t.x, py: t.y, x: e.clientX, y: e.clientY };
+    moveDragRef.current = { px: tRef.current.x, py: tRef.current.y, x: e.clientX, y: e.clientY };
     setIsMoving(true);
-  };
-  const handleMovePointerMove = (e: React.PointerEvent) => {
-    if (suppressDragRef?.current) {
+
+    const onMove = (moveEv: PointerEvent) => {
+      if (suppressDragRef?.current) {
+        onUp();
+        return;
+      }
+      const d = moveDragRef.current;
+      if (!d) return;
+      const dx = ((moveEv.clientX - d.x) / scale / sRef.current.width) * 100;
+      const dy = ((moveEv.clientY - d.y) / scale / sRef.current.height) * 100;
+      const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
+      const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
+      const otherElements = getAllCanvasElements(sRef.current);
+      const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+        currentId: t.id,
+        rawX: d.px + dx,
+        rawY: d.py + dy,
+        width,
+        height,
+        s: sRef.current,
+        otherElements,
+      });
+      onGuides(snapGuides);
+      set?.("texts", (_, prevState) => withTextUpdated(prevState, t.id, { x: nextX, y: nextY }));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       moveDragRef.current = null;
       setIsMoving(false);
-      return;
-    }
-    const d = moveDragRef.current;
-    if (!d) return;
-    e.stopPropagation();
-    const dx = ((e.clientX - d.x) / scale / s.width) * 100;
-    const dy = ((e.clientY - d.y) / scale / s.height) * 100;
-    const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
-    const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
-    const otherElements = getAllCanvasElements(sRef.current);
-    const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
-      currentId: t.id,
-      rawX: d.px + dx,
-      rawY: d.py + dy,
-      width,
-      height,
-      s: sRef.current,
-      otherElements,
-    });
-    onGuides(snapGuides);
-    set?.("texts", withTextUpdated(sRef.current, t.id, { x: nextX, y: nextY }));
+      onGuides({ vCenter: false, hCenter: false });
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
-  const handleMovePointerUp = (e: React.PointerEvent) => {
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch { }
-    moveDragRef.current = null;
-    setIsMoving(false);
-    onGuides({ vCenter: false, hCenter: false });
-  };
+  const handleMovePointerMove = undefined;
+  const handleMovePointerUp = undefined;
 
   const applyFormat = (cmd: RichFormatCmd) => {
     const el = editableRef.current;
@@ -2906,6 +2927,17 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             // (see suppressDragRef's own comment on QuoteCanvas's Props).
             if (suppressDragRef?.current) return;
             e.stopPropagation();
+            // Capture unconditionally, before the shiftKey/locked checks —
+            // see the matching comment in DraggableShapeLayer's
+            // handlePointerDown for why every drag-starting branch below
+            // needs this (a fast drag can outrun the layer's own bounds,
+            // or the browser viewport entirely; without capture the
+            // window-level pointermove/pointerup listeners added below
+            // simply stop firing once that happens, stranding the drag
+            // mid-gesture — which is what "losing" a dragged item looks
+            // like). Harmless on the shiftKey/locked paths that don't
+            // start a drag at all; pointerup releases it automatically.
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
             if (e.shiftKey) {
               onSelect(t.id, { toggle: true });
               return;
@@ -2925,7 +2957,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             // group at once — see the matching block's comment in
             // DraggableShapeLayer's handlePointerDown.
             if (e.altKey && selected && selectedCount > 1) {
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               groupDraggingRef.current = true;
               onGroupDragStart(e.clientX, e.clientY, true);
               return;
@@ -2935,7 +2966,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               const dup = withTextDuplicated(sRef.current, t.id);
               set("texts", dup.list);
               onSelect(dup.newId);
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               dragRef.current = {
                 px: t.x,
                 py: t.y,
@@ -2950,79 +2980,71 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             if (!selected) {
               onSelect(t.id);
             }
-            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
             if (selected && selectedCount > 1) {
               groupDraggingRef.current = true;
               onGroupDragStart(e.clientX, e.clientY);
             } else {
               dragRef.current = {
-                px: t.x,
-                py: t.y,
+                px: tRef.current.x,
+                py: tRef.current.y,
                 x: e.clientX,
                 y: e.clientY,
                 activeId: t.id,
                 hasDuplicated: false,
               };
             }
+
+            const onMove = (moveEv: PointerEvent) => {
+              if (suppressDragRef?.current) {
+                onUp();
+                return;
+              }
+              if (groupDraggingRef.current) {
+                onGroupDragMove(moveEv.clientX, moveEv.clientY);
+                return;
+              }
+              const d = dragRef.current;
+              if (!d) return;
+
+              const dx = ((moveEv.clientX - d.x) / scale / sRef.current.width) * 100;
+              const dy = ((moveEv.clientY - d.y) / scale / sRef.current.height) * 100;
+              const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
+              const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
+              const otherElements = getAllCanvasElements(sRef.current);
+              const targetId = d.activeId || t.id;
+              const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+                currentId: targetId,
+                rawX: d.px + dx,
+                rawY: d.py + dy,
+                width,
+                height,
+                s: sRef.current,
+                otherElements,
+              });
+              onGuides(snapGuides);
+              set?.("texts", (_, prevState) => withTextUpdated(prevState, targetId, { x: nextX, y: nextY }));
+            };
+
+            const onUp = () => {
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", onUp);
+              window.removeEventListener("pointercancel", onUp);
+              dragRef.current = null;
+              if (groupDraggingRef.current) {
+                groupDraggingRef.current = false;
+                onGroupDragEnd();
+              }
+              setIsMoving(false);
+              onGuides({ vCenter: false, hCenter: false });
+            };
+
+            window.addEventListener("pointermove", onMove, { passive: false });
+            window.addEventListener("pointerup", onUp);
+            window.addEventListener("pointercancel", onUp);
           };
 
-      const handlePointerMove =
-        canInteract && !locked && !isEditing
-          ? (e: React.PointerEvent) => {
-            // A second finger joined mid-drag — cancel cleanly (see
-            // handlePointerDown's own check above).
-            if (suppressDragRef?.current) {
-              dragRef.current = null;
-              groupDraggingRef.current = false;
-              setIsMoving(false);
-              return;
-            }
-            if (groupDraggingRef.current) {
-              e.stopPropagation();
-              onGroupDragMove(e.clientX, e.clientY);
-              return;
-            }
-            const d = dragRef.current;
-            if (!d) return;
-            e.stopPropagation();
-
-            if (e.altKey && !d.hasDuplicated && set) {
-              const dup = withTextDuplicated(sRef.current, t.id);
-              set("texts", dup.list);
-              onSelect(dup.newId);
-              d.activeId = dup.newId;
-              d.hasDuplicated = true;
-            }
-
-            const dx = ((e.clientX - d.x) / scale / s.width) * 100;
-            const dy = ((e.clientY - d.y) / scale / s.height) * 100;
-            const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
-            const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
-            const otherElements = getAllCanvasElements(s);
-            const targetId = d.activeId || t.id;
-            const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
-              currentId: targetId,
-              rawX: d.px + dx,
-              rawY: d.py + dy,
-              width,
-              height,
-              s,
-              otherElements,
-            });
-            onGuides(snapGuides);
-            set?.("texts", withTextUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
-          }
-          : undefined;
-
-      const handlePointerUp = () => {
-        dragRef.current = null;
-        if (groupDraggingRef.current) {
-          groupDraggingRef.current = false;
-          onGroupDragEnd();
-        }
-        setIsMoving(false);
-        onGuides({ vCenter: false, hCenter: false });
-      };
+      const handlePointerMove = undefined;
+      const handlePointerUp = undefined;
 
       const handleDoubleClick = (e: React.MouseEvent) => {
         if (!canInteract || locked) return;
@@ -3189,15 +3211,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               : t.verticalAlign === "bottom"
                 ? "flex-end"
                 : "flex-start",
-          // The "float above everything" boost only applies to a SOLE
-          // selection (actively being edited, wants to stay visible over
-          // clutter) — a multi-selection needs to respect the plain
-          // layerOrder-based stacking instead, or Arrange (Forward/
-          // Backward/To Front/To Back in the multi-select toolbar) would
-          // have no visible effect: every selected layer would always
-          // render above every unselected one regardless of where
-          // withUnifiedLayersReordered actually placed it.
-          zIndex: (selected && selectedCount === 1 ? 80 : 10) + index,
+          // zIndex directly reflects the unified layerOrder index (10 + index)
+          // so layer arrangement changes take effect immediately in real time,
+          // while the selection handles & outline portal (controlsOverlayEl)
+          // renders on top at zIndex 80+ regardless.
+          zIndex: 10 + index,
           touchAction: "none",
           outline: "none",
         }}
@@ -3426,7 +3444,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         : null}
     </>
   );
-}, scaleAwarePropsEqual);
+});
 
 const DraggableImageLayer = memo(function DraggableImageLayer({
   img,
@@ -3450,7 +3468,12 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   s: EditorState;
   scale: number;
   interactive: boolean;
-  set: (<K extends keyof EditorState>(k: K, v: EditorState[K]) => void) | undefined;
+  set:
+    | (<K extends keyof EditorState>(
+        k: K,
+        v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+      ) => void)
+    | undefined;
   selected: boolean;
   selectedCount: number;
   onSelect: (id: string, opts?: { toggle?: boolean }) => void;
@@ -3528,11 +3551,14 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   const locked = img.locked ?? false;
   const hasExplicitHeight = img.height !== undefined;
   const rotation = img.rotation ?? 0;
-  const update = (patch: Partial<Omit<ImageLayer, "id">>) => set?.("images", withImageUpdated(s, img.id, patch));
-  const remove = () => set?.("images", withImageRemoved(s, img.id));
+  const imgRef = useRef(img);
+  imgRef.current = img;
+  const update = (patch: Partial<Omit<ImageLayer, "id">>) =>
+    set?.("images", (_, prevState) => withImageUpdated(prevState, img.id, patch));
+  const remove = () => set?.("images", (_, prevState) => withImageRemoved(prevState, img.id));
   const duplicate = () => {
     if (!set) return;
-    const dup = withImageDuplicated(s, img.id);
+    const dup = withImageDuplicated(sRef.current, img.id);
     set("images", dup.list);
     onSelect(dup.newId);
   };
@@ -3543,6 +3569,15 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
       // suppressDragRef's own comment on QuoteCanvas's Props).
       if (suppressDragRef?.current) return;
       e.stopPropagation();
+      // Capture unconditionally, before the shiftKey/locked checks — see
+      // the matching comment in DraggableTextLayer/DraggableShapeLayer's
+      // handlePointerDown for why every drag-starting branch below needs
+      // this (a fast drag can outrun the layer's own bounds, or the
+      // browser viewport entirely; without capture the window-level
+      // pointermove/pointerup listeners added below simply stop firing
+      // once that happens, stranding the drag mid-gesture — which is what
+      // "losing" a dragged item looks like).
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       if (e.shiftKey) {
         onSelect(img.id, { toggle: true });
         return;
@@ -3558,7 +3593,6 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
       // at once — see the matching block's comment in DraggableShapeLayer's
       // handlePointerDown.
       if (e.altKey && selected && selectedCount > 1) {
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         groupDraggingRef.current = true;
         onGroupDragStart(e.clientX, e.clientY, true);
         return;
@@ -3568,7 +3602,6 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
         const dup = withImageDuplicated(sRef.current, img.id);
         set("images", dup.list);
         onSelect(dup.newId);
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         dragRef.current = {
           px: img.x,
           py: img.y,
@@ -3581,82 +3614,72 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
       }
 
       if (!selected) onSelect(img.id);
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       if (selected && selectedCount > 1) {
         groupDraggingRef.current = true;
         onGroupDragStart(e.clientX, e.clientY);
       } else {
         dragRef.current = {
-          px: img.x,
-          py: img.y,
+          px: imgRef.current.x,
+          py: imgRef.current.y,
           x: e.clientX,
           y: e.clientY,
           activeId: img.id,
           hasDuplicated: false,
         };
       }
-    }
-    : undefined;
 
-  const handlePointerMove = canInteract && !locked
-    ? (e: React.PointerEvent) => {
-      // A second finger joined mid-drag — cancel cleanly (see
-      // handlePointerDown's own check above).
-      if (suppressDragRef?.current) {
+      const onMove = (moveEv: PointerEvent) => {
+        if (suppressDragRef?.current) {
+          onUp();
+          return;
+        }
+        if (groupDraggingRef.current) {
+          onGroupDragMove(moveEv.clientX, moveEv.clientY);
+          return;
+        }
+        const d = dragRef.current;
+        if (!d) return;
+
+        const dx = ((moveEv.clientX - d.x) / scale / sRef.current.width) * 100;
+        const dy = ((moveEv.clientY - d.y) / scale / sRef.current.height) * 100;
+        const width = img.size;
+        const height = img.height ?? (naturalAspect !== null ? img.size * naturalAspect : img.size);
+        const otherElements = getAllCanvasElements(sRef.current);
+        const targetId = d.activeId || img.id;
+        const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+          currentId: targetId,
+          rawX: d.px + dx,
+          rawY: d.py + dy,
+          width,
+          height,
+          s: sRef.current,
+          otherElements,
+        });
+        onGuides(snapGuides);
+        set?.("images", (_, prevState) => withImageUpdated(prevState, targetId, { x: nextX, y: nextY }));
+      };
+
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
         dragRef.current = null;
-        groupDraggingRef.current = false;
+        if (groupDraggingRef.current) {
+          groupDraggingRef.current = false;
+          onGroupDragEnd();
+        }
         setIsMoving(false);
-        return;
-      }
-      if (groupDraggingRef.current) {
-        e.stopPropagation();
-        onGroupDragMove(e.clientX, e.clientY);
-        return;
-      }
-      const d = dragRef.current;
-      if (!d) return;
-      e.stopPropagation();
+        onGuides({ vCenter: false, hCenter: false });
+      };
 
-      if (e.altKey && !d.hasDuplicated && set) {
-        const dup = withImageDuplicated(sRef.current, img.id);
-        set("images", dup.list);
-        onSelect(dup.newId);
-        d.activeId = dup.newId;
-        d.hasDuplicated = true;
-      }
-
-      const dx = ((e.clientX - d.x) / scale / sRef.current.width) * 100;
-      const dy = ((e.clientY - d.y) / scale / sRef.current.height) * 100;
-      const width = img.size;
-      const height = img.height ?? (naturalAspect !== null ? img.size * naturalAspect : img.size);
-      const otherElements = getAllCanvasElements(sRef.current);
-      const targetId = d.activeId || img.id;
-      const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
-        currentId: targetId,
-        rawX: d.px + dx,
-        rawY: d.py + dy,
-        width,
-        height,
-        s: sRef.current,
-        otherElements,
-      });
-      onGuides(snapGuides);
-      set?.("images", withImageUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
+      window.addEventListener("pointermove", onMove, { passive: false });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
     }
     : undefined;
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch { }
-    dragRef.current = null;
-    if (groupDraggingRef.current) {
-      groupDraggingRef.current = false;
-      onGroupDragEnd();
-    }
-    setIsMoving(false);
-    onGuides({ vCenter: false, hCenter: false });
-  };
+  const handlePointerMove = undefined;
+  const handlePointerUp = undefined;
 
   if (img.hidden) return null;
 
@@ -3680,14 +3703,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
               ? `${img.height}px`
               : undefined,
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-          // See the matching comment on DraggableTextLayer's own zIndex for
-          // why this only boosts a SOLE selection, not every selected layer
-          // in a multi-selection.
-          zIndex: selected && selectedCount === 1
-            ? 80 + index
-            : img.layer === "behind"
-              ? 10 + Math.min(index, textFloorIndex(s) - 1)
-              : 10 + index,
+          zIndex: 10 + index,
           touchAction: "none",
           userSelect: "none",
           outline: "none",
@@ -3930,7 +3946,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
         : null}
     </>
   );
-}, scaleAwarePropsEqual);
+});
 
 const DraggableShapeLayer = memo(function DraggableShapeLayer({
   shape,
@@ -3954,7 +3970,12 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   s: EditorState;
   scale: number;
   interactive: boolean;
-  set: (<K extends keyof EditorState>(k: K, v: EditorState[K]) => void) | undefined;
+  set:
+    | (<K extends keyof EditorState>(
+        k: K,
+        v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+      ) => void)
+    | undefined;
   selected: boolean;
   selectedCount: number;
   onSelect: (id: string, opts?: { toggle?: boolean }) => void;
@@ -4008,12 +4029,14 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const locked = shape.locked ?? false;
   const effectiveHeight = shape.height ?? shape.size;
   const rotation = shape.rotation ?? 0;
+  const shapeRef = useRef(shape);
+  shapeRef.current = shape;
   const update = (patch: Partial<Omit<ShapeLayer, "id" | "kind">>) =>
-    set?.("shapes", withShapeUpdated(s, shape.id, patch));
-  const remove = () => set?.("shapes", withShapeRemoved(s, shape.id));
+    set?.("shapes", (_, prevState) => withShapeUpdated(prevState, shape.id, patch));
+  const remove = () => set?.("shapes", (_, prevState) => withShapeRemoved(prevState, shape.id));
   const duplicate = () => {
     if (!set) return;
-    const dup = withShapeDuplicated(s, shape.id);
+    const dup = withShapeDuplicated(sRef.current, shape.id);
     set("shapes", dup.list);
     onSelect(dup.newId);
   };
@@ -4043,104 +4066,72 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
       if (!selected) {
         onSelect(shape.id);
       }
-      // Alt+drag on an existing multi-selection duplicates the whole group
-      // at once (see beginGroupDrag's `duplicate` param) — checked before
-      // the single-item Alt+drag branch below, same "was this already part
-      // of a multi-selection" condition the plain (non-Alt) group-vs-single
-      // drag decision right after it already uses.
-      if (e.altKey && selected && selectedCount > 1) {
-        groupDraggingRef.current = true;
-        onGroupDragStart(e.clientX, e.clientY, true);
-        return;
-      }
-      if (e.altKey && set) {
-        const dup = withShapeDuplicated(sRef.current, shape.id);
-        set("shapes", dup.list);
-        onSelect(dup.newId);
-        dragRef.current = {
-          px: shape.x,
-          py: shape.y,
-          x: e.clientX,
-          y: e.clientY,
-          activeId: dup.newId,
-          hasDuplicated: true,
-        };
-        return;
-      }
       if (selected && selectedCount > 1) {
         groupDraggingRef.current = true;
         onGroupDragStart(e.clientX, e.clientY);
       } else {
         dragRef.current = {
-          px: shape.x,
-          py: shape.y,
+          px: shapeRef.current.x,
+          py: shapeRef.current.y,
           x: e.clientX,
           y: e.clientY,
           activeId: shape.id,
           hasDuplicated: false,
         };
       }
-    }
-    : undefined;
 
-  const handlePointerMove = canInteract && !locked
-    ? (e: React.PointerEvent) => {
-      // A second finger joined mid-drag (drag started before the pinch was
-      // detected) — cancel cleanly rather than let the layer keep
-      // reacting to this finger while the canvas is also being pinched.
-      if (suppressDragRef?.current) {
+      const onMove = (moveEv: PointerEvent) => {
+        if (suppressDragRef?.current) {
+          onUp();
+          return;
+        }
+        if (groupDraggingRef.current) {
+          onGroupDragMove(moveEv.clientX, moveEv.clientY);
+          return;
+        }
+        const d = dragRef.current;
+        if (!d) return;
+
+        const dx = ((moveEv.clientX - d.x) / scale / sRef.current.width) * 100;
+        const dy = ((moveEv.clientY - d.y) / scale / sRef.current.height) * 100;
+        const width = shape.size;
+        const height = effectiveHeight;
+        const otherElements = getAllCanvasElements(sRef.current);
+        const targetId = d.activeId || shape.id;
+        const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
+          currentId: targetId,
+          rawX: d.px + dx,
+          rawY: d.py + dy,
+          width,
+          height,
+          s: sRef.current,
+          otherElements,
+        });
+        onGuides(snapGuides);
+        set?.("shapes", (_, prevState) => withShapeUpdated(prevState, targetId, { x: nextX, y: nextY }));
+      };
+
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
         dragRef.current = null;
-        groupDraggingRef.current = false;
+        if (groupDraggingRef.current) {
+          groupDraggingRef.current = false;
+          onGroupDragEnd();
+        }
         setIsMoving(false);
-        return;
-      }
-      if (groupDraggingRef.current) {
-        e.stopPropagation();
-        onGroupDragMove(e.clientX, e.clientY);
-        return;
-      }
-      const d = dragRef.current;
-      if (!d) return;
-      e.stopPropagation();
-      if (e.altKey && !d.hasDuplicated && set) {
-        const dup = withShapeDuplicated(sRef.current, shape.id);
-        set("shapes", dup.list);
-        onSelect(dup.newId);
-        d.activeId = dup.newId;
-        d.hasDuplicated = true;
-      }
-      const dx = ((e.clientX - d.x) / scale / sRef.current.width) * 100;
-      const dy = ((e.clientY - d.y) / scale / sRef.current.height) * 100;
-      const width = shape.size;
-      const height = effectiveHeight;
-      const otherElements = getAllCanvasElements(sRef.current);
-      const targetId = d.activeId || shape.id;
-      const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
-        currentId: targetId,
-        rawX: d.px + dx,
-        rawY: d.py + dy,
-        width,
-        height,
-        s: sRef.current,
-        otherElements,
-      });
-      onGuides(snapGuides);
-      set?.("shapes", withShapeUpdated(sRef.current, targetId, { x: nextX, y: nextY }));
+        onGuides({ vCenter: false, hCenter: false });
+      };
+
+      window.addEventListener("pointermove", onMove, { passive: false });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
     }
     : undefined;
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch { }
-    dragRef.current = null;
-    if (groupDraggingRef.current) {
-      groupDraggingRef.current = false;
-      onGroupDragEnd();
-    }
-    setIsMoving(false);
-    onGuides({ vCenter: false, hCenter: false });
-  };
+  const handlePointerMove = undefined;
+  const handlePointerUp = undefined;
 
   if (shape.hidden) return null;
 
@@ -4165,14 +4156,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               ? effectiveHeight
               : 200,
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
-          // See the matching comment on DraggableTextLayer's own zIndex for
-          // why this only boosts a SOLE selection, not every selected layer
-          // in a multi-selection.
-          zIndex: selected && selectedCount === 1
-            ? 80 + index
-            : shape.layer === "behind"
-              ? 10 + Math.min(index, textFloorIndex(s) - 1)
-              : 10 + index,
+          zIndex: 10 + index,
           touchAction: "none",
           userSelect: "none",
           outline: "none",
@@ -4389,4 +4373,4 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
         : null}
     </>
   );
-}, scaleAwarePropsEqual);
+});

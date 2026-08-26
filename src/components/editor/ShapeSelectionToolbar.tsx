@@ -3,7 +3,11 @@ import {
   Copy01Icon,
   Delete02Icon,
   EyeIcon,
+  LayerBringForwardIcon,
+  LayerBringToFrontIcon,
   Layers01Icon,
+  LayerSendBackwardIcon,
+  LayerSendToBackIcon,
   SparklesIcon,
   SquareLock02Icon,
   SquareUnlock02Icon,
@@ -21,7 +25,7 @@ import {
 } from "./types";
 import {
   Chip,
-  ColorInput,
+  ColorPickerContent,
   DragHandle,
   Field,
   FloatingDropdown,
@@ -35,6 +39,8 @@ import { cn } from "@/lib/utils";
 interface ShapeSelectionToolbarProps {
   layer: ShapeLayer;
   onUpdate: (patch: Partial<Omit<ShapeLayer, "id">>) => void;
+  onArrange?: (direction: "forward" | "backward" | "front" | "back") => void;
+  canArrange?: { canForward: boolean; canBackward: boolean; canFront: boolean; canBack: boolean };
   onDuplicate?: () => void;
   onDelete?: () => void;
   onToggleLock?: () => void;
@@ -46,6 +52,8 @@ interface ShapeSelectionToolbarProps {
 export function ShapeSelectionToolbar({
   layer,
   onUpdate,
+  onArrange,
+  canArrange,
   onDuplicate,
   onDelete,
   onToggleLock,
@@ -57,6 +65,7 @@ export function ShapeSelectionToolbar({
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
+  const [arrangeOpen, setArrangeOpen] = useState(false);
 
   // Each dropdown opens unpinned by default — see DragHandle's own comment
   // on `onTogglePin` for what that means.
@@ -65,6 +74,7 @@ export function ShapeSelectionToolbar({
   const [radiusPinned, setRadiusPinned] = useState(false);
   const [opacityPinned, setOpacityPinned] = useState(false);
   const [shadowPinned, setShadowPinned] = useState(false);
+  const [arrangePinned, setArrangePinned] = useState(false);
 
   // Every popover below can be dragged to wherever the user wants — see
   // useDraggableOffset's own comment in ui.tsx for why the offset applies
@@ -74,17 +84,20 @@ export function ShapeSelectionToolbar({
   const radiusDrag = useDraggableOffset();
   const opacityDrag = useDraggableOffset();
   const shadowDrag = useDraggableOffset();
+  const arrangeDrag = useDraggableOffset();
 
   const shapeTriggerRef = useRef<HTMLButtonElement>(null);
   const styleTriggerRef = useRef<HTMLButtonElement>(null);
   const radiusTriggerRef = useRef<HTMLButtonElement>(null);
   const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
+  const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
   const shapeAnchor = useStableAnchor(shapePickerOpen, shapeTriggerRef);
   const styleAnchor = useStableAnchor(styleOpen, styleTriggerRef);
   const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
   const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
+  const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
 
   // Each popover blocks Radix's own click/focus-outside auto-dismiss (see
   // onPointerDownOutside/onInteractOutside below) — a fast drag was tripping
@@ -97,7 +110,8 @@ export function ShapeSelectionToolbar({
   // wherever the user actually left it.
 
   // See the matching block's comment in TextSelectionToolbar.tsx.
-  const anyPopoverOpen = shapePickerOpen || styleOpen || radiusOpen || opacityOpen || shadowOpen;
+  const anyPopoverOpen =
+    shapePickerOpen || styleOpen || radiusOpen || opacityOpen || shadowOpen || arrangeOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,13 +313,32 @@ export function ShapeSelectionToolbar({
               </div>
             </div>
 
-            {/* Color Picker for Solid, Glass, Outline */}
+            {/* Color Picker for Solid, Glass, Outline — ColorPickerContent
+                directly, NOT the packaged ColorInput/ColorPicker export.
+                That export owns its own separate Radix Popover, which
+                portals its hue/saturation area straight to <body> as a
+                sibling of this whole Fill & Style panel, not a DOM
+                descendant of it. FloatingDropdown's own outside-click
+                dismissal (see its handlePointerDown) closes on anything
+                that isn't inside its panelRef — a real `Node.contains()`
+                check, blind to React's component tree, so it can't tell
+                that click "belongs" to this panel despite portaling
+                elsewhere in the DOM. Net effect: clicking the color swatch,
+                or anything inside the resulting picker, read as an outside
+                click and instantly collapsed the whole panel — this is why
+                changing a shape's fill/outline color did nothing visible.
+                Embedding the picker's content directly here (already inside
+                this dropdown, no second nested popover needed) avoids the
+                extra portal entirely — same fix already applied to Text
+                Color and the Background toolbar's Solid swatch (see their
+                own matching comments) and to MultiShapeSelectionToolbar's
+                batch color control just below in this same file's sibling. */}
             {currentStyle !== "gradient" ? (
               <div className="space-y-1.5">
                 <span className="text-xs font-semibold text-foreground">
                   {currentStyle === "outline" ? "Outline Color" : "Fill Color"}
                 </span>
-                <ColorInput
+                <ColorPickerContent
                   value={layer.color ?? "#0021ff"}
                   onChange={(c) => onUpdate({ color: c })}
                 />
@@ -614,13 +647,15 @@ export function ShapeSelectionToolbar({
                   />
                 </Field>
 
-                <div className="flex items-center justify-between border-t border-border/40 pt-2.5">
+                {/* ColorPickerContent directly, not ColorInput — same
+                    nested-popover-escapes-FloatingDropdown's outside-click
+                    check bug as the Fill Color picker above (see its own
+                    comment for the full mechanism). */}
+                <div className="space-y-1.5 border-t border-border/40 pt-2.5">
                   <span className="text-xs font-semibold text-muted-foreground">Shadow Color</span>
-                  <ColorInput
+                  <ColorPickerContent
                     value={layer.shadowColor ?? "#000000"}
                     onChange={(c) => onUpdate({ shadowColor: c })}
-                    showHex={true}
-                    swatchClassName="h-7 w-7 rounded-lg border-border"
                   />
                 </div>
               </div>
@@ -656,17 +691,106 @@ export function ShapeSelectionToolbar({
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
-      {/* 7. Layer Stacking Order */}
-      <AppTooltip content={layer.layer === "behind" ? "Layer is behind text" : "Layer is in front"}>
-        <button
-          type="button"
-          onClick={() => onUpdate({ layer: layer.layer === "behind" ? "front" : "behind" })}
-          className={cn(btnClass, "gap-1.5 text-xs")}
-        >
-          <Layers01Icon size={15} />
-          <span>{layer.layer === "behind" ? "Behind Text" : "In Front"}</span>
-        </button>
-      </AppTooltip>
+      {/* 7. Arrange Layer Stacking Order */}
+      {onArrange ? (
+        <>
+          <AppTooltip content="Arrange layer order">
+            <button
+              ref={arrangeTriggerRef}
+              type="button"
+              onClick={() => {
+                setArrangeOpen((wasOpen) => {
+                  if (!wasOpen) {
+                    arrangeDrag.reset();
+                    setArrangePinned(false);
+                  }
+                  return !wasOpen;
+                });
+              }}
+              className={cn(btnClass, arrangeOpen && "bg-secondary text-primary")}
+            >
+              <LayerBringToFrontIcon size={15} />
+              <span className="text-xs">Arrange</span>
+            </button>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={arrangeAnchor}
+            offset={arrangeDrag.offset}
+            align="center"
+            pinned={arrangePinned}
+            onRequestClose={() => setArrangeOpen(false)}
+            triggerRef={arrangeTriggerRef}
+          >
+            <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl">
+              <DragHandle
+                label="Arrange Layer"
+                {...arrangeDrag.dragHandleProps}
+                pinned={arrangePinned}
+                onTogglePin={() => setArrangePinned((p) => !p)}
+                onClose={() => setArrangeOpen(false)}
+              />
+              <div className="grid grid-cols-2 gap-2 p-3">
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canForward}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("forward")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canForward && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerBringForwardIcon size={16} />
+                  Forward
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canBackward}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("backward")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canBackward && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerSendBackwardIcon size={16} />
+                  Backward
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canFront}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("front")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canFront && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerBringToFrontIcon size={16} />
+                  To front
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canBack}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("back")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canBack && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerSendToBackIcon size={16} />
+                  To back
+                </button>
+              </div>
+            </div>
+          </FloatingDropdown>
+        </>
+      ) : null}
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

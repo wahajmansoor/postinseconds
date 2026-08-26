@@ -303,19 +303,15 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
   return (
     <Dialog
       open={open}
-      onOpenChange={() => {
-        // No-op, deliberately — same hardening as ImageCropDialog. The
-        // canvas's own pointer-capture-driven drawing gesture (see
-        // handlePointerDown) was tripping Radix's dismiss-on-outside-
-        // interaction logic even with the guards below in place, closing
-        // the dialog mid-stroke. Only the explicit Cancel/Apply buttons
-        // below are allowed to actually close this.
+      onOpenChange={(v) => {
+        if (!v && !isDrawingRef.current) {
+          onClose();
+        }
       }}
     >
       <DialogContent
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
         className="sm:max-w-[580px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl"
       >
         <DialogHeader>

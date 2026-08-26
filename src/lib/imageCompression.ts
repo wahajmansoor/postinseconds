@@ -40,10 +40,14 @@ export function compressImageFile(file: File, opts: CompressImageOptions = {}): 
   const maxDimension = opts.maxDimension ?? DEFAULT_MAX_DIMENSION;
   const quality = opts.quality ?? DEFAULT_QUALITY;
 
-  // Animated GIFs: canvas re-encoding only ever keeps one frame, so skip
-  // straight to a plain (uncompressed) data URL instead of risking
-  // silently freezing the animation.
-  if (file.type === "image/gif") {
+  // Animated GIFs and SVGs: canvas re-encoding only ever keeps one frame for GIFs,
+  // and rasterizes vector SVGs to lossy JPEG (which turns transparent areas black).
+  // Pass both through directly as plain uncompressed data URLs.
+  if (
+    file.type === "image/gif" ||
+    file.type === "image/svg+xml" ||
+    file.name.toLowerCase().endsWith(".svg")
+  ) {
     return readAsDataUrl(file);
   }
 

@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import { ColorPickerContent } from "@/components/ui/color-picker";
 import {
   Chip,
-  ColorInput,
   DragHandle,
   Field,
   FloatingDropdown,
@@ -292,19 +291,28 @@ export function BackgroundSelectionToolbar({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="Start color">
-                    <ColorInput value={gradStart} onChange={setGradStart} />
-                  </Field>
-                  <Field label="End color">
-                    <ColorInput value={gradEnd} onChange={setGradEnd} />
-                  </Field>
-                </div>
+                {/* ColorPickerContent directly (stacked, not the 2-column
+                    swatch grid this used to be) — not ColorInput/ColorPicker,
+                    whose own separate Radix Popover portals to <body> as a
+                    DOM sibling of this whole Gradient dropdown, not a
+                    descendant of it. FloatingDropdown's outside-click
+                    dismissal is a real Node.contains() check against its own
+                    panel, blind to React's component tree, so any click
+                    inside that nested portal read as "outside" and instantly
+                    collapsed this entire panel — same bug, same fix as
+                    ShapeSelectionToolbar/ImageSelectionToolbar's Shadow
+                    Color (see their comments for the full mechanism). */}
+                <Field label="Start color">
+                  <ColorPickerContent value={gradStart} onChange={setGradStart} />
+                </Field>
+                <Field label="End color">
+                  <ColorPickerContent value={gradEnd} onChange={setGradEnd} />
+                </Field>
 
                 <Toggle checked={useMid} onChange={setUseMid} label="Add 3rd accent color stop" />
                 {useMid ? (
                   <Field label="Middle color stop">
-                    <ColorInput value={gradMid} onChange={setGradMid} />
+                    <ColorPickerContent value={gradMid} onChange={setGradMid} />
                   </Field>
                 ) : null}
 

@@ -57,14 +57,18 @@ export function sanitizeTextHtml(raw: string): string {
   });
 }
 
-// Shared by every color-with-opacity computation in this file (box/shape
-// fills, shadows) — the single source of truth so QuoteCanvas doesn't need
-// its own copy.
 export function hexToRgba(hex: string, alpha: number): string {
+  if (!hex) return `rgba(0,0,0,${alpha})`;
+  if (hex.startsWith("rgba")) {
+    return hex.replace(/rgba\(([^)]+),\s*[\d.]+\)/, `rgba($1, ${alpha})`);
+  }
+  if (hex.startsWith("rgb")) {
+    return hex.replace(/rgb\(([^)]+)\)/, `rgba($1, ${alpha})`);
+  }
   const h = hex.replace("#", "");
   const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
   const n = parseInt(full, 16);
-  if (Number.isNaN(n)) return `rgba(0,0,0,${alpha})`;
+  if (Number.isNaN(n)) return hex;
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
@@ -2265,23 +2269,36 @@ export function withShadowAdded(s: EditorState, preset: ShadowPreset): { list: S
 export type UnifiedLayerRef = { kind: "text" | "image" | "shape"; id: string };
 
 export function getUnifiedLayers(s: EditorState): UnifiedLayerRef[] {
-  const texts = (s.texts ?? []).map((t) => ({ kind: "text" as const, id: t.id }));
-  const images = (s.images ?? []).map((img) => ({ kind: "image" as const, id: img.id }));
-  const shapes = (s.shapes ?? []).map((sh) => ({ kind: "shape" as const, id: sh.id }));
+  const texts = s.texts ?? [];
+  const images = s.images ?? [];
+  const shapes = s.shapes ?? [];
+  const totalCount = texts.length + images.length + shapes.length;
+
+  if (totalCount === 0) return [];
 
   const allKnown = new Map<string, UnifiedLayerRef>();
-  [...texts, ...images, ...shapes].forEach((ref) => allKnown.set(ref.id, ref));
+  for (let i = 0; i < texts.length; i++) allKnown.set(texts[i]!.id, { kind: "text", id: texts[i]!.id });
+  for (let i = 0; i < images.length; i++) allKnown.set(images[i]!.id, { kind: "image", id: images[i]!.id });
+  for (let i = 0; i < shapes.length; i++) allKnown.set(shapes[i]!.id, { kind: "shape", id: shapes[i]!.id });
 
   if (!s.layerOrder || s.layerOrder.length === 0) {
-    const shapesBehind = (s.shapes ?? []).filter((sh) => sh.layer === "behind").map((sh) => ({ kind: "shape" as const, id: sh.id }));
-    const shapesFront = (s.shapes ?? []).filter((sh) => sh.layer !== "behind").map((sh) => ({ kind: "shape" as const, id: sh.id }));
-    return [...shapesBehind, ...images, ...shapesFront, ...texts];
+    const shapesBehind: UnifiedLayerRef[] = [];
+    const shapesFront: UnifiedLayerRef[] = [];
+    for (let i = 0; i < shapes.length; i++) {
+      const sh = shapes[i]!;
+      if (sh.layer === "behind") shapesBehind.push({ kind: "shape", id: sh.id });
+      else shapesFront.push({ kind: "shape", id: sh.id });
+    }
+    const imgRefs: UnifiedLayerRef[] = images.map((img) => ({ kind: "image" as const, id: img.id }));
+    const textRefs: UnifiedLayerRef[] = texts.map((t) => ({ kind: "text" as const, id: t.id }));
+    return [...shapesBehind, ...imgRefs, ...shapesFront, ...textRefs];
   }
 
   const result: UnifiedLayerRef[] = [];
   const seen = new Set<string>();
 
-  for (const item of s.layerOrder) {
+  for (let i = 0; i < s.layerOrder.length; i++) {
+    const item = s.layerOrder[i]!;
     if (allKnown.has(item.id)) {
       result.push(item);
       seen.add(item.id);
@@ -2306,10 +2323,6 @@ export function withUnifiedLayerReordered(
   const idx = currentStack.findIndex((item) => item.id === id);
   if (idx === -1) return { layerOrder: currentStack };
 
-  // Stack index 0 is bottom-most on canvas, index N-1 is top-most on canvas.
-  // In the Layers Panel UI, top-most canvas layer is displayed first.
-  // Moving "up" in the Layers Panel means moving closer to canvas top (higher index).
-  // Moving "down" in the Layers Panel means moving closer to canvas bottom (lower index).
   const targetIdx = direction === "up" ? idx + 1 : idx - 1;
   if (targetIdx < 0 || targetIdx >= currentStack.length) return { layerOrder: currentStack };
 
@@ -2321,16 +2334,6 @@ export function withUnifiedLayerReordered(
   return { layerOrder: nextStack };
 }
 
-// Batch version of withUnifiedLayerReordered's "up"/"down" step, plus the
-// jump-to-either-end moves it didn't have — the multi-select "Arrange"
-// panel's Forward/Backward/To Front/To Back buttons. "front"/"back" are
-// simple: pull every selected id out (keeping their relative order) and put
-// the whole block at the corresponding end. "forward"/"backward" move the
-// whole selected block by one step as a unit: scan the stack from the edge
-// being moved TOWARD, and whenever a selected item sits directly next to an
-// unselected one on that side, swap them — repeating the scan across the
-// whole stack in one pass so a contiguous selected run moves together
-// rather than each item leapfrogging one at a time over multiple clicks.
 export function withUnifiedLayersReordered(
   s: EditorState,
   ids: string[],
@@ -2367,6 +2370,69 @@ export function withUnifiedLayersReordered(
     }
   }
   return { layerOrder: next };
+}
+
+export function getArrangeEligibility(
+  sOrStack: EditorState | UnifiedLayerRef[],
+  ids: string[] | string,
+): {
+  canForward: boolean;
+  canBackward: boolean;
+  canFront: boolean;
+  canBack: boolean;
+} {
+  const targetIds = Array.isArray(ids) ? ids : [ids];
+  if (targetIds.length === 0) {
+    return { canForward: false, canBackward: false, canFront: false, canBack: false };
+  }
+  const stack = Array.isArray(sOrStack) ? sOrStack : getUnifiedLayers(sOrStack);
+  if (stack.length <= 1) {
+    return { canForward: false, canBackward: false, canFront: false, canBack: false };
+  }
+
+  if (targetIds.length === 1) {
+    const targetId = targetIds[0];
+    const idx = stack.findIndex((item) => item.id === targetId);
+    if (idx === -1) {
+      return { canForward: false, canBackward: false, canFront: false, canBack: false };
+    }
+    const isTop = idx === stack.length - 1;
+    const isBottom = idx === 0;
+    return {
+      canForward: !isTop,
+      canFront: !isTop,
+      canBackward: !isBottom,
+      canBack: !isBottom,
+    };
+  }
+
+  const idSet = new Set(targetIds);
+  const selectedIndices: number[] = [];
+  for (let i = 0; i < stack.length; i++) {
+    if (idSet.has(stack[i]!.id)) selectedIndices.push(i);
+  }
+
+  if (selectedIndices.length === 0) {
+    return { canForward: false, canBackward: false, canFront: false, canBack: false };
+  }
+
+  const canForward = selectedIndices.some(
+    (i) => i < stack.length - 1 && !idSet.has(stack[i + 1]!.id),
+  );
+  const canBackward = selectedIndices.some(
+    (i) => i > 0 && !idSet.has(stack[i - 1]!.id),
+  );
+  const isAllAtTop = selectedIndices.every(
+    (i, idxInSel) => i === stack.length - selectedIndices.length + idxInSel,
+  );
+  const isAllAtBottom = selectedIndices.every((i, idxInSel) => i === idxInSel);
+
+  return {
+    canForward,
+    canBackward,
+    canFront: !isAllAtTop,
+    canBack: !isAllAtBottom,
+  };
 }
 
 // Align edge, relative to the CANVAS (not the selection's own bounding

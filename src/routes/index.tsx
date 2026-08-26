@@ -14,6 +14,9 @@ import {
   subscribeToCloudActiveDraft,
 } from "@/lib/supabase";
 import { compressImageFiles } from "@/lib/imageCompression";
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 import {
   Add01Icon,
   Bookmark01Icon,
@@ -91,6 +94,8 @@ import {
   withTextRemoved,
   withTextUpdated,
   withUnifiedLayersReordered,
+  getUnifiedLayers,
+  getArrangeEligibility,
   type EditorState,
   type ImageLayer,
   type ShapeAlignEdge,
@@ -455,6 +460,58 @@ function DraggableFloatingLayersButton({
   );
 }
 
+// Normalizes an exported image's URL (a `data:` URL for png/jpg/webp from
+// html-to-image, or a `blob:` URL for gif from gifRenderer.ts's own
+// URL.createObjectURL) into a plain base64 payload + mime type, for handing
+// to @capacitor/filesystem below — it only accepts base64/text, not a URL.
+async function urlToBase64(url: string): Promise<{ base64: string; mime: string }> {
+  if (url.startsWith("data:")) {
+    const comma = url.indexOf(",");
+    const header = url.slice(5, comma); // "image/png;base64"
+    const mime = header.split(";")[0] || "application/octet-stream";
+    return { base64: url.slice(comma + 1), mime };
+  }
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const mime = blob.type || "application/octet-stream";
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string; // "data:<mime>;base64,<payload>"
+      const i = result.indexOf(",");
+      resolve(i === -1 ? "" : result.slice(i + 1));
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  return { base64, mime };
+}
+
+// Saves an exported image inside the wrapped native app (Capacitor/Android
+// — see capacitor.config.ts). Plain `<a download>` + `.click()` (the web
+// path in confirmDownload below) is a browser-only trick: inside a native
+// WebView there's no download manager backing it, no Android permission
+// prompt, nothing — the click is simply a no-op, which is exactly why
+// "Download" silently did nothing in the mobile app while working fine in
+// a real browser. Writes the file into the app's own cache dir (no storage
+// permission needed for that, unlike the public Pictures/Downloads
+// directories) and hands it to the native OS share sheet, whose "Save
+// image"/"Save to Files" options are what actually persists it to a place
+// the user can find it outside the app.
+async function saveExportedImageNative(url: string, filename: string): Promise<void> {
+  const { base64 } = await urlToBase64(url);
+  const written = await Filesystem.writeFile({
+    path: filename,
+    data: base64,
+    directory: Directory.Cache,
+  });
+  await Share.share({
+    title: filename,
+    url: written.uri,
+    dialogTitle: "Save your quote",
+  });
+}
+
 function Index() {
   const { user } = useAuth();
   const [s, setS] = useState<EditorState>(() => {
@@ -509,6 +566,18 @@ function Index() {
   // to skip re-uploading it — otherwise every remote update would
   // round-trip straight back out as a redundant write.
   const applyingRemoteDraftRef = useRef(false);
+  // The `updated_at` of the newest cloud-draft row this client already
+  // knows about — either the one it just fetched/loaded, or the one it
+  // most recently pushed itself. subscribeToCloudActiveDraft's realtime
+  // callback ALSO fires for this client's own writes (see its comment), so
+  // every incoming update must be compared against this before applying:
+  // a delayed echo of a write this client made earlier can otherwise arrive
+  // AFTER further local edits (e.g. mid a fast drag-then-drag-something-else
+  // sequence) and silently overwrite them with the older snapshot — visible
+  // as a layer snapping back, or an unrelated layer's position reverting.
+  // ISO 8601 strings compare correctly with plain `<`/`>` here since every
+  // value comes from the same fixed UTC format.
+  const lastKnownDraftUpdatedAtRef = useRef<string>("");
 
   // Active template / saved post being edited targets
   const [editingTemplateTarget, setEditingTemplateTarget] = useState<{
@@ -565,7 +634,16 @@ function Index() {
     const timer = setTimeout(() => {
       saveActiveDraft(s);
       if (user?.id && !skipCloudPush) {
-        void upsertCloudActiveDraft(user.id, s);
+        void upsertCloudActiveDraft(user.id, s).then((updatedAt) => {
+          // Record what we just pushed as "already known" BEFORE its
+          // realtime echo can arrive — see lastKnownDraftUpdatedAtRef's own
+          // comment. Guarded with a `>` check (not a bare assignment) in
+          // case a newer remote update (a genuinely different tab/device)
+          // slipped in and got applied while this push was in flight.
+          if (updatedAt && updatedAt > lastKnownDraftUpdatedAtRef.current) {
+            lastKnownDraftUpdatedAtRef.current = updatedAt;
+          }
+        });
       }
       setAutoSaveStatus("saved");
     }, 600);
@@ -590,8 +668,11 @@ function Index() {
     (async () => {
       const cloudDraft = await fetchCloudActiveDraft(userId);
       if (cancelled || !cloudDraft) return;
+      if (cloudDraft.updatedAt > lastKnownDraftUpdatedAtRef.current) {
+        lastKnownDraftUpdatedAtRef.current = cloudDraft.updatedAt;
+      }
       applyingRemoteDraftRef.current = true;
-      setS(migrateLegacyContentToLayers({ ...INITIAL_STATE, ...cloudDraft }));
+      setS(migrateLegacyContentToLayers({ ...INITIAL_STATE, ...cloudDraft.state }));
     })();
     return () => {
       cancelled = true;
@@ -605,7 +686,15 @@ function Index() {
   useEffect(() => {
     const userId = user?.id;
     if (!userId) return;
-    const unsubscribe = subscribeToCloudActiveDraft(userId, (remoteState) => {
+    const unsubscribe = subscribeToCloudActiveDraft(userId, (remoteState, updatedAt) => {
+      // This fires for this client's OWN writes too, not just a different
+      // tab/device (see subscribeToCloudActiveDraft's comment) — a delayed
+      // echo of something this client already pushed (or already applied)
+      // must be dropped, or it can overwrite newer local edits made in the
+      // meantime with an older snapshot. Only apply genuinely new
+      // information.
+      if (updatedAt <= lastKnownDraftUpdatedAtRef.current) return;
+      lastKnownDraftUpdatedAtRef.current = updatedAt;
       applyingRemoteDraftRef.current = true;
       setS(migrateLegacyContentToLayers({ ...INITIAL_STATE, ...remoteState }));
     });
@@ -1050,8 +1139,20 @@ function Index() {
   );
 
   const set = useCallback(
-    <K extends keyof EditorState>(k: K, v: EditorState[K]) => {
-      commit((p) => ({ ...p, [k]: v }), { key: String(k) });
+    <K extends keyof EditorState>(
+      k: K,
+      v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+    ) => {
+      commit(
+        (p) => {
+          const nextVal =
+            typeof v === "function"
+              ? (v as (prev: EditorState[K], state: EditorState) => EditorState[K])(p[k], p)
+              : v;
+          return { ...p, [k]: nextVal };
+        },
+        { key: String(k) },
+      );
     },
     [commit],
   );
@@ -1848,11 +1949,21 @@ function Index() {
         finalUrl = await renderExport(s.exportScale);
       }
       if (!finalUrl) return;
-      const a = document.createElement("a");
-      a.href = finalUrl;
-      a.download = `quote-canvas.${s.exportFormat}`;
-      a.click();
+      const filename = `quote-canvas.${s.exportFormat}`;
+      // See saveExportedImageNative's own comment — the plain <a download>
+      // trick below only works in a real browser; inside the wrapped
+      // Android app it's a silent no-op.
+      if (Capacitor.isNativePlatform()) {
+        await saveExportedImageNative(finalUrl, filename);
+      } else {
+        const a = document.createElement("a");
+        a.href = finalUrl;
+        a.download = filename;
+        a.click();
+      }
       setPreviewOpen(false);
+    } catch (err) {
+      console.error("Download failed:", err);
     } finally {
       setIsExportingFinal(false);
     }
@@ -1887,33 +1998,57 @@ function Index() {
     return {
       applyFormat: (cmd) => {
         if (cmd === "bold")
-          set("texts", withTextUpdated(s, selectedTextLayer.id, { weight: selectedTextLayer.weight >= 700 ? 400 : 700 }));
+          set("texts", (_, prevS) =>
+            withTextUpdated(prevS, selectedTextLayer.id, {
+              weight: selectedTextLayer.weight >= 700 ? 400 : 700,
+            }),
+          );
         else if (cmd === "italic")
-          set("texts", withTextUpdated(s, selectedTextLayer.id, { italic: !selectedTextLayer.italic }));
+          set("texts", (_, prevS) =>
+            withTextUpdated(prevS, selectedTextLayer.id, { italic: !selectedTextLayer.italic }),
+          );
         else if (cmd === "underline")
-          set("texts", withTextUpdated(s, selectedTextLayer.id, { underline: !selectedTextLayer.underline }));
+          set("texts", (_, prevS) =>
+            withTextUpdated(prevS, selectedTextLayer.id, { underline: !selectedTextLayer.underline }),
+          );
         else if (cmd === "strike")
-          set("texts", withTextUpdated(s, selectedTextLayer.id, { strike: !selectedTextLayer.strike }));
+          set("texts", (_, prevS) =>
+            withTextUpdated(prevS, selectedTextLayer.id, { strike: !selectedTextLayer.strike }),
+          );
       },
-      setFontFamily: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { fontFamily: v })),
+      setFontFamily: (v) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { fontFamily: v })),
       setSize: (v) => {
-        const currentSize = selectedTextLayer.size || 32;
-        const ratio = v / currentSize;
-        const nextWidth = selectedTextLayer.width ? Math.round(Math.max(40, selectedTextLayer.width * ratio)) : undefined;
-        const nextMinHeight = selectedTextLayer.minHeight ? Math.round(selectedTextLayer.minHeight * ratio) : undefined;
-        set("texts", withTextUpdated(s, selectedTextLayer.id, {
-          size: v,
-          ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-          ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-        }));
+        set("texts", (_, prevS) => {
+          const currentT = getTextLayers(prevS).find((t) => t.id === selectedTextLayer.id);
+          const currentSize = currentT?.size || selectedTextLayer.size || 32;
+          const ratio = v / currentSize;
+          const nextWidth = selectedTextLayer.width
+            ? Math.round(Math.max(40, selectedTextLayer.width * ratio))
+            : undefined;
+          const nextMinHeight = selectedTextLayer.minHeight
+            ? Math.round(selectedTextLayer.minHeight * ratio)
+            : undefined;
+          return withTextUpdated(prevS, selectedTextLayer.id, {
+            size: v,
+            ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+            ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+          });
+        });
       },
-      setColor: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { color: v })),
-      setAlign: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { align: v })),
-      setLetterSpacing: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { letterSpacing: v })),
-      setLineHeight: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { lineHeight: v })),
-      setVerticalAlign: (v) => set("texts", withTextUpdated(s, selectedTextLayer.id, { verticalAlign: v })),
-      updateLayer: (patch) => set("texts", withTextUpdated(s, selectedTextLayer.id, patch)),
-      snapshotSelection: () => { },
+      setColor: (v) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { color: v })),
+      setAlign: (v) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { align: v })),
+      setLetterSpacing: (v) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { letterSpacing: v })),
+      setLineHeight: (v) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { lineHeight: v })),
+      setVerticalAlign: (v) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { verticalAlign: v })),
+      updateLayer: (patch) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, patch)),
+      snapshotSelection: () => {},
       getActiveFormat: () => ({
         bold: selectedTextLayer.weight >= 700,
         italic: !!selectedTextLayer.italic,
@@ -1960,6 +2095,11 @@ function Index() {
       : [];
   const isMultiShapeSelection = multiSelectedShapeLayers.length > 1;
 
+  const unifiedLayers = useMemo(
+    () => getUnifiedLayers(s),
+    [s.layerOrder, s.texts, s.images, s.shapes],
+  );
+
   // Position-panel callbacks for the multi-shape toolbar (Arrange/Align/
   // Advanced X-Y) — shared between the desktop and mobile render slots
   // below rather than re-inlined at each, since both need the exact same
@@ -1970,21 +2110,31 @@ function Index() {
   const handleShapeArrange = useCallback(
     (direction: ShapeArrangeDirection) => {
       const ids = multiSelectedShapeLayers.map((l) => l.id);
-      set("layerOrder", withUnifiedLayersReordered(s, ids, direction).layerOrder);
+      commit(
+        (prev) => ({
+          ...prev,
+          layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
+        }),
+        { key: "arrange" },
+      );
     },
-    [multiSelectedShapeLayers, s, set],
+    [multiSelectedShapeLayers, commit],
   );
   const handleShapeAlign = useCallback(
     (edge: ShapeAlignEdge) => {
-      set("shapes", withShapesAligned(s, multiSelectedShapeLayers.map((l) => l.id), edge));
+      set("shapes", (_, prev) =>
+        withShapesAligned(prev, multiSelectedShapeLayers.map((l) => l.id), edge),
+      );
     },
-    [multiSelectedShapeLayers, s, set],
+    [multiSelectedShapeLayers, set],
   );
   const handleShapeShiftGroup = useCallback(
     (dxPercent: number, dyPercent: number) => {
-      set("shapes", withShapesShifted(s, multiSelectedShapeLayers.map((l) => l.id), dxPercent, dyPercent));
+      set("shapes", (_, prev) =>
+        withShapesShifted(prev, multiSelectedShapeLayers.map((l) => l.id), dxPercent, dyPercent),
+      );
     },
-    [multiSelectedShapeLayers, s, set],
+    [multiSelectedShapeLayers, set],
   );
 
   // Same batch-editing idea as multiSelectedShapeLayers above, for a
@@ -2003,21 +2153,44 @@ function Index() {
   const handleImageArrange = useCallback(
     (direction: ShapeArrangeDirection) => {
       const ids = multiSelectedImageLayers.map((l) => l.id);
-      set("layerOrder", withUnifiedLayersReordered(s, ids, direction).layerOrder);
+      commit(
+        (prev) => ({
+          ...prev,
+          layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
+        }),
+        { key: "arrange" },
+      );
     },
-    [multiSelectedImageLayers, s, set],
+    [multiSelectedImageLayers, commit],
   );
   const handleImageAlign = useCallback(
     (edge: ShapeAlignEdge) => {
-      set("images", withImagesAligned(s, multiSelectedImageLayers.map((l) => l.id), edge));
+      set("images", (_, prev) =>
+        withImagesAligned(prev, multiSelectedImageLayers.map((l) => l.id), edge),
+      );
     },
-    [multiSelectedImageLayers, s, set],
+    [multiSelectedImageLayers, set],
   );
   const handleImageShiftGroup = useCallback(
     (dxPercent: number, dyPercent: number) => {
-      set("images", withImagesShifted(s, multiSelectedImageLayers.map((l) => l.id), dxPercent, dyPercent));
+      set("images", (_, prev) =>
+        withImagesShifted(prev, multiSelectedImageLayers.map((l) => l.id), dxPercent, dyPercent),
+      );
     },
-    [multiSelectedImageLayers, s, set],
+    [multiSelectedImageLayers, set],
+  );
+
+  const handleSingleArrange = useCallback(
+    (id: string, direction: ShapeArrangeDirection) => {
+      commit(
+        (prev) => ({
+          ...prev,
+          layerOrder: withUnifiedLayersReordered(prev, [id], direction).layerOrder,
+        }),
+        { key: "arrange" },
+      );
+    },
+    [commit],
   );
 
   // Keeps a floating toolbar popover (font, color, shadow, gradient, ...)
@@ -2048,10 +2221,10 @@ function Index() {
   const handlePinnedPopoverChange = useCallback(
     (kind: "text" | "image" | "shape" | "background", id: string, open: boolean) => {
       setPinnedOwners((prev) =>
-        open
-          ? { ...prev, [kind]: id }
-          : prev[kind] === id
-            ? { ...prev, [kind]: null }
+        prev[kind] === id && !open
+          ? { ...prev, [kind]: null }
+          : open
+            ? { ...prev, [kind]: id }
             : prev,
       );
     },
@@ -2338,6 +2511,8 @@ function Index() {
                   layer={(selectedTextLayer ?? pinnedTextLayer)!}
                   handle={(selectedTextLayerHandle ?? pinnedTextLayerHandle)!}
                   detached={textDetached}
+                  onArrange={(dir) => handleSingleArrange((selectedTextLayer ?? pinnedTextLayer)!.id, dir)}
+                  canArrange={getArrangeEligibility(unifiedLayers, (selectedTextLayer ?? pinnedTextLayer)!.id)}
                   onAnyPopoverOpenChange={(open) =>
                     handlePinnedPopoverChange("text", (selectedTextLayer ?? pinnedTextLayer)!.id, open)
                   }
@@ -2352,11 +2527,15 @@ function Index() {
                 <ImageSelectionToolbar
                   layer={(selectedImageLayer ?? pinnedImageLayer)!}
                   detached={imageDetached}
+                  onArrange={(dir) => handleSingleArrange((selectedImageLayer ?? pinnedImageLayer)!.id, dir)}
+                  canArrange={getArrangeEligibility(unifiedLayers, (selectedImageLayer ?? pinnedImageLayer)!.id)}
                   onAnyPopoverOpenChange={(open) =>
                     handlePinnedPopoverChange("image", (selectedImageLayer ?? pinnedImageLayer)!.id, open)
                   }
                   onUpdate={(patch) =>
-                    set("images", withImageUpdated(s, (selectedImageLayer ?? pinnedImageLayer)!.id, patch))
+                    set("images", (_, prevS) =>
+                      withImageUpdated(prevS, (selectedImageLayer ?? pinnedImageLayer)!.id, patch),
+                    )
                   }
                   onOpenCrop={() => setCroppingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)}
                   onOpenErase={() => setErasingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)}
@@ -2366,11 +2545,15 @@ function Index() {
                 <ShapeSelectionToolbar
                   layer={(selectedShapeLayer ?? pinnedShapeLayer)!}
                   detached={shapeDetached}
+                  onArrange={(dir) => handleSingleArrange((selectedShapeLayer ?? pinnedShapeLayer)!.id, dir)}
+                  canArrange={getArrangeEligibility(unifiedLayers, (selectedShapeLayer ?? pinnedShapeLayer)!.id)}
                   onAnyPopoverOpenChange={(open) =>
                     handlePinnedPopoverChange("shape", (selectedShapeLayer ?? pinnedShapeLayer)!.id, open)
                   }
                   onUpdate={(patch) =>
-                    set("shapes", withShapeUpdated(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id, patch))
+                    set("shapes", (_, prevS) =>
+                      withShapeUpdated(prevS, (selectedShapeLayer ?? pinnedShapeLayer)!.id, patch),
+                    )
                   }
                   onDuplicate={() => {
                     const dup = withShapeDuplicated(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id);
@@ -2397,13 +2580,13 @@ function Index() {
                   canvasWidth={s.width}
                   canvasHeight={s.height}
                   onArrange={handleShapeArrange}
+                  canArrange={getArrangeEligibility(unifiedLayers, multiSelectedShapeLayers.map((l) => l.id))}
                   onAlign={handleShapeAlign}
                   onShiftGroup={handleShapeShiftGroup}
                   onUpdateAll={(patch) =>
-                    set(
-                      "shapes",
+                    set("shapes", (_, prev) =>
                       withShapesUpdated(
-                        s,
+                        prev,
                         multiSelectedShapeLayers.map((l) => l.id),
                         patch,
                       ),
@@ -2411,21 +2594,19 @@ function Index() {
                   }
                   onToggleLockAll={() => {
                     const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                    set(
-                      "shapes",
+                    set("shapes", (_, prev) =>
                       withShapesLockSet(
-                        s,
+                        prev,
                         multiSelectedShapeLayers.map((l) => l.id),
                         !allLocked,
                       ),
                     );
                   }}
                   onDeleteAll={() => {
-                    const result = withMultipleLayersRemoved(s, canvasSelection);
-                    set("texts", result.texts);
-                    set("images", result.images);
-                    set("shapes", result.shapes);
-                    set("layerOrder", result.layerOrder);
+                    commit((prev) => {
+                      const result = withMultipleLayersRemoved(prev, canvasSelection);
+                      return { ...prev, ...result };
+                    });
                     setCanvasSelection([]);
                   }}
                 />
@@ -2436,13 +2617,13 @@ function Index() {
                   canvasWidth={s.width}
                   canvasHeight={s.height}
                   onArrange={handleImageArrange}
+                  canArrange={getArrangeEligibility(unifiedLayers, multiSelectedImageLayers.map((l) => l.id))}
                   onAlign={handleImageAlign}
                   onShiftGroup={handleImageShiftGroup}
                   onUpdateAll={(patch) =>
-                    set(
-                      "images",
+                    set("images", (_, prev) =>
                       withImagesUpdated(
-                        s,
+                        prev,
                         multiSelectedImageLayers.map((l) => l.id),
                         patch,
                       ),
@@ -2450,21 +2631,19 @@ function Index() {
                   }
                   onToggleLockAll={() => {
                     const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                    set(
-                      "images",
+                    set("images", (_, prev) =>
                       withImagesLockSet(
-                        s,
+                        prev,
                         multiSelectedImageLayers.map((l) => l.id),
                         !allLocked,
                       ),
                     );
                   }}
                   onDeleteAll={() => {
-                    const result = withMultipleLayersRemoved(s, canvasSelection);
-                    set("texts", result.texts);
-                    set("images", result.images);
-                    set("shapes", result.shapes);
-                    set("layerOrder", result.layerOrder);
+                    commit((prev) => {
+                      const result = withMultipleLayersRemoved(prev, canvasSelection);
+                      return { ...prev, ...result };
+                    });
                     setCanvasSelection([]);
                   }}
                 />
@@ -2792,16 +2971,40 @@ function Index() {
                     onClick={() => {
                       if (isMultiShapeSelection) {
                         const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                        set("shapes", withShapesLockSet(s, multiSelectedShapeLayers.map((l) => l.id), !allLocked));
+                        set("shapes", (_, prev) =>
+                          withShapesLockSet(
+                            prev,
+                            multiSelectedShapeLayers.map((l) => l.id),
+                            !allLocked,
+                          ),
+                        );
                       } else if (isMultiImageSelection) {
                         const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                        set("images", withImagesLockSet(s, multiSelectedImageLayers.map((l) => l.id), !allLocked));
+                        set("images", (_, prev) =>
+                          withImagesLockSet(
+                            prev,
+                            multiSelectedImageLayers.map((l) => l.id),
+                            !allLocked,
+                          ),
+                        );
                       } else if (selectedTextLayer) {
-                        set("texts", withTextUpdated(s, selectedTextLayer.id, { locked: !selectedTextLayer.locked }));
+                        set("texts", (_, prev) =>
+                          withTextUpdated(prev, selectedTextLayer.id, {
+                            locked: !selectedTextLayer.locked,
+                          }),
+                        );
                       } else if (selectedImageLayer) {
-                        set("images", withImageUpdated(s, selectedImageLayer.id, { locked: !selectedImageLayer.locked }));
+                        set("images", (_, prev) =>
+                          withImageUpdated(prev, selectedImageLayer.id, {
+                            locked: !selectedImageLayer.locked,
+                          }),
+                        );
                       } else if (selectedShapeLayer) {
-                        set("shapes", withShapeUpdated(s, selectedShapeLayer.id, { locked: !selectedShapeLayer.locked }));
+                        set("shapes", (_, prev) =>
+                          withShapeUpdated(prev, selectedShapeLayer.id, {
+                            locked: !selectedShapeLayer.locked,
+                          }),
+                        );
                       }
                     }}
                     className={cn(
@@ -2828,17 +3031,16 @@ function Index() {
                     type="button"
                     onClick={() => {
                       if (isMultiShapeSelection || isMultiImageSelection) {
-                        const result = withMultipleLayersRemoved(s, canvasSelection);
-                        set("texts", result.texts);
-                        set("images", result.images);
-                        set("shapes", result.shapes);
-                        set("layerOrder", result.layerOrder);
+                        commit((prev) => {
+                          const result = withMultipleLayersRemoved(prev, canvasSelection);
+                          return { ...prev, ...result };
+                        });
                       } else if (selectedTextLayer) {
-                        set("texts", withTextRemoved(s, selectedTextLayer.id));
+                        set("texts", (_, prev) => withTextRemoved(prev, selectedTextLayer.id));
                       } else if (selectedImageLayer) {
-                        set("images", withImageRemoved(s, selectedImageLayer.id));
+                        set("images", (_, prev) => withImageRemoved(prev, selectedImageLayer.id));
                       } else if (selectedShapeLayer) {
-                        set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                        set("shapes", (_, prev) => withShapeRemoved(prev, selectedShapeLayer.id));
                       }
                       setCanvasSelection([]);
                     }}
@@ -2936,6 +3138,8 @@ function Index() {
                         <TextSelectionToolbar
                           layer={selectedTextLayer}
                           handle={selectedTextLayerHandle}
+                          onArrange={(dir) => handleSingleArrange(selectedTextLayer.id, dir)}
+                          canArrange={getArrangeEligibility(unifiedLayers, selectedTextLayer.id)}
                           onAnyPopoverOpenChange={(open) =>
                             handlePinnedPopoverChange("text", selectedTextLayer.id, open)
                           }
@@ -2948,11 +3152,13 @@ function Index() {
                       ) : selectedImageLayer ? (
                         <ImageSelectionToolbar
                           layer={selectedImageLayer}
+                          onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
+                          canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
                           onAnyPopoverOpenChange={(open) =>
                             handlePinnedPopoverChange("image", selectedImageLayer.id, open)
                           }
                           onUpdate={(patch) =>
-                            set("images", withImageUpdated(s, selectedImageLayer.id, patch))
+                            set("images", (_, prevS) => withImageUpdated(prevS, selectedImageLayer.id, patch))
                           }
                           onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
                           onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
@@ -2960,11 +3166,13 @@ function Index() {
                       ) : selectedShapeLayer ? (
                         <ShapeSelectionToolbar
                           layer={selectedShapeLayer}
+                          onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
+                          canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
                           onAnyPopoverOpenChange={(open) =>
                             handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
                           }
                           onUpdate={(patch) =>
-                            set("shapes", withShapeUpdated(s, selectedShapeLayer.id, patch))
+                            set("shapes", (_, prevS) => withShapeUpdated(prevS, selectedShapeLayer.id, patch))
                           }
                           onDuplicate={() => {
                             const dup = withShapeDuplicated(s, selectedShapeLayer.id);
@@ -2993,13 +3201,13 @@ function Index() {
                             handlePinnedPopoverChange("shape", "multi-shape", open)
                           }
                           onArrange={handleShapeArrange}
+                          canArrange={getArrangeEligibility(unifiedLayers, multiSelectedShapeLayers.map((l) => l.id))}
                           onAlign={handleShapeAlign}
                           onShiftGroup={handleShapeShiftGroup}
                           onUpdateAll={(patch) =>
-                            set(
-                              "shapes",
+                            set("shapes", (_, prev) =>
                               withShapesUpdated(
-                                s,
+                                prev,
                                 multiSelectedShapeLayers.map((l) => l.id),
                                 patch,
                               ),
@@ -3007,21 +3215,19 @@ function Index() {
                           }
                           onToggleLockAll={() => {
                             const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                            set(
-                              "shapes",
+                            set("shapes", (_, prev) =>
                               withShapesLockSet(
-                                s,
+                                prev,
                                 multiSelectedShapeLayers.map((l) => l.id),
                                 !allLocked,
                               ),
                             );
                           }}
                           onDeleteAll={() => {
-                            const result = withMultipleLayersRemoved(s, canvasSelection);
-                            set("texts", result.texts);
-                            set("images", result.images);
-                            set("shapes", result.shapes);
-                            set("layerOrder", result.layerOrder);
+                            commit((prev) => {
+                              const result = withMultipleLayersRemoved(prev, canvasSelection);
+                              return { ...prev, ...result };
+                            });
                             setCanvasSelection([]);
                           }}
                         />
@@ -3034,13 +3240,13 @@ function Index() {
                             handlePinnedPopoverChange("image", "multi-image", open)
                           }
                           onArrange={handleImageArrange}
+                          canArrange={getArrangeEligibility(unifiedLayers, multiSelectedImageLayers.map((l) => l.id))}
                           onAlign={handleImageAlign}
                           onShiftGroup={handleImageShiftGroup}
                           onUpdateAll={(patch) =>
-                            set(
-                              "images",
+                            set("images", (_, prev) =>
                               withImagesUpdated(
-                                s,
+                                prev,
                                 multiSelectedImageLayers.map((l) => l.id),
                                 patch,
                               ),
@@ -3048,21 +3254,19 @@ function Index() {
                           }
                           onToggleLockAll={() => {
                             const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                            set(
-                              "images",
+                            set("images", (_, prev) =>
                               withImagesLockSet(
-                                s,
+                                prev,
                                 multiSelectedImageLayers.map((l) => l.id),
                                 !allLocked,
                               ),
                             );
                           }}
                           onDeleteAll={() => {
-                            const result = withMultipleLayersRemoved(s, canvasSelection);
-                            set("texts", result.texts);
-                            set("images", result.images);
-                            set("shapes", result.shapes);
-                            set("layerOrder", result.layerOrder);
+                            commit((prev) => {
+                              const result = withMultipleLayersRemoved(prev, canvasSelection);
+                              return { ...prev, ...result };
+                            });
                             setCanvasSelection([]);
                           }}
                         />

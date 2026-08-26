@@ -3,6 +3,10 @@ import {
   ArrowDown01Icon,
   ArrowLeft01Icon,
   ExpandParagraphIcon,
+  LayerBringForwardIcon,
+  LayerBringToFrontIcon,
+  LayerSendBackwardIcon,
+  LayerSendToBackIcon,
   LeftToRightListBulletIcon,
   LeftToRightListNumberIcon,
   MinusSignIcon,
@@ -45,12 +49,16 @@ import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, useDraggableOff
 export function TextSelectionToolbar({
   layer,
   handle,
+  onArrange,
+  canArrange,
   onOpenEffectsTab,
   detached = false,
   onAnyPopoverOpenChange,
 }: {
   layer: TextLayer;
   handle: TextLayerHandle;
+  onArrange?: (direction: "forward" | "backward" | "front" | "back") => void;
+  canArrange?: { canForward: boolean; canBackward: boolean; canFront: boolean; canBack: boolean };
   onOpenEffectsTab?: () => void;
   // True once this layer is no longer the live canvas selection (e.g. the
   // user clicked the canvas background, or selected something else) but one
@@ -109,6 +117,12 @@ export function TextSelectionToolbar({
   // Desktop is completely unaffected — its Font button still opens
   // `fontOpen` directly, same as before this existed.
   const [fontStripOpen, setFontStripOpen] = useState(false);
+  const [arrangeOpen, setArrangeOpen] = useState(false);
+  const [arrangePinned, setArrangePinned] = useState(false);
+  const arrangeDrag = useDraggableOffset();
+  const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
+  const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
+
   useEffect(() => {
     if (!fontOpen && !fontStripOpen) return;
     FONTS.forEach((f) => loadGoogleFont(f.value));
@@ -119,7 +133,7 @@ export function TextSelectionToolbar({
   // to keep this whole component mounted — and thus keep every popover's
   // own state (search text, drag position, which one is open) intact —
   // even after `layer` stops being the live canvas selection.
-  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen || fontStripOpen;
+  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen || fontStripOpen || arrangeOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -758,6 +772,111 @@ export function TextSelectionToolbar({
           <span>Effects</span>
         </Chip>
       </AppTooltip>
+
+      {/* Arrange Button & Dropdown */}
+      {onArrange ? (
+        <>
+          <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
+          <AppTooltip content="Arrange layer order">
+            <Chip
+              title="Arrange"
+              active={arrangeOpen}
+              ref={arrangeTriggerRef}
+              onPointerDown={preserveSelection}
+              onMouseDown={preserveSelection}
+              onClick={() => {
+                setArrangeOpen((wasOpen) => {
+                  if (!wasOpen) {
+                    arrangeDrag.reset();
+                    setArrangePinned(false);
+                  }
+                  return !wasOpen;
+                });
+              }}
+              className="flex h-8 items-center gap-1.5 px-2.5 text-xs font-semibold"
+            >
+              <LayerBringToFrontIcon size={15} />
+              <span>Arrange</span>
+            </Chip>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={arrangeAnchor}
+            offset={arrangeDrag.offset}
+            align="center"
+            pinned={arrangePinned}
+            onRequestClose={() => setArrangeOpen(false)}
+            triggerRef={arrangeTriggerRef}
+          >
+            <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl">
+              <DragHandle
+                label="Arrange Layer"
+                {...arrangeDrag.dragHandleProps}
+                pinned={arrangePinned}
+                onTogglePin={() => setArrangePinned((p) => !p)}
+                onClose={() => setArrangeOpen(false)}
+              />
+              <div className="grid grid-cols-2 gap-2 p-3">
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canForward}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("forward")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canForward && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerBringForwardIcon size={16} />
+                  Forward
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canBackward}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("backward")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canBackward && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerSendBackwardIcon size={16} />
+                  Backward
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canFront}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("front")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canFront && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerBringToFrontIcon size={16} />
+                  To front
+                </button>
+                <button
+                  type="button"
+                  disabled={canArrange && !canArrange.canBack}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => onArrange("back")}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-95",
+                    canArrange && !canArrange.canBack && "opacity-40 cursor-not-allowed pointer-events-none",
+                  )}
+                >
+                  <LayerSendToBackIcon size={16} />
+                  To back
+                </button>
+              </div>
+            </div>
+          </FloatingDropdown>
+        </>
+      ) : null}
     </div>
   );
 }

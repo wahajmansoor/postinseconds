@@ -40,6 +40,7 @@ interface MultiImageSelectionToolbarProps {
    * withUnifiedLayersReordered in types.ts (kind-agnostic, shared with the
    * shape toolbar). */
   onArrange: (direction: ShapeArrangeDirection) => void;
+  canArrange?: { canForward: boolean; canBackward: boolean; canFront: boolean; canBack: boolean };
   /** Lines each selected image up against a canvas edge/center,
    * independently — see withImagesAligned in types.ts. */
   onAlign: (edge: ShapeAlignEdge) => void;
@@ -72,6 +73,7 @@ export function MultiImageSelectionToolbar({
   canvasHeight,
   onUpdateAll,
   onArrange,
+  canArrange,
   onAlign,
   onShiftGroup,
   onDeleteAll,
@@ -230,19 +232,59 @@ export function MultiImageSelectionToolbar({
             onClose={() => setArrangeOpen(false)}
           />
           <div className="grid grid-cols-2 gap-2 p-3">
-            <button type="button" onClick={() => onArrange("forward")} className={arrangeBtnClass}>
+            <button
+              type="button"
+              disabled={canArrange && !canArrange.canForward}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => onArrange("forward")}
+              className={cn(
+                arrangeBtnClass,
+                canArrange && !canArrange.canForward && "opacity-40 cursor-not-allowed pointer-events-none",
+              )}
+            >
               <LayerBringForwardIcon size={16} />
               Forward
             </button>
-            <button type="button" onClick={() => onArrange("backward")} className={arrangeBtnClass}>
+            <button
+              type="button"
+              disabled={canArrange && !canArrange.canBackward}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => onArrange("backward")}
+              className={cn(
+                arrangeBtnClass,
+                canArrange && !canArrange.canBackward && "opacity-40 cursor-not-allowed pointer-events-none",
+              )}
+            >
               <LayerSendBackwardIcon size={16} />
               Backward
             </button>
-            <button type="button" onClick={() => onArrange("front")} className={arrangeBtnClass}>
+            <button
+              type="button"
+              disabled={canArrange && !canArrange.canFront}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => onArrange("front")}
+              className={cn(
+                arrangeBtnClass,
+                canArrange && !canArrange.canFront && "opacity-40 cursor-not-allowed pointer-events-none",
+              )}
+            >
               <LayerBringToFrontIcon size={16} />
               To front
             </button>
-            <button type="button" onClick={() => onArrange("back")} className={arrangeBtnClass}>
+            <button
+              type="button"
+              disabled={canArrange && !canArrange.canBack}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => onArrange("back")}
+              className={cn(
+                arrangeBtnClass,
+                canArrange && !canArrange.canBack && "opacity-40 cursor-not-allowed pointer-events-none",
+              )}
+            >
               <LayerSendToBackIcon size={16} />
               To back
             </button>

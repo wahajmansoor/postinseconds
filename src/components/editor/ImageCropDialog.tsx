@@ -215,16 +215,17 @@ export function ImageCropDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => {
-      // Prevent outside clicks from closing the modal
-      if (!v && !isDraggingRef.current) {
-        // Only allow close from explicit cancel or close button
-      }
-    }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v && !isDraggingRef.current) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
         className="sm:max-w-[580px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl"
       >
         <DialogHeader>

@@ -91,7 +91,10 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   s: EditorState;
-  set: <K extends keyof EditorState>(k: K, v: EditorState[K]) => void;
+  set: <K extends keyof EditorState>(
+    k: K,
+    v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+  ) => void;
   applyTemplate: (t: Partial<EditorState>) => void;
   tab: "templates" | "text" | "uploads" | "elements" | "layers" | "style" | "background";
   selection?: { kind: "image" | "text" | "shape"; id: string }[];
@@ -625,11 +628,13 @@ export function LeftPanel({
     const ratio = newSize / (layer.size || 32);
     const nextWidth = layer.width ? Math.round(Math.max(40, layer.width * ratio)) : undefined;
     const nextMinHeight = layer.minHeight ? Math.round(layer.minHeight * ratio) : undefined;
-    set("texts", withTextUpdated(s, layer.id, {
-      size: newSize,
-      ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-      ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-    }));
+    set("texts", (_, prevS) =>
+      withTextUpdated(prevS, layer.id, {
+        size: newSize,
+        ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+        ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+      }),
+    );
   });
   const fontSizeIncHold = useHoldRepeat(() => {
     const layer = activeTextLayerForSizeStepper;
@@ -638,11 +643,13 @@ export function LeftPanel({
     const ratio = newSize / (layer.size || 32);
     const nextWidth = layer.width ? Math.round(Math.max(40, layer.width * ratio)) : undefined;
     const nextMinHeight = layer.minHeight ? Math.round(layer.minHeight * ratio) : undefined;
-    set("texts", withTextUpdated(s, layer.id, {
-      size: newSize,
-      ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-      ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-    }));
+    set("texts", (_, prevS) =>
+      withTextUpdated(prevS, layer.id, {
+        size: newSize,
+        ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+        ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+      }),
+    );
   });
 
   // Drag-to-reorder state for the Layers tab's list (see its own grip
@@ -1047,7 +1054,7 @@ export function LeftPanel({
 
     const updateActiveLayer = (patch: Partial<Omit<TextLayer, "id">>) => {
       if (!activeTextLayer) return;
-      set("texts", withTextUpdated(s, activeTextLayer.id, patch));
+      set("texts", (_, prevS) => withTextUpdated(prevS, activeTextLayer.id, patch));
     };
 
     const FONT_WEIGHTS = [
@@ -1762,7 +1769,9 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("texts", withTextUpdated(s, t.id, { hidden: !t.hidden }))}
+                            onClick={() =>
+                              set("texts", (_, prevS) => withTextUpdated(prevS, t.id, { hidden: !t.hidden }))
+                            }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
                               t.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
@@ -1773,7 +1782,9 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("texts", withTextUpdated(s, t.id, { locked: !t.locked }))}
+                            onClick={() =>
+                              set("texts", (_, prevS) => withTextUpdated(prevS, t.id, { locked: !t.locked }))
+                            }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
                               t.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
@@ -1784,7 +1795,7 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("texts", withTextRemoved(s, t.id))}
+                            onClick={() => set("texts", (_, prevS) => withTextRemoved(prevS, t.id))}
                             className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                             title="Delete text layer"
                           >
@@ -1861,7 +1872,9 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("images", withImageUpdated(s, img.id, { hidden: !img.hidden }))}
+                            onClick={() =>
+                              set("images", (_, prevS) => withImageUpdated(prevS, img.id, { hidden: !img.hidden }))
+                            }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
                               img.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
@@ -1872,7 +1885,9 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("images", withImageUpdated(s, img.id, { locked: !img.locked }))}
+                            onClick={() =>
+                              set("images", (_, prevS) => withImageUpdated(prevS, img.id, { locked: !img.locked }))
+                            }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
                               img.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
@@ -1883,7 +1898,7 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("images", withImageRemoved(s, img.id))}
+                            onClick={() => set("images", (_, prevS) => withImageRemoved(prevS, img.id))}
                             className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                             title="Delete image layer"
                           >
@@ -1969,7 +1984,9 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("shapes", withShapeUpdated(s, sh.id, { hidden: !sh.hidden }))}
+                            onClick={() =>
+                              set("shapes", (_, prevS) => withShapeUpdated(prevS, sh.id, { hidden: !sh.hidden }))
+                            }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
                               sh.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
@@ -1981,7 +1998,7 @@ export function LeftPanel({
                           <button
                             type="button"
                             onClick={() =>
-                              set("shapes", withShapeUpdated(s, sh.id, { locked: !sh.locked }))
+                              set("shapes", (_, prevS) => withShapeUpdated(prevS, sh.id, { locked: !sh.locked }))
                             }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
@@ -2171,24 +2188,36 @@ export function LeftPanel({
                       max={100}
                       value={activeShapeLayer.opacity}
                       onChange={(v) =>
-                        set("shapes", withShapeUpdated(s, activeShapeLayer.id, { opacity: v }))
+                        set("shapes", (_, prevS) => withShapeUpdated(prevS, activeShapeLayer.id, { opacity: v }))
                       }
                     />
 
-                    <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <div className="grid grid-cols-3 gap-1.5 pt-1">
                       <button
                         type="button"
                         onClick={() =>
                           set(
-                            "shapes",
-                            withShapeUpdated(s, activeShapeLayer.id, {
-                              layer: activeShapeLayer.layer === "behind" ? "front" : "behind",
-                            }),
+                            "layerOrder",
+                            (_, prevS) => withUnifiedLayerReordered(prevS, activeShapeLayer.id, "up").layerOrder,
                           )
                         }
                         className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
+                        title="Bring Forward"
                       >
-                        Layer: {activeShapeLayer.layer === "behind" ? "Behind Text" : "Front"}
+                        Forward ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          set(
+                            "layerOrder",
+                            withUnifiedLayerReordered(s, activeShapeLayer.id, "down").layerOrder,
+                          )
+                        }
+                        className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
+                        title="Send Backward"
+                      >
+                        Backward ↓
                       </button>
                       <button
                         type="button"
@@ -2202,7 +2231,7 @@ export function LeftPanel({
                         }
                         className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
                       >
-                        Flip Vertical ⇅
+                        Flip ⇅
                       </button>
                     </div>
 
