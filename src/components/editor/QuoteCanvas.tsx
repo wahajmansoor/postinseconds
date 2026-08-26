@@ -217,6 +217,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     startMouseY: number;
     items: (LayerRef & { startX: number; startY: number })[];
   } | null>(null);
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // useCallback (same stability reasoning as `selectLayer` above — these
   // three are also threaded down into DraggableTextLayer's editableNode
@@ -401,6 +402,13 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     handleGuidesChange({ vCenter: false, hCenter: false });
   }, []);
 
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  const handleGuidesChangeRef = useRef(handleGuidesChange);
+  handleGuidesChangeRef.current = handleGuidesChange;
+
   // Arrow keys nudge every currently-selected layer together — 0.1% of the
   // canvas per press, 1% with Shift held (roughly a "fine" vs "coarse"
   // step, matching the usual design-tool convention). Skipped entirely
@@ -411,7 +419,8 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   useEffect(() => {
     if (!interactive || !set) return;
     const handler = (e: KeyboardEvent) => {
-      if (selected.length === 0) return;
+      const currentSelected = selectedRef.current;
+      if (currentSelected.length === 0) return;
       const active = document.activeElement as HTMLElement | null;
       if (active?.isContentEditable || active?.tagName === "INPUT" || active?.tagName === "TEXTAREA") {
         return;
@@ -421,9 +430,9 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
         const currentS = sRef.current;
-        const selImages = selected.filter((sel) => sel.kind === "image").map((sel) => sel.id);
-        const selTexts = selected.filter((sel) => sel.kind === "text").map((sel) => sel.id);
-        const selShapes = selected.filter((sel) => sel.kind === "shape").map((sel) => sel.id);
+        const selImages = currentSelected.filter((sel) => sel.kind === "image").map((sel) => sel.id);
+        const selTexts = currentSelected.filter((sel) => sel.kind === "text").map((sel) => sel.id);
+        const selShapes = currentSelected.filter((sel) => sel.kind === "shape").map((sel) => sel.id);
 
         if (selImages.length) {
           const next = getImageLayers(currentS).filter((img) => !selImages.includes(img.id) || img.locked);
@@ -438,7 +447,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
           set("shapes", next);
         }
 
-        onSelectionChange?.([]);
+        onSelectionChangeRef.current?.([]);
         return;
       }
 
@@ -452,7 +461,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
       const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
 
-      const selImages = selected.filter((sel) => sel.kind === "image").map((sel) => sel.id);
+      const selImages = currentSelected.filter((sel) => sel.kind === "image").map((sel) => sel.id);
       if (selImages.length) {
         let next = getImageLayers(currentS);
         for (const id of selImages) {
@@ -460,7 +469,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         }
         set("images", next);
       }
-      const selTexts = selected.filter((sel) => sel.kind === "text").map((sel) => sel.id);
+      const selTexts = currentSelected.filter((sel) => sel.kind === "text").map((sel) => sel.id);
       if (selTexts.length) {
         let next = getTextLayers(currentS);
         for (const id of selTexts) {
@@ -468,7 +477,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         }
         set("texts", next);
       }
-      const selShapes = selected.filter((sel) => sel.kind === "shape").map((sel) => sel.id);
+      const selShapes = currentSelected.filter((sel) => sel.kind === "shape").map((sel) => sel.id);
       if (selShapes.length) {
         let next = getShapeLayers(currentS);
         for (const id of selShapes) {
@@ -476,10 +485,54 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         }
         set("shapes", next);
       }
+
+      // Show live distance gap / snap guides during keyboard nudge
+      if (currentSelected.length === 1) {
+        const only = currentSelected[0];
+        if (only) {
+          const allElements = getAllCanvasElements(currentS);
+          const targetEl = allElements.find((el) => el.id === only.id);
+          if (targetEl) {
+            const nextRawX = targetEl.x + dx;
+            const nextRawY = targetEl.y + dy;
+            const otherElements = allElements.filter((el) => el.id !== only.id);
+            const { guides: snapGuides } = calculateAlignmentSnap({
+              currentId: only.id,
+              rawX: nextRawX,
+              rawY: nextRawY,
+              width: targetEl.width,
+              height: targetEl.height,
+              s: currentS,
+              otherElements,
+            });
+            handleGuidesChangeRef.current(snapGuides);
+          }
+        }
+      }
+
+      if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+      nudgeTimerRef.current = setTimeout(() => {
+        handleGuidesChangeRef.current({ vCenter: false, hCenter: false });
+      }, 700);
     };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+        nudgeTimerRef.current = setTimeout(() => {
+          handleGuidesChangeRef.current({ vCenter: false, hCenter: false });
+        }, 500);
+      }
+    };
+
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [interactive, set, selected, onSelectionChange]);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.removeEventListener("keyup", handleKeyUp);
+      if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    };
+  }, [interactive, set]);
 
   useEffect(() => {
     loadGoogleFont(s.quoteFont);
@@ -929,24 +982,49 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   }}
                 >
                   {isSpacing ? (
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: "50%",
-                        left: "50%",
-                        transform: `translate(-50%, -50%) scale(${multiSelectInvScale})`,
-                        background: "#ec4899",
-                        color: "#ffffff",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {line.distancePx}
-                    </span>
+                    <>
+                      {/* Top & Bottom T-bar caps */}
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: "-3px",
+                          width: "7px",
+                          height: "1.5px",
+                          background: "#ec4899",
+                          transform: "translateY(-50%)",
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          bottom: 0,
+                          left: "-3px",
+                          width: "7px",
+                          height: "1.5px",
+                          background: "#ec4899",
+                          transform: "translateY(50%)",
+                        }}
+                      />
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: "50%",
+                          left: "50%",
+                          transform: `translate(-50%, -50%) scale(${multiSelectInvScale})`,
+                          background: "#ec4899",
+                          color: "#ffffff",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: "2px 8px",
+                          borderRadius: 999,
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {line.distancePx}
+                      </span>
+                    </>
                   ) : null}
                 </div>
               );
@@ -968,24 +1046,49 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 }}
               >
                 {isSpacing ? (
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: "50%",
-                      left: "50%",
-                      transform: `translate(-50%, -50%) scale(${multiSelectInvScale})`,
-                      background: "#ec4899",
-                      color: "#ffffff",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      padding: "2px 8px",
-                      borderRadius: 999,
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {line.distancePx}
-                  </span>
+                  <>
+                    {/* Left & Right T-bar caps */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        top: "-3px",
+                        height: "7px",
+                        width: "1.5px",
+                        background: "#ec4899",
+                        transform: "translateX(-50%)",
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: "-3px",
+                        height: "7px",
+                        width: "1.5px",
+                        background: "#ec4899",
+                        transform: "translateX(50%)",
+                      }}
+                    />
+                    <span
+                      style={{
+                        position: "absolute",
+                        top: "50%",
+                        left: "50%",
+                        transform: `translate(-50%, -50%) scale(${multiSelectInvScale})`,
+                        background: "#ec4899",
+                        color: "#ffffff",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {line.distancePx}
+                    </span>
+                  </>
                 ) : null}
               </div>
             );
@@ -1117,54 +1220,60 @@ export type ElementBounds = {
 
 function getAllCanvasElements(s: EditorState): ElementBounds[] {
   const elements: ElementBounds[] = [];
-  getTextLayers(s).forEach((t) => {
-    let w = t.width ?? 400;
-    let h = t.minHeight ?? t.size * 1.3;
-    const el = document.querySelector(`[data-layer-id="${t.id}"]`) as HTMLElement | null;
-    if (el) {
-      w = el.offsetWidth || w;
-      h = el.offsetHeight || h;
-    }
-    elements.push({
-      id: t.id,
-      x: t.x,
-      y: t.y,
-      width: w,
-      height: h,
+  getTextLayers(s)
+    .filter((t) => !t.hidden && t.text && t.text.trim().length > 0)
+    .forEach((t) => {
+      let w = t.width ?? 400;
+      let h = t.minHeight ?? t.size * 1.3;
+      const el = document.querySelector(`[data-layer-id="${t.id}"]`) as HTMLElement | null;
+      if (el) {
+        w = el.offsetWidth || w;
+        h = el.offsetHeight || h;
+      }
+      elements.push({
+        id: t.id,
+        x: t.x,
+        y: t.y,
+        width: w,
+        height: h,
+      });
     });
-  });
-  getShapeLayers(s).forEach((sh) => {
-    let w = sh.size;
-    let h = sh.height ?? sh.size;
-    const el = document.querySelector(`[data-layer-id="${sh.id}"]`) as HTMLElement | null;
-    if (el) {
-      w = el.offsetWidth || w;
-      h = el.offsetHeight || h;
-    }
-    elements.push({
-      id: sh.id,
-      x: sh.x,
-      y: sh.y,
-      width: w,
-      height: h,
+  getShapeLayers(s)
+    .filter((sh) => !sh.hidden && (sh.size > 0 || (sh.height ?? 0) > 0))
+    .forEach((sh) => {
+      let w = sh.size;
+      let h = sh.height ?? sh.size;
+      const el = document.querySelector(`[data-layer-id="${sh.id}"]`) as HTMLElement | null;
+      if (el) {
+        w = el.offsetWidth || w;
+        h = el.offsetHeight || h;
+      }
+      elements.push({
+        id: sh.id,
+        x: sh.x,
+        y: sh.y,
+        width: w,
+        height: h,
+      });
     });
-  });
-  getImageLayers(s).forEach((img) => {
-    let w = img.size;
-    let h = img.height ?? img.size;
-    const el = document.querySelector(`[data-layer-id="${img.id}"]`) as HTMLElement | null;
-    if (el) {
-      w = el.offsetWidth || w;
-      h = el.offsetHeight || h;
-    }
-    elements.push({
-      id: img.id,
-      x: img.x,
-      y: img.y,
-      width: w,
-      height: h,
+  getImageLayers(s)
+    .filter((img) => !img.hidden && (img.size > 0 || (img.height ?? 0) > 0))
+    .forEach((img) => {
+      let w = img.size;
+      let h = img.height ?? img.size;
+      const el = document.querySelector(`[data-layer-id="${img.id}"]`) as HTMLElement | null;
+      if (el) {
+        w = el.offsetWidth || w;
+        h = el.offsetHeight || h;
+      }
+      elements.push({
+        id: img.id,
+        x: img.x,
+        y: img.y,
+        width: w,
+        height: h,
+      });
     });
-  });
   return elements;
 }
 
@@ -1402,90 +1511,72 @@ function calculateAlignmentSnap({
         return { left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh };
       });
 
-    // Walks one direction's chain of qualifying elements outward from the
-    // dragged element's own edge, pushing a badge for every consecutive
-    // link whose gap is >= 1px: dragged→1st, then 1st→2nd, 2nd→3rd, etc.
-    // (not one badge spanning past the near ones straight to the far one).
-    // `near`/`far` pull whichever pair of edges face each other along the
-    // walking axis (e.g. walking rightward: near=left edge, far=right
-    // edge); `perpStart`/`perpEnd` are the perpendicular-axis edges used
-    // for the qualifying-overlap check and the line's own on-screen span.
-    const walkChain = (
-      qualifying: Rect[],
-      startEdge: number,
-      near: (r: Rect) => number,
-      far: (r: Rect) => number,
-      ascending: boolean,
-      perpAxisStart: number,
-      perpAxisEnd: number,
-      makeLine: (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number) => AlignmentGuideLine,
-    ) => {
-      const sorted = [...qualifying].sort((a, b) =>
-        ascending ? near(a) - near(b) : near(b) - near(a),
-      );
-      let prevFar = startEdge;
-      for (const node of sorted) {
-        const dist = ascending ? near(node) - prevFar : prevFar - near(node);
-        if (dist >= 1) {
-          const perpStart = Math.max(perpAxisStart, node.top);
-          const perpEnd = Math.min(perpAxisEnd, node.bottom);
-          const edgeA = ascending ? prevFar : near(node);
-          const edgeB = ascending ? near(node) : prevFar;
-          lines.push(makeLine(edgeA, edgeB, dist, perpStart, perpEnd));
-        }
-        prevFar = far(node);
-      }
-    };
-
-    const makeVerticalLine = (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number): AlignmentGuideLine => ({
-      orientation: "vertical",
-      posPct: ((edgeA + edgeB) / 2 / canvasW) * 100,
-      startPct: (perpStart / canvasH) * 100,
-      endPct: (perpEnd / canvasH) * 100,
-      distancePx: Math.round(dist),
-    });
-    const makeHorizontalLine = (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number): AlignmentGuideLine => ({
+    const makeHorizontalDistanceLine = (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number): AlignmentGuideLine => ({
       orientation: "horizontal",
-      posPct: ((edgeA + edgeB) / 2 / canvasH) * 100,
-      startPct: (perpStart / canvasW) * 100,
-      endPct: (perpEnd / canvasW) * 100,
+      posPct: (((perpStart + perpEnd) / 2) / canvasH) * 100,
+      startPct: (edgeA / canvasW) * 100,
+      endPct: (edgeB / canvasW) * 100,
+      distancePx: Math.round(dist),
+    });
+    const makeVerticalDistanceLine = (edgeA: number, edgeB: number, dist: number, perpStart: number, perpEnd: number): AlignmentGuideLine => ({
+      orientation: "vertical",
+      posPct: (((perpStart + perpEnd) / 2) / canvasW) * 100,
+      startPct: (edgeA / canvasH) * 100,
+      endPct: (edgeB / canvasH) * 100,
       distancePx: Math.round(dist),
     });
 
-    const rightQualifying = otherRects.filter((r) => r.left >= finalRight && r.top < finalBottom && r.bottom > finalTop);
-    walkChain(rightQualifying, finalRight, (r) => r.left, (r) => r.right, true, finalTop, finalBottom, makeVerticalLine);
+    // 1. Nearest Right neighbor
+    const nearestRight = otherRects
+      .filter((r) => r.left >= finalRight && r.top < finalBottom && r.bottom > finalTop)
+      .sort((a, b) => a.left - b.left)[0];
+    if (nearestRight) {
+      const dist = nearestRight.left - finalRight;
+      if (dist >= 1) {
+        const perpStart = Math.max(finalTop, nearestRight.top);
+        const perpEnd = Math.min(finalBottom, nearestRight.bottom);
+        lines.push(makeHorizontalDistanceLine(finalRight, nearestRight.left, dist, perpStart, perpEnd));
+      }
+    }
 
-    const leftQualifying = otherRects.filter((r) => r.right <= finalLeft && r.top < finalBottom && r.bottom > finalTop);
-    walkChain(leftQualifying, finalLeft, (r) => r.right, (r) => r.left, false, finalTop, finalBottom, makeVerticalLine);
+    // 2. Nearest Left neighbor
+    const nearestLeft = otherRects
+      .filter((r) => r.right <= finalLeft && r.top < finalBottom && r.bottom > finalTop)
+      .sort((a, b) => b.right - a.right)[0];
+    if (nearestLeft) {
+      const dist = finalLeft - nearestLeft.right;
+      if (dist >= 1) {
+        const perpStart = Math.max(finalTop, nearestLeft.top);
+        const perpEnd = Math.min(finalBottom, nearestLeft.bottom);
+        lines.push(makeHorizontalDistanceLine(nearestLeft.right, finalLeft, dist, perpStart, perpEnd));
+      }
+    }
 
-    // Top/Bottom reuse the exact same walker — `node.top`/`node.bottom`
-    // inside it double as "the perpendicular axis" regardless of which
-    // physical axis that means, since a Rect's own top/bottom already line
-    // up with X here (each rect below is a real Left/Right/Top/Bottom box,
-    // just walked with X as the "perpendicular" axis instead of Y).
-    const bottomQualifying = otherRects.filter((r) => r.top >= finalBottom && r.left < finalRight && r.right > finalLeft);
-    walkChain(
-      bottomQualifying.map((r) => ({ left: r.top, right: r.bottom, top: r.left, bottom: r.right })),
-      finalBottom,
-      (r) => r.left,
-      (r) => r.right,
-      true,
-      finalLeft,
-      finalRight,
-      makeHorizontalLine,
-    );
+    // 3. Nearest Bottom neighbor (below)
+    const nearestBottom = otherRects
+      .filter((r) => r.top >= finalBottom && r.left < finalRight && r.right > finalLeft)
+      .sort((a, b) => a.top - b.top)[0];
+    if (nearestBottom) {
+      const dist = nearestBottom.top - finalBottom;
+      if (dist >= 1) {
+        const perpStart = Math.max(finalLeft, nearestBottom.left);
+        const perpEnd = Math.min(finalRight, nearestBottom.right);
+        lines.push(makeVerticalDistanceLine(finalBottom, nearestBottom.top, dist, perpStart, perpEnd));
+      }
+    }
 
-    const topQualifying = otherRects.filter((r) => r.bottom <= finalTop && r.left < finalRight && r.right > finalLeft);
-    walkChain(
-      topQualifying.map((r) => ({ left: r.top, right: r.bottom, top: r.left, bottom: r.right })),
-      finalTop,
-      (r) => r.right,
-      (r) => r.left,
-      false,
-      finalLeft,
-      finalRight,
-      makeHorizontalLine,
-    );
+    // 4. Nearest Top neighbor (above)
+    const nearestTop = otherRects
+      .filter((r) => r.bottom <= finalTop && r.left < finalRight && r.right > finalLeft)
+      .sort((a, b) => b.bottom - a.bottom)[0];
+    if (nearestTop) {
+      const dist = finalTop - nearestTop.bottom;
+      if (dist >= 1) {
+        const perpStart = Math.max(finalLeft, nearestTop.left);
+        const perpEnd = Math.min(finalRight, nearestTop.right);
+        lines.push(makeVerticalDistanceLine(nearestTop.bottom, finalTop, dist, perpStart, perpEnd));
+      }
+    }
   }
 
   const nextX = Number(((currCenterX / canvasW) * 100).toFixed(3));
@@ -1819,6 +1910,10 @@ const HANDLE_POSITIONS = [
   { id: "sw", kind: "corner", style: { left: -12, bottom: -12 }, cursor: "nesw-resize" },
   { id: "w", kind: "edge-v", style: { left: -8, top: "50%", transform: "translateY(-50%)" }, cursor: "ew-resize" },
 ] as const;
+
+// Text layers only use the 4 corner resize handles (for font scaling) plus left/right
+// pill handles (for adjusting text wrapping width). Top and bottom pill handles are excluded.
+const TEXT_HANDLE_POSITIONS = HANDLE_POSITIONS.filter((h) => h.id !== "n" && h.id !== "s");
 
 type HandleId = (typeof HANDLE_POSITIONS)[number]["id"];
 
@@ -3171,7 +3266,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             {!locked ? (
               <>
                 {!(isMoving || isRotating)
-                  ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
+                  ? TEXT_HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
                     <div
                       key={h.id}
                       onPointerDown={(e) => {
