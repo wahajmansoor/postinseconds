@@ -27,14 +27,18 @@ export const MOBILE_SHEET_MAX_HEIGHT_FRACTION = 0.45;
 
 // The main tool drawer (index.tsx) — unlike the property-popover sheets
 // above, this hosts the entire LeftPanel, so it follows Canva's own mobile
-// pattern instead: opens tall (most of the screen, room to actually browse/
-// type) rather than a cramped peek, and dragging it DOWN locks it to this
-// same short MOBILE_SHEET_MAX_HEIGHT_FRACTION height instead of closing
+// pattern instead: opens tall (full screen, room to actually browse/type)
+// rather than a cramped peek, and dragging it DOWN locks it to this same
+// short MOBILE_SHEET_MAX_HEIGHT_FRACTION height instead of closing
 // immediately — only dragging down again from THAT closes it. Order
 // matters to vaul: the FIRST snap point is what it opens at by default, so
 // tall has to come first here for "opens tall, drag down to shrink" rather
-// than the reverse.
-export const MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION = 0.92;
+// than the reverse. Genuinely 1 (100vh), not just "most of the screen" —
+// anything less leaves a sliver of the canvas squeezed in above the sheet,
+// scaled down to a tiny fraction of its normal size to fit that leftover
+// strip, which reads as broken/cramped rather than intentional. Full-screen
+// instead just hides the canvas entirely while browsing, the same as Canva.
+export const MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION = 1;
 export const MOBILE_TOOL_DRAWER_SNAP_POINTS: (number | string)[] = [
   MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
   MOBILE_SHEET_MAX_HEIGHT_FRACTION,

@@ -23,7 +23,11 @@ const DrawerOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-black/80", className)}
+    // z-30, below MobileBottomTabBar's z-50 — see that component's own
+    // comment for why: the mobile tool drawer can now open at full-screen
+    // height, and the bottom nav needs to stay visible/tappable above it
+    // so switching tools doesn't require closing the current drawer first.
+    className={cn("fixed inset-0 z-30 bg-black/80", className)}
     {...props}
   />
 ));
@@ -47,8 +51,9 @@ const DrawerContent = React.forwardRef<
     <DrawerOverlay className={overlayClassName} />
     <DrawerPrimitive.Content
       ref={ref}
+      // z-30 — see DrawerOverlay's own comment just above.
       className={cn(
-        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background",
+        "fixed inset-x-0 bottom-0 z-30 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background",
         className,
       )}
       {...props}

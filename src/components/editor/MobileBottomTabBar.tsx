@@ -18,7 +18,17 @@ export function MobileBottomTabBar({ activeTab, isDrawerOpen, onTabChange }: Pro
   return (
     <nav
       className={cn(
-        "fixed inset-x-0 bottom-0 z-30 flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl",
+        // z-50 — above every Drawer/DrawerContent in the app (z-30, see
+        // ui.tsx) — so this stays visible and tappable even while the tool
+        // drawer is open at its full-screen tall height, letting a tap on
+        // a different tab switch tools directly without needing to close
+        // the current drawer first. index.tsx's own onTabChange already
+        // only closes the drawer when re-tapping the SAME already-open
+        // tab — tapping a different one just swaps `tab` while leaving it
+        // open, so this is the one thing that was actually stopping that
+        // from being reachable: the bar sitting BEHIND the drawer,
+        // invisible and untappable, at the old z-30.
+        "fixed inset-x-0 bottom-0 z-50 flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl",
         "shadow-[0_-12px_28px_-14px_oklch(0_0_0/0.14)] dark:shadow-[0_-12px_28px_-14px_oklch(0_0_0/0.6)]",
       )}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -43,9 +53,6 @@ export function MobileBottomTabBar({ activeTab, isDrawerOpen, onTabChange }: Pro
                 active ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {active ? (
-                <span className="absolute top-0 h-[3px] w-6 rounded-full bg-primary" />
-              ) : null}
               <r.icon size={20} />
               <span className="leading-none whitespace-nowrap">{r.label}</span>
             </button>

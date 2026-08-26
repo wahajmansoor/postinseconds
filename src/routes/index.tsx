@@ -478,16 +478,15 @@ function Index() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const isMobile = useIsMobile();
   const [mobileToolDrawerOpen, setMobileToolDrawerOpen] = useState(false);
-  // Controlled snap point for the tool drawer (see MOBILE_TOOL_DRAWER_SNAP_POINTS
-  // in ui.tsx) — needed so the canvas-lift logic below can tell tall vs.
-  // peek apart, not just "is it open at all". Defaults to the tall point,
-  // matching snapPoints[0] (what vaul itself opens at); reset back to that
-  // whenever the drawer closes so the next open always starts tall again,
-  // same as vaul's own built-in reset behavior for its (uncontrolled, on
-  // every other sheet) snap point state.
-  const [mobileToolDrawerSnapPoint, setMobileToolDrawerSnapPoint] = useState<number | string | null>(
-    MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
-  );
+  // Ground-truth for how tall the tool drawer's box actually is ON SCREEN
+  // right now (in px) — measured directly off the DOM instead of trusting
+  // vaul's activeSnapPoint/setActiveSnapPoint controlled-state callback,
+  // which turned out not to reflect the real drag state reliably (both the
+  // canvas-lift amount and the drawer's own scrollable-content sizing were
+  // silently never updating past the tall default because of it). See the
+  // measurement effect below for how this gets kept current.
+  const toolDrawerContentRef = useRef<HTMLDivElement>(null);
+  const [mobileToolDrawerVisiblePx, setMobileToolDrawerVisiblePx] = useState(0);
   const [mobileExportDrawerOpen, setMobileExportDrawerOpen] = useState(false);
   const [croppingImageLayer, setCroppingImageLayer] = useState<ImageLayer | null>(null);
   // Same lifted-state reasoning as croppingImageLayer above — see
@@ -1246,6 +1245,36 @@ function Index() {
     [clampPan],
   );
 
+  // Keeps mobileToolDrawerVisiblePx (see its own comment above) current by
+  // directly measuring the drawer's real on-screen intersection every
+  // frame while it's open — a transform-driven slide (which is all vaul
+  // does between snap points, and continuously while mid-drag) doesn't fire
+  // ResizeObserver, IntersectionObserver's own throttling is too coarse to
+  // track a drag smoothly, and the activeSnapPoint callback route already
+  // proved unreliable — so this reads the one thing that's always accurate
+  // regardless of any of that: the element's actual bounding rect against
+  // the viewport, right now. rAF-driven rather than on some fixed interval
+  // so it tracks a live drag as smoothly as the drag itself renders, and
+  // stops immediately (no idle polling) the moment the drawer closes.
+  useEffect(() => {
+    if (!isMobile || !mobileToolDrawerOpen) {
+      setMobileToolDrawerVisiblePx(0);
+      return;
+    }
+    let rafId: number;
+    const measure = () => {
+      const el = toolDrawerContentRef.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const visible = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+        setMobileToolDrawerVisiblePx((prev) => (Math.abs(prev - visible) > 1 ? visible : prev));
+      }
+      rafId = requestAnimationFrame(measure);
+    };
+    rafId = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(rafId);
+  }, [isMobile, mobileToolDrawerOpen]);
+
   // Trigger 1: a fresh single-layer selection on mobile. Mostly matters when
   // zoomed in and panned elsewhere — tapping a layer via the layers list (or
   // anything else that can select without the layer itself being tapped
@@ -1900,8 +1929,8 @@ function Index() {
   const multiSelectedShapeLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "shape")
       ? (canvasSelection
-          .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
-          .filter(Boolean) as ShapeLayer[])
+        .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
+        .filter(Boolean) as ShapeLayer[])
       : [];
   const isMultiShapeSelection = multiSelectedShapeLayers.length > 1;
 
@@ -1940,8 +1969,8 @@ function Index() {
   const multiSelectedImageLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "image")
       ? (canvasSelection
-          .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
-          .filter(Boolean) as ImageLayer[])
+        .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
+        .filter(Boolean) as ImageLayer[])
       : [];
   const isMultiImageSelection = multiSelectedImageLayers.length > 1;
 
@@ -2010,27 +2039,30 @@ function Index() {
   // adding new callback plumbing through every toolbar component.
   const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
 
-  // Whether the tool drawer is currently sitting at its short "peek" snap
-  // point rather than its tall default — see mobileToolDrawerSnapPoint's
-  // own comment above for why this needs to be a controlled, tracked value
-  // instead of just "is it open at all": vaul only TRANSLATES the drawer
-  // between snap points, it never reflows the canvas's own (separately
-  // laid out, position: fixed underneath it) box, so shrinking the drawer
-  // alone doesn't un-cover anything — whatever was already sitting in that
-  // bottom band stays exactly where it was, just no longer covered by as
-  // much overlay. The lift below is what actually moves the canvas clear.
-  const mobileToolDrawerAtPeek =
-    isMobile && mobileToolDrawerOpen && mobileToolDrawerSnapPoint === MOBILE_SHEET_MAX_HEIGHT_FRACTION;
+  // Whether the canvas area should currently be lifted clear of an open
+  // property popover — these are always fixed at
+  // MOBILE_SHEET_MAX_HEIGHT_FRACTION, unlike the tool drawer, which has its
+  // own separate on/off threshold below rather than reflowing continuously.
+  const mobileDrawerLiftActive = isMobile && anyPopoverOpen;
 
-  // Whether the canvas area should currently be lifted clear of a bottom
-  // sheet — every property popover (always fixed at
-  // MOBILE_SHEET_MAX_HEIGHT_FRACTION) plus the tool drawer specifically
-  // when it's at that same short height (see mobileToolDrawerAtPeek just
-  // above). Not the tool drawer's tall state — Canva's own version doesn't
-  // try to keep the canvas visible while its sheet is tall either, and at
-  // 92vh there isn't a sensible "clear of it" position for the canvas to
-  // lift to in the first place.
-  const mobileDrawerLiftActive = isMobile && (anyPopoverOpen || mobileToolDrawerAtPeek);
+  // Whether the tool drawer has been dragged down far enough to treat the
+  // canvas as "should come back into view" — deliberately NOT the same
+  // continuous, always-tracking value the drawer's own scrollable content
+  // uses (mobileToolDrawerVisiblePx). While the drawer sits at its tall
+  // default (or anywhere still closer to tall than to the peek height),
+  // the canvas is fully hidden behind it either way, so there's nothing to
+  // gain from also reflowing/shrinking it in lockstep with every frame of
+  // that — it can just stay exactly where it normally sits, untouched,
+  // until the drag actually gets close to the peek height, at which point
+  // it snaps into its lifted position in one clean step (with its own
+  // transition — see where this is used below) instead of following the
+  // whole drag continuously. The cutoff sits at the midpoint between the
+  // two snap fractions, so it's roughly "closer to peek than to tall".
+  const mobileToolDrawerNearPeek =
+    isMobile &&
+    mobileToolDrawerOpen &&
+    mobileToolDrawerVisiblePx > 0 &&
+    mobileToolDrawerVisiblePx < window.innerHeight * ((1 + MOBILE_SHEET_MAX_HEIGHT_FRACTION) / 2);
 
   // Trigger 3: a FloatingDropdown popover opening. On mobile these render as
   // a fixed max-h-[45vh] bottom sheet (see ui.tsx), same fixed fraction
@@ -2503,7 +2535,7 @@ function Index() {
     <TooltipProvider delayDuration={120}>
       <div className="flex h-screen h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground">
         <header
-          className="sticky top-0 z-50 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 pb-2 sm:gap-4 sm:px-5"
+          className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 pb-2 sm:gap-4 sm:px-5"
           style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.5rem)" }}
         >
           <div className="flex items-center gap-2.5 sm:gap-3">
@@ -2671,7 +2703,7 @@ function Index() {
             {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when user did changes */}
             {(historyIdx.current > 0 || historyIdx.current < history.current.length - 1) ? (
               <div
-                className="pointer-events-none fixed left-4 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+                className="pointer-events-none fixed left-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
               >
                 <AppTooltip content="Undo">
@@ -2703,7 +2735,7 @@ function Index() {
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
             {(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection) ? (
               <div
-                className="pointer-events-none fixed right-4 z-40 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+                className="pointer-events-none fixed right-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
               >
                 {/* Lock Toggle Button */}
@@ -2775,25 +2807,35 @@ function Index() {
             <div
               className="flex min-h-0 flex-1 flex-col p-3"
               style={{
-                paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 12px)",
-                // Lifts the whole canvas area clear of an open property-
-                // popover sheet, or the tool drawer once it's at its short
-                // "peek" height — same idea as how the OS keyboard pushes
-                // page content up rather than just covering it, applied to
-                // our own bottom sheets. All of these top out at
-                // MOBILE_SHEET_MAX_HEIGHT_FRACTION's height, so that's
-                // exactly how far up this needs to shift for the canvas to
-                // clear it. Same duration/easing vaul itself uses for the
-                // sheet's own slide (TRANSITIONS in vaul's source) so the
-                // two motions read as one connected movement instead of two
-                // separately-timed animations. Deliberately NOT the tool
-                // drawer's own TALL state (see mobileDrawerLiftActive's own
-                // comment) or the Export drawer (already dims the canvas
-                // behind it).
-                transform: mobileDrawerLiftActive
-                  ? `translateY(-${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh)`
-                  : undefined,
-                transition: "transform 0.5s cubic-bezier(0.32, 0.72, 0, 1)",
+                // Reserves room at the bottom for whatever's actually
+                // covering it — a fixed MOBILE_SHEET_MAX_HEIGHT_FRACTION for
+                // an open property popover (never resizes) OR the tool
+                // drawer once it's been dragged down near its own peek
+                // height (mobileToolDrawerNearPeek — a clean on/off snap,
+                // not a continuous drag-follow; see its own comment above
+                // for why). REPLACES the bottom-tab-bar reservation in the
+                // last branch rather than adding to it — once anything is
+                // open it already covers that whole strip itself (higher
+                // z-index, same screen-bottom real estate), so stacking both
+                // was reserving the same dead space twice, which is exactly
+                // what showed up as a gap between the fitted canvas and the
+                // sheet's own top edge.
+                //
+                // This is a real reflow, not a transform: canvasStage below
+                // is `flex-1` inside this box, so shrinking the box's own
+                // available height shrinks canvasStage's actual measured
+                // size, which its existing ResizeObserver (the stageRef
+                // effect above) already reacts to by recalculating
+                // `scale`/`pan` to re-fit the whole canvas inside whatever
+                // room is left — the same path that already keeps it fitted
+                // on rotation/window resize. A translateY (tried first)
+                // doesn't work for this: it only repositions an already-
+                // fixed-size box, which ResizeObserver has no reason to
+                // notice, so the canvas itself never actually resizes.
+                paddingBottom: mobileDrawerLiftActive || mobileToolDrawerNearPeek
+                  ? `${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh`
+                  : "calc(60px + env(safe-area-inset-bottom) + 12px)",
+                transition: "padding-bottom 0.5s cubic-bezier(0.32, 0.72, 0, 1)", marginBottom: "20px"
               }}
             >
               {canvasStage}
@@ -2977,79 +3019,125 @@ function Index() {
                 now. */}
             <Drawer
               open={mobileToolDrawerOpen}
-              onOpenChange={(open) => {
-                setMobileToolDrawerOpen(open);
-                // Reset for the NEXT open — vaul does this internally for
-                // its own uncontrolled snap point state on close, but
-                // mobileToolDrawerSnapPoint is controlled (see its own
-                // comment above), so that reset has to happen here instead.
-                if (!open) setMobileToolDrawerSnapPoint(MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION);
-              }}
+              onOpenChange={setMobileToolDrawerOpen}
               shouldScaleBackground={false}
               snapPoints={MOBILE_TOOL_DRAWER_SNAP_POINTS}
-              activeSnapPoint={mobileToolDrawerSnapPoint}
-              setActiveSnapPoint={setMobileToolDrawerSnapPoint}
             >
               <DrawerContent
+                ref={toolDrawerContentRef}
                 overlayClassName="bg-transparent pointer-events-none"
-                // A fixed h-[92vh], not max-h — vaul's snap points only ever
-                // TRANSLATE this box between heights, they never resize it,
-                // so with a content-driven max-height a tab with modest
-                // content (Text/Uploads/Layers, next to something like a
-                // full template gallery) would just render shorter than
-                // 92vh outright and never actually look "tall" no matter
-                // which snap point is nominally active. Forcing a genuine
-                // fixed height fixes that — and doesn't break the short
-                // "peek" position either: since the box stays anchored to
-                // the screen's bottom edge, translating a 92vh-tall box down
+                // The overlay's own pointer-events-none only stops IT from
+                // swallowing taps — it doesn't touch Radix's separate
+                // DismissableLayer machinery underneath, which still treats
+                // any pointerdown outside this Content's own DOM subtree as
+                // a close signal by default (modal mode, the default here,
+                // doesn't call preventDefault() on it internally). The
+                // bottom nav bar lives in a completely different part of
+                // the tree — floating above this drawer via z-index, not
+                // rendered inside it — so every tap on it counted as
+                // "outside", closing the drawer out from under onTabChange
+                // before it ever got to just swap `tab` and leave it open.
+                // Same fix as EraseImageDialog's own onOpenChange hardening
+                // earlier this session: block Radix's own close path here,
+                // and let ONLY the explicit Done button / swipe-down (both
+                // handled separately, neither goes through this) close it.
+                onPointerDownOutside={(e) => e.preventDefault()}
+                onInteractOutside={(e) => e.preventDefault()}
+                // A fixed h-[100vh] (genuinely full screen — see
+                // MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION's own comment),
+                // not max-h — vaul's snap points only ever TRANSLATE this
+                // box between heights, they never resize it, so with a
+                // content-driven max-height a tab with modest content
+                // (Text/Uploads/Layers, next to something like a full
+                // template gallery) would just render shorter than 100vh
+                // outright and never actually look "tall" no matter which
+                // snap point is nominally active. Forcing a genuine fixed
+                // height fixes that — and doesn't break the short "peek"
+                // position either: since the box stays anchored to the
+                // screen's bottom edge, translating a 100vh-tall box down
                 // until only 45vh of it remains on screen looks IDENTICAL
                 // to a box that was only ever 45vh tall to begin with.
-                className="mt-0 flex h-[92vh] flex-col rounded-t-2xl"
+                className="mt-0 flex h-[100vh] flex-col rounded-t-2xl"
               >
-                <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
-                  <span className="text-sm font-bold text-foreground">
-                    {RAIL.find((r) => r.id === tab)?.label}
-                  </span>
-                  <DrawerClose className="rounded-full px-3 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
-                    Done
-                  </DrawerClose>
-                </div>
+                {/* Constrains header+content to however much of the (fixed
+                    h-[100vh]) box above is ACTUALLY visible on screen right
+                    now — mobileToolDrawerVisiblePx, measured live off the
+                    DOM (see its own comment above). Without this, the
+                    content below always measures its available height
+                    against the full 100vh box regardless of how much of it
+                    is on screen, so content shorter than 100vh but taller
+                    than the visible 45vh would render (and fit) entirely,
+                    with zero scroll distance left to bring the rest into
+                    view — the flex-1 + min-h-0 below still does the actual
+                    "subtract the header's real height" arithmetic, this
+                    inner wrapper just caps the total either has to work
+                    with to match reality. */}
                 <div
-                  className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4"
-                  style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
+                  className="flex min-h-0 flex-col"
+                  style={{
+                    // Falls back to the tall default for the one frame
+                    // before the measurement effect's first rAF callback
+                    // lands (mobileToolDrawerVisiblePx starts at 0) —
+                    // matches what vaul itself opens the sheet at anyway.
+                    height:
+                      mobileToolDrawerVisiblePx > 0
+                        ? `${mobileToolDrawerVisiblePx}px`
+                        : `${MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION * 100}vh`,
+                  }}
                 >
-                  <LeftPanel
-                    s={s}
-                    set={set}
-                    applyTemplate={(t) => {
-                      setMobileToolDrawerOpen(false);
-                      requestAnimationFrame(() => {
-                        applyTemplate(t);
-                      });
-                    }}
-                    tab={tab}
-                    selection={canvasSelection}
-                    onSelectLayer={(layer, opts) => {
-                      setMobileToolDrawerOpen(false);
-                      requestAnimationFrame(() => {
-                        handleSelectLayer(layer, opts);
-                      });
-                    }}
-                    onItemSelect={() => setMobileToolDrawerOpen(false)}
-                    textSubTab={textSubTab}
-                    onTextSubTabChange={setTextSubTab}
-                    templateCategory={templateCategory}
-                    onTemplateCategoryChange={setTemplateCategory}
-                    onSelectSavedQuote={(quote) => {
-                      setMobileToolDrawerOpen(false);
-                      requestAnimationFrame(() => {
-                        setEditingSavedQuoteTarget({ id: quote.id, title: quote.title });
-                      });
-                    }}
-                    activeSavedQuote={editingSavedQuoteTarget}
-                    onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}
-                    canvasRef={canvasRef}
-                  />
+                  <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
+                    <span className="text-sm font-bold text-foreground">
+                      {RAIL.find((r) => r.id === tab)?.label}
+                    </span>
+                    <DrawerClose className="rounded-full px-3 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+                      Done
+                    </DrawerClose>
+                  </div>
+                  <div
+                    className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4"
+                    // +60px on top of what was already here — the bottom
+                    // nav now floats ABOVE this drawer (z-50 vs. its own
+                    // z-30, see MobileBottomTabBar's own comment) so it can
+                    // stay tappable while the drawer's open, which also
+                    // means it now visually sits on top of whatever this
+                    // content renders in that same strip; without this the
+                    // last ~60px of scrolled content would end up hidden
+                    // behind it instead of just scrolling clear underneath.
+                    style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 40px)" }}
+                  >
+                    <LeftPanel
+                      s={s}
+                      set={set}
+                      applyTemplate={(t) => {
+                        setMobileToolDrawerOpen(false);
+                        requestAnimationFrame(() => {
+                          applyTemplate(t);
+                        });
+                      }}
+                      tab={tab}
+                      selection={canvasSelection}
+                      onSelectLayer={(layer, opts) => {
+                        setMobileToolDrawerOpen(false);
+                        requestAnimationFrame(() => {
+                          handleSelectLayer(layer, opts);
+                        });
+                      }}
+                      onItemSelect={() => setMobileToolDrawerOpen(false)}
+                      textSubTab={textSubTab}
+                      onTextSubTabChange={setTextSubTab}
+                      templateCategory={templateCategory}
+                      onTemplateCategoryChange={setTemplateCategory}
+                      onSelectSavedQuote={(quote) => {
+                        setMobileToolDrawerOpen(false);
+                        requestAnimationFrame(() => {
+                          setEditingSavedQuoteTarget({ id: quote.id, title: quote.title });
+                        });
+                      }}
+                      activeSavedQuote={editingSavedQuoteTarget}
+                      onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}
+                      canvasRef={canvasRef}
+                    />
+                  </div>
                 </div>
               </DrawerContent>
             </Drawer>
@@ -3066,7 +3154,7 @@ function Index() {
                 </div>
                 <div
                   className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4"
-                  style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
+                  style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 40px)" }}
                 >
                   <RightPanel
                     s={s}
