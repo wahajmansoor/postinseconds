@@ -198,6 +198,27 @@ export const BOX_COLORS = [
   "#94a3b8",
 ];
 
+export function normalizeColorToHex(color?: string | null): string {
+  if (!color) return "#ffffff";
+  const c = color.trim().toLowerCase();
+  if (c.startsWith("#")) {
+    if (c.length === 4) {
+      return `#${c[1]}${c[1]}${c[2]}${c[2]}${c[3]}${c[3]}`;
+    }
+    return c;
+  }
+  const rgbMatch = c.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1] ?? "0", 10).toString(16).padStart(2, "0");
+    const g = parseInt(rgbMatch[2] ?? "0", 10).toString(16).padStart(2, "0");
+    const b = parseInt(rgbMatch[3] ?? "0", 10).toString(16).padStart(2, "0");
+    return `#${r}${g}${b}`;
+  }
+  if (c === "white") return "#ffffff";
+  if (c === "black") return "#000000";
+  return c;
+}
+
 export const SHADOWS: Record<string, string> = {
   none: "none",
   small: "0 2px 8px rgba(0,0,0,0.18)",

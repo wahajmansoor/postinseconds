@@ -30,7 +30,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { AppTooltip } from "@/components/ui/tooltip";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
-import { FONTS, type TextLayer } from "./types";
+import { FONTS, normalizeColorToHex, type TextLayer } from "./types";
 import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
 
 // Canva-style top-docked toolbar: appears the instant a single free-floating
@@ -47,6 +47,23 @@ import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, useDraggableOff
 // appeared above a highlighted word/phrase for the same commands, removed
 // once this toolbar covered the same ground, to avoid two overlapping
 // formatting UIs.
+const TOP_COLORS = [
+  "#000000",
+  "#ffffff",
+  "#f43f5e",
+  "#f97316",
+  "#f59e0b",
+  "#10b981",
+  "#06b6d4",
+  "#3b82f6",
+  "#6366f1",
+  "#a855f7",
+  "#ec4899",
+  "#64748b",
+  "#94a3b8",
+  "#78350f",
+];
+
 export function TextSelectionToolbar({
   layer,
   handle,
@@ -171,13 +188,19 @@ export function TextSelectionToolbar({
 
   const currentColors = useMemo((): string[] => {
     if (activeFormat.colors && activeFormat.colors.length > 1) {
-      return activeFormat.colors.slice(0, 2);
+      const norm = Array.from(new Set(activeFormat.colors.map((c) => normalizeColorToHex(c))));
+      if (norm.length > 1) {
+        return norm.slice(0, 2);
+      }
+      if (norm.length === 1 && norm[0]) {
+        return [norm[0]];
+      }
     }
     if (activeFormat.color && activeFormat.color !== "multiple") {
-      return [activeFormat.color];
+      return [normalizeColorToHex(activeFormat.color)];
     }
 
-    const baseColor = (layer.color || "#000000").trim();
+    const baseColor = normalizeColorToHex(layer.color || "#ffffff");
     if (!layer.html) {
       return [baseColor];
     }
@@ -192,16 +215,19 @@ export function TextSelectionToolbar({
         let totalStyledTextLen = 0;
 
         colorSpans.forEach((el) => {
-          const c = el.style.color?.trim();
-          if (c && !foundColors.some((fc) => fc.toLowerCase() === c.toLowerCase())) {
-            foundColors.push(c);
+          const rawC = el.style.color?.trim();
+          if (rawC) {
+            const hex = normalizeColorToHex(rawC);
+            if (!foundColors.includes(hex)) {
+              foundColors.push(hex);
+            }
           }
           totalStyledTextLen += el.textContent?.length || 0;
         });
 
         const totalTextLen = tmp.textContent?.length || 0;
         if (totalTextLen > totalStyledTextLen) {
-          if (!foundColors.some((fc) => fc.toLowerCase() === baseColor.toLowerCase())) {
+          if (!foundColors.includes(baseColor)) {
             foundColors.unshift(baseColor);
           }
         }
@@ -232,6 +258,7 @@ export function TextSelectionToolbar({
   // Desktop is completely unaffected — its Font button still opens
   // `fontOpen` directly, same as before this existed.
   const [fontStripOpen, setFontStripOpen] = useState(false);
+  const [colorStripOpen, setColorStripOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const [arrangePinned, setArrangePinned] = useState(false);
   const arrangeDrag = useDraggableOffset();
@@ -248,7 +275,7 @@ export function TextSelectionToolbar({
   // to keep this whole component mounted — and thus keep every popover's
   // own state (search text, drag position, which one is open) intact —
   // even after `layer` stops being the live canvas selection.
-  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen || fontStripOpen || arrangeOpen;
+  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen || fontStripOpen || colorStripOpen || arrangeOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -292,6 +319,15 @@ export function TextSelectionToolbar({
   const preserveSelection = (e: React.SyntheticEvent) => {
     e.preventDefault();
     e.stopPropagation();
+  };
+
+  const dismissMobileKeyboard = () => {
+    if (typeof document !== "undefined") {
+      const active = document.activeElement as HTMLElement | null;
+      if (active && typeof active.blur === "function") {
+        active.blur();
+      }
+    }
   };
 
   // Press-and-hold repeat for the Decrease/Increase size buttons below —
@@ -391,6 +427,28 @@ export function TextSelectionToolbar({
     </FloatingDropdown>
   );
 
+  const textColorFloatingDropdown = (
+    <FloatingDropdown
+      anchor={textColorAnchor}
+      offset={textColorDrag.offset}
+      align="center"
+      pinned={textColorPinned}
+      onRequestClose={() => setTextColorOpen(false)}
+      triggerRef={textColorTriggerRef}
+    >
+      <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl max-md:border-none max-md:shadow-none max-md:bg-transparent max-md:rounded-none">
+        <DragHandle
+          label="Text Color"
+          {...textColorDrag.dragHandleProps}
+          pinned={textColorPinned}
+          onTogglePin={() => setTextColorPinned((p) => !p)}
+          onClose={() => setTextColorOpen(false)}
+        />
+        <ColorPickerContent value={layer.color} onChange={handle.setColor} />
+      </div>
+    </FloatingDropdown>
+  );
+
   // Mobile: font mode swaps the entire row for a back button + a horizontal
   // scrollable strip of font-name chips (each previewed in its own font),
   // matching a Canva-style quick font switcher — the canvas stays fully
@@ -457,13 +515,15 @@ export function TextSelectionToolbar({
             type="button"
             onPointerDown={(e) => {
               handle.snapshotSelection();
-              preserveSelection(e);
+              dismissMobileKeyboard();
             }}
             onMouseDown={(e) => {
               handle.snapshotSelection();
-              preserveSelection(e);
+              dismissMobileKeyboard();
             }}
             onClick={() => {
+              handle.snapshotSelection();
+              dismissMobileKeyboard();
               fontDrag.reset();
               setFontSearch("");
               setFontPinned(false);
@@ -475,6 +535,86 @@ export function TextSelectionToolbar({
           </button>
         </AppTooltip>
         {fontFloatingDropdown}
+      </div>
+    );
+  }
+
+  // Mobile: color mode swaps the row for a back button + horizontal quick-color strip + expand down arrow
+  if (isMobile && colorStripOpen) {
+    return (
+      <div
+        ref={rowRef}
+        style={
+          detached
+            ? {
+              position: "fixed",
+              top: lastLiveRectRef.current?.top ?? 0,
+              left: lastLiveRectRef.current?.left ?? 0,
+              visibility: "hidden",
+              pointerEvents: "none",
+            }
+            : undefined
+        }
+        className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap"
+      >
+        <AppTooltip content="Back">
+          <button
+            type="button"
+            onPointerDown={preserveSelection}
+            onMouseDown={preserveSelection}
+            onClick={() => setColorStripOpen(false)}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/50 text-foreground transition-colors hover:bg-secondary"
+          >
+            <ArrowLeft01Icon size={16} />
+          </button>
+        </AppTooltip>
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth px-1">
+          {TOP_COLORS.map((c) => {
+            const active = (currentColors.length === 1 && currentColors[0]?.toLowerCase() === c.toLowerCase()) || (layer.color?.toLowerCase() === c.toLowerCase());
+            return (
+              <button
+                key={c}
+                type="button"
+                onPointerDown={preserveSelection}
+                onMouseDown={preserveSelection}
+                onClick={() => handle.setColor(c)}
+                className={cn(
+                  "h-7 w-7 shrink-0 rounded-full border shadow-sm transition-transform hover:scale-110 active:scale-95",
+                  active
+                    ? "border-primary ring-2 ring-primary ring-offset-2 ring-offset-background scale-105"
+                    : "border-border/80 hover:border-foreground/40",
+                )}
+                style={{ backgroundColor: c }}
+                title={c}
+              />
+            );
+          })}
+        </div>
+        <AppTooltip content="All colors & custom picker">
+          <button
+            ref={textColorTriggerRef}
+            type="button"
+            onPointerDown={(e) => {
+              handle.snapshotSelection();
+              dismissMobileKeyboard();
+            }}
+            onMouseDown={(e) => {
+              handle.snapshotSelection();
+              dismissMobileKeyboard();
+            }}
+            onClick={() => {
+              handle.snapshotSelection();
+              dismissMobileKeyboard();
+              textColorDrag.reset();
+              setTextColorPinned(false);
+              setTextColorOpen(true);
+            }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-secondary/50 text-foreground transition-colors hover:bg-secondary"
+          >
+            <ArrowDown01Icon size={16} className="rotate-180" />
+          </button>
+        </AppTooltip>
+        {textColorFloatingDropdown}
       </div>
     );
   }
@@ -618,6 +758,10 @@ export function TextSelectionToolbar({
           preserveSelection(e);
         }}
         onClick={() => {
+          if (isMobile) {
+            setColorStripOpen(true);
+            return;
+          }
           setTextColorOpen((wasOpen) => {
             if (!wasOpen) {
               textColorDrag.reset();
@@ -631,28 +775,10 @@ export function TextSelectionToolbar({
         style={
           currentColors.length > 1
             ? { background: `linear-gradient(135deg, ${currentColors[0]} 50%, ${currentColors[1]} 50%)` }
-            : { backgroundColor: currentColors[0] || layer.color || "#000000" }
+            : { backgroundColor: currentColors[0] || normalizeColorToHex(layer.color) || "#ffffff" }
         }
       />
-      <FloatingDropdown
-        anchor={textColorAnchor}
-        offset={textColorDrag.offset}
-        align="center"
-        pinned={textColorPinned}
-        onRequestClose={() => setTextColorOpen(false)}
-        triggerRef={textColorTriggerRef}
-      >
-        <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl max-md:border-none max-md:shadow-none max-md:bg-transparent max-md:rounded-none">
-          <DragHandle
-            label="Text Color"
-            {...textColorDrag.dragHandleProps}
-            pinned={textColorPinned}
-            onTogglePin={() => setTextColorPinned((p) => !p)}
-            onClose={() => setTextColorOpen(false)}
-          />
-          <ColorPickerContent value={layer.color} onChange={handle.setColor} />
-        </div>
-      </FloatingDropdown>
+      {textColorFloatingDropdown}
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

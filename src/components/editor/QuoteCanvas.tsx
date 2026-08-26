@@ -17,6 +17,7 @@ import {
   getTextLayers,
   getUnifiedLayers,
   hexToRgba,
+  normalizeColorToHex,
   sanitizeTextHtml,
   shapeCss,
   shapeFillStyle,
@@ -2841,7 +2842,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           const colorElements = fragment.querySelectorAll<HTMLElement>("[style*='color']");
           colorElements.forEach((el) => {
             const col = el.style.color;
-            if (col) foundColors.add(col);
+            if (col) foundColors.add(normalizeColorToHex(col));
           });
         }
 
@@ -2855,7 +2856,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             selectedFont = comp.fontFamily;
           }
           if (!selectedColor && foundColors.size === 0) {
-            selectedColor = comp.color;
+            selectedColor = normalizeColorToHex(comp.color);
           }
         }
         return {

@@ -607,10 +607,11 @@ export function ColorPickerContent({
     // correct there) and directly inside FloatingDropdown's mobile bottom
     // sheet (Text Color, Background Solid) — on mobile it should fill the
     // sheet's own width instead of floating narrow inside it with blank
-    // space on either side.
-    <div className="flex w-68 max-md:w-full flex-col gap-3.5 p-3.5 text-popover-foreground">
-      {/* 1. HeroUI 2D Color Area */}
-      <ColorArea hsva={hsva} onChange={updateHsva} />
+    <div className="flex w-68 max-md:w-full flex-col gap-3 p-3.5 max-md:gap-2.5 max-md:p-2.5 text-popover-foreground">
+      {/* 1. HeroUI 2D Color Area - Desktop only, hidden on mobile for clean compact layout */}
+      <div className="hidden md:block">
+        <ColorArea hsva={hsva} onChange={updateHsva} />
+      </div>
 
       {/* 2. Color Controls (Sliders + EyeDropper + Swatch) */}
       <div className="flex items-center gap-2.5">
@@ -623,15 +624,33 @@ export function ColorPickerContent({
           )}
         </div>
 
-        {enableEyeDropper && hasEyeDropper && (
-          <button
-            type="button"
-            onClick={handleEyeDropper}
-            title="Eyedropper (Pick color from screen)"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-black/10 dark:border-white/15 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95"
-          >
-            <Pipette size={14} />
-          </button>
+        {enableEyeDropper && (
+          hasEyeDropper ? (
+            <button
+              type="button"
+              onClick={handleEyeDropper}
+              title="Eyedropper (Pick color from screen)"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-black/10 dark:border-white/15 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95"
+            >
+              <Pipette size={14} />
+            </button>
+          ) : (
+            <label
+              title="Color dropper / picker"
+              className="relative flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-black/10 dark:border-white/15 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95"
+            >
+              <Pipette size={14} />
+              <input
+                type="color"
+                value={currentColor.slice(0, 7)}
+                onChange={(e) => {
+                  const rgba = parseColorToRgba(e.target.value);
+                  updateHsva(rgbaToHsva(rgba));
+                }}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              />
+            </label>
+          )
         )}
       </div>
 

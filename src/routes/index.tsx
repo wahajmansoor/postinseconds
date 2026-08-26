@@ -1315,6 +1315,9 @@ function Index() {
   // everything below that line as unsafe.
   const panLayerIntoView = useCallback(
     (layerId: string, opts?: { maxSafeViewportY?: number }) => {
+      // If we are at fit scale and no drawer is covering the canvas, canvas is already centered and fully visible
+      if (!opts?.maxSafeViewportY && !isCustomZoomRef.current) return;
+
       const stageEl = stageRef.current;
       if (!stageEl) return;
       const target = stageEl.querySelector(`[data-layer-id="${layerId}"]`) as HTMLElement | null;
@@ -1380,27 +1383,15 @@ function Index() {
     return () => cancelAnimationFrame(rafId);
   }, [isMobile, mobileToolDrawerOpen]);
 
-  // Trigger 1: a fresh single-layer selection on mobile. Mostly matters when
-  // zoomed in and panned elsewhere — tapping a layer via the layers list (or
-  // anything else that can select without the layer itself being tapped
-  // on-screen) can select something currently scrolled out of view.
+  // Trigger 1: a fresh single-layer selection on mobile when zoomed in
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
-    if (!isMobile || !only) return;
+    if (!isMobile || !only || !isCustomZoomRef.current) return;
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id));
     return () => cancelAnimationFrame(raf);
   }, [isMobile, canvasSelection, panLayerIntoView]);
 
   // Trigger 2: the mobile tool drawer opening while a layer stays selected
-  // (e.g. tapping "Effects" on the selection toolbar) — the drawer opens
-  // tall (MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION — see ui.tsx) by default,
-  // only shrinking to MOBILE_SHEET_MAX_HEIGHT_FRACTION once the user drags
-  // it down, which trigger 1 above has no way to know about since it only
-  // reasons about the stage's own (unchanged) size. Sized against the
-  // drawer's tallest possible extent, not the shrunk one — this only runs
-  // once, on open, so it can't react to the drag afterward; assuming the
-  // worst case up front means the selected layer stays visible regardless
-  // of which of the two heights they end up leaving it at.
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
     if (!isMobile || !mobileToolDrawerOpen || !only) return;
@@ -1408,6 +1399,37 @@ function Index() {
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
   }, [isMobile, mobileToolDrawerOpen, canvasSelection, panLayerIntoView]);
+
+  // Restore canvas to normal centered fit when drawer closes or selection clears on mobile
+  const prevDrawerOpenRef = useRef(mobileToolDrawerOpen);
+  useEffect(() => {
+    let t: number | undefined;
+    if (isMobile) {
+      if (prevDrawerOpenRef.current && !mobileToolDrawerOpen && !isCustomZoomRef.current) {
+        fit();
+        t = window.setTimeout(fit, 320);
+      }
+      prevDrawerOpenRef.current = mobileToolDrawerOpen;
+    }
+    return () => {
+      if (t !== undefined) window.clearTimeout(t);
+    };
+  }, [isMobile, mobileToolDrawerOpen, fit]);
+
+  const prevSelectionLenRef = useRef(canvasSelection.length);
+  useEffect(() => {
+    let t: number | undefined;
+    if (isMobile) {
+      if (prevSelectionLenRef.current > 0 && canvasSelection.length === 0 && !isCustomZoomRef.current) {
+        fit();
+        t = window.setTimeout(fit, 320);
+      }
+      prevSelectionLenRef.current = canvasSelection.length;
+    }
+    return () => {
+      if (t !== undefined) window.clearTimeout(t);
+    };
+  }, [isMobile, canvasSelection.length, fit]);
 
   // The one real zoom primitive — wheel, buttons, and the slider/typed-%
   // input all funnel through this (pinch has its own variant below, since
@@ -1939,6 +1961,18 @@ function Index() {
     }
   };
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(",");
+  const mimeMatch = parts[0]?.match(/:(.*?);/);
+  const mime: string = (mimeMatch && mimeMatch[1]) ? mimeMatch[1] : "image/png";
+  const binary = atob(parts[1] || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
   const confirmDownload = async () => {
     if (isExportingFinal) return;
     setIsExportingFinal(true);
@@ -1948,18 +1982,52 @@ function Index() {
       if (s.exportScale !== 1 && s.exportFormat !== "gif") {
         finalUrl = await renderExport(s.exportScale);
       }
+      if (!finalUrl) {
+        finalUrl = previewUrl || (await renderExport(1));
+      }
       if (!finalUrl) return;
       const filename = `quote-canvas.${s.exportFormat}`;
-      // See saveExportedImageNative's own comment — the plain <a download>
-      // trick below only works in a real browser; inside the wrapped
-      // Android app it's a silent no-op.
+
+      // 1. Native Capacitor App (Android/iOS standalone build)
       if (Capacitor.isNativePlatform()) {
         await saveExportedImageNative(finalUrl, filename);
       } else {
+        const blob = finalUrl.startsWith("blob:")
+          ? await fetch(finalUrl).then((r) => r.blob())
+          : dataUrlToBlob(finalUrl);
+
+        // 2. Native Web Share Sheet on mobile browsers (iOS Safari, Chrome for Android)
+        const file = new File([blob], filename, { type: blob.type || `image/${s.exportFormat}` });
+        if (typeof navigator !== "undefined" && typeof navigator.share === "function" && navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: "Save your quote",
+            });
+            setPreviewOpen(false);
+            return;
+          } catch (shareErr: any) {
+            if (shareErr?.name === "AbortError") {
+              return;
+            }
+          }
+        }
+
+        // 3. Robust Blob URL link download for desktop & mobile fallback
+        const blobUrl = finalUrl.startsWith("blob:") ? finalUrl : URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = finalUrl;
+        a.href = blobUrl;
         a.download = filename;
+        a.rel = "noopener";
+        a.style.display = "none";
+        document.body.appendChild(a);
         a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          if (!finalUrl.startsWith("blob:")) {
+            URL.revokeObjectURL(blobUrl);
+          }
+        }, 3000);
       }
       setPreviewOpen(false);
     } catch (err) {
@@ -2054,6 +2122,7 @@ function Index() {
         italic: !!selectedTextLayer.italic,
         underline: !!selectedTextLayer.underline,
         strike: !!selectedTextLayer.strike,
+        uppercase: !!selectedTextLayer.uppercase,
         bulletList: false,
         numberedList: false,
       }),
@@ -2063,6 +2132,7 @@ function Index() {
           italic: !!selectedTextLayer.italic,
           underline: !!selectedTextLayer.underline,
           strike: !!selectedTextLayer.strike,
+          uppercase: !!selectedTextLayer.uppercase,
           bulletList: false,
           numberedList: false,
         });
@@ -2295,6 +2365,22 @@ function Index() {
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
   }, [isMobile, canvasSelection, anyPopoverOpen, floatingDrawerHeightPx, panLayerIntoView]);
+
+  // Restore canvas to normal centered fit when any toolbar property drawer closes on mobile
+  const prevAnyPopoverOpenRef = useRef(anyPopoverOpen);
+  useEffect(() => {
+    let t: number | undefined;
+    if (isMobile) {
+      if (prevAnyPopoverOpenRef.current && !anyPopoverOpen && !mobileToolDrawerOpen && !isCustomZoomRef.current) {
+        fit();
+        t = window.setTimeout(fit, 320);
+      }
+      prevAnyPopoverOpenRef.current = anyPopoverOpen;
+    }
+    return () => {
+      if (t !== undefined) window.clearTimeout(t);
+    };
+  }, [isMobile, anyPopoverOpen, mobileToolDrawerOpen, fit]);
 
   const textDetached = !selectedTextLayer && !!pinnedOwners.text;
   const imageDetached = !selectedImageLayer && !!pinnedOwners.image;
@@ -3396,11 +3482,15 @@ function Index() {
                       set={set}
                       applyTemplate={(t) => {
                         applyTemplate(t);
+                        setMobileToolDrawerOpen(false);
                       }}
                       tab={tab}
                       selection={canvasSelection}
                       onSelectLayer={(layer, opts) => {
                         handleSelectLayer(layer, opts);
+                      }}
+                      onItemSelect={() => {
+                        setMobileToolDrawerOpen(false);
                       }}
                       textSubTab={textSubTab}
                       onTextSubTabChange={setTextSubTab}

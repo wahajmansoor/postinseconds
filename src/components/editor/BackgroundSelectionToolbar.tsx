@@ -389,7 +389,7 @@ export function BackgroundSelectionToolbar({
             onTogglePin={() => setImagePinned((p) => !p)}
             onClose={() => setImagePopoverOpen(false)}
           />
-          <div className="max-h-[75vh] space-y-3 overflow-y-auto p-3">
+          <div className="max-h-80 max-md:max-h-none space-y-3 overflow-y-auto p-3">
             <UploadButton
               label={s.bgImage ? "Change background image" : "Upload background image"}
               onFile={(dataUrl) => set("bgImage", dataUrl)}

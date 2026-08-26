@@ -360,12 +360,12 @@ export function FloatingDropdown({
           data-floating-dropdown=""
           data-keep-text-editing=""
           overlayClassName="bg-transparent pointer-events-none"
-          className="mt-0 flex max-h-[75vh] flex-col rounded-t-2xl border bg-background shadow-2xl"
+          className="mt-0 flex max-h-[45vh] flex-col rounded-t-2xl border bg-background shadow-2xl"
         >
           <div
             data-keep-text-editing=""
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y px-3 py-2"
-            style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 20px)" }}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y px-3 py-2 scroll-smooth"
+            style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 16px)" }}
           >
             {children}
           </div>
