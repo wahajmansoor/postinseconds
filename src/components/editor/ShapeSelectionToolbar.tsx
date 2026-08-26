@@ -128,12 +128,12 @@ export function ShapeSelectionToolbar({
       style={
         detached
           ? {
-              position: "fixed",
-              top: lastLiveRectRef.current?.top ?? 0,
-              left: lastLiveRectRef.current?.left ?? 0,
-              visibility: "hidden",
-              pointerEvents: "none",
-            }
+            position: "fixed",
+            top: lastLiveRectRef.current?.top ?? 0,
+            left: lastLiveRectRef.current?.left ?? 0,
+            visibility: "hidden",
+            pointerEvents: "none",
+          }
           : undefined
       }
       className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
@@ -278,86 +278,86 @@ export function ShapeSelectionToolbar({
             onClose={() => setStyleOpen(false)}
           />
           <div className="space-y-3 p-3">
+            <div className="space-y-1.5">
+              <span className="text-xs font-semibold text-foreground">Style Mode</span>
+              <div className="grid grid-cols-4 gap-1">
+                {(["solid", "gradient", "glass", "outline"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => onUpdate({ style: mode })}
+                    className={cn(
+                      "rounded-md py-1 text-[11px] font-medium capitalize transition-colors",
+                      currentStyle === mode
+                        ? "bg-primary text-primary-foreground font-semibold shadow-xs"
+                        : "bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground",
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Color Picker for Solid, Glass, Outline */}
+            {currentStyle !== "gradient" ? (
               <div className="space-y-1.5">
-                <span className="text-xs font-semibold text-foreground">Style Mode</span>
-                <div className="grid grid-cols-4 gap-1">
-                  {(["solid", "gradient", "glass", "outline"] as const).map((mode) => (
+                <span className="text-xs font-semibold text-foreground">
+                  {currentStyle === "outline" ? "Outline Color" : "Fill Color"}
+                </span>
+                <ColorInput
+                  value={layer.color ?? "#0021ff"}
+                  onChange={(c) => onUpdate({ color: c })}
+                />
+              </div>
+            ) : null}
+
+            {/* Gradient Presets when Gradient Mode */}
+            {currentStyle === "gradient" ? (
+              <div className="space-y-2">
+                <span className="text-xs font-semibold text-foreground">Gradient Presets</span>
+                <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                  {GRADIENTS.map((g, idx) => (
                     <button
-                      key={mode}
+                      key={g.label || idx}
                       type="button"
-                      onClick={() => onUpdate({ style: mode })}
+                      onClick={() => onUpdate({ gradient: g.value })}
+                      title={g.label}
                       className={cn(
-                        "rounded-md py-1 text-[11px] font-medium capitalize transition-colors",
-                        currentStyle === mode
-                          ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-                          : "bg-secondary/70 text-muted-foreground hover:bg-secondary hover:text-foreground",
+                        "h-8 rounded-lg border border-border/80 transition-transform hover:scale-105",
+                        layer.gradient === g.value && "ring-2 ring-primary",
                       )}
-                    >
-                      {mode}
-                    </button>
+                      style={{ background: g.value }}
+                    />
                   ))}
                 </div>
               </div>
+            ) : null}
 
-              {/* Color Picker for Solid, Glass, Outline */}
-              {currentStyle !== "gradient" ? (
-                <div className="space-y-1.5">
-                  <span className="text-xs font-semibold text-foreground">
-                    {currentStyle === "outline" ? "Outline Color" : "Fill Color"}
-                  </span>
-                  <ColorInput
-                    value={layer.color ?? "#0021ff"}
-                    onChange={(c) => onUpdate({ color: c })}
-                  />
+            {/* Stroke Width for Outline */}
+            {currentStyle === "outline" ? (
+              <Field label={`Stroke Width — ${layer.strokeWidth ?? 3}px`}>
+                <Range
+                  value={layer.strokeWidth ?? 3}
+                  min={1}
+                  max={24}
+                  onChange={(v) => onUpdate({ strokeWidth: v })}
+                />
+                <div className="flex gap-1 pt-1">
+                  {[1, 2, 3, 4, 6, 8].map((px) => (
+                    <Chip
+                      key={px}
+                      onClick={() => onUpdate({ strokeWidth: px })}
+                      active={(layer.strokeWidth ?? 3) === px}
+                      className="flex-1 justify-center px-1 text-[10px]"
+                    >
+                      {px}px
+                    </Chip>
+                  ))}
                 </div>
-              ) : null}
-
-              {/* Gradient Presets when Gradient Mode */}
-              {currentStyle === "gradient" ? (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold text-foreground">Gradient Presets</span>
-                  <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-1">
-                    {GRADIENTS.map((g, idx) => (
-                      <button
-                        key={g.label || idx}
-                        type="button"
-                        onClick={() => onUpdate({ gradient: g.value })}
-                        title={g.label}
-                        className={cn(
-                          "h-8 rounded-lg border border-border/80 transition-transform hover:scale-105",
-                          layer.gradient === g.value && "ring-2 ring-primary",
-                        )}
-                        style={{ background: g.value }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Stroke Width for Outline */}
-              {currentStyle === "outline" ? (
-                <Field label={`Stroke Width — ${layer.strokeWidth ?? 3}px`}>
-                  <Range
-                    value={layer.strokeWidth ?? 3}
-                    min={1}
-                    max={24}
-                    onChange={(v) => onUpdate({ strokeWidth: v })}
-                  />
-                  <div className="flex gap-1 pt-1">
-                    {[1, 2, 3, 4, 6, 8].map((px) => (
-                      <Chip
-                        key={px}
-                        onClick={() => onUpdate({ strokeWidth: px })}
-                        active={(layer.strokeWidth ?? 3) === px}
-                        className="flex-1 justify-center px-1 text-[10px]"
-                      >
-                        {px}px
-                      </Chip>
-                    ))}
-                  </div>
-                </Field>
-              ) : null}
-            </div>
+              </Field>
+            ) : null}
+          </div>
         </div>
       </FloatingDropdown>
 

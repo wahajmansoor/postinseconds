@@ -127,12 +127,12 @@ export function ImageSelectionToolbar({
       style={
         detached
           ? {
-              position: "fixed",
-              top: lastLiveRectRef.current?.top ?? 0,
-              left: lastLiveRectRef.current?.left ?? 0,
-              visibility: "hidden",
-              pointerEvents: "none",
-            }
+            position: "fixed",
+            top: lastLiveRectRef.current?.top ?? 0,
+            left: lastLiveRectRef.current?.left ?? 0,
+            visibility: "hidden",
+            pointerEvents: "none",
+          }
           : undefined
       }
       className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"

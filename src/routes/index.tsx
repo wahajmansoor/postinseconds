@@ -2039,11 +2039,35 @@ function Index() {
   // adding new callback plumbing through every toolbar component.
   const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
 
+  const [floatingDrawerHeightPx, setFloatingDrawerHeightPx] = useState(0);
+
+  // Measures the exact real-time visible height of the active floating drawer/popover
+  // on mobile, so the canvas only lifts by the exact height of the drawer (e.g. Spacing ~240px
+  // vs Font ~380px) without any awkward empty gap above small drawers.
+  useEffect(() => {
+    if (!isMobile || !anyPopoverOpen) {
+      setFloatingDrawerHeightPx(0);
+      return;
+    }
+    let rafId: number;
+    const measure = () => {
+      const el = document.querySelector<HTMLElement>("[data-floating-dropdown]");
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const visible = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+        if (visible > 0) {
+          setFloatingDrawerHeightPx((prev) => (Math.abs(prev - visible) > 1 ? visible : prev));
+        }
+      }
+      rafId = requestAnimationFrame(measure);
+    };
+    rafId = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(rafId);
+  }, [isMobile, anyPopoverOpen]);
+
   // Whether the canvas area should currently be lifted clear of an open
-  // property popover — these are always fixed at
-  // MOBILE_SHEET_MAX_HEIGHT_FRACTION, unlike the tool drawer, which has its
-  // own separate on/off threshold below rather than reflowing continuously.
-  const mobileDrawerLiftActive = isMobile && anyPopoverOpen;
+  // property popover — adapts directly to the measured height of the open drawer.
+  const mobileDrawerLiftActive = isMobile && anyPopoverOpen && floatingDrawerHeightPx > 0;
 
   // Whether the tool drawer has been dragged down far enough to treat the
   // canvas as "should come back into view" — deliberately NOT the same
@@ -2064,16 +2088,14 @@ function Index() {
     mobileToolDrawerVisiblePx > 0 &&
     mobileToolDrawerVisiblePx < window.innerHeight * ((1 + MOBILE_SHEET_MAX_HEIGHT_FRACTION) / 2);
 
-  // Trigger 3: a FloatingDropdown popover opening. On mobile these render as
-  // a fixed max-h-[45vh] bottom sheet (see ui.tsx), same fixed fraction
-  // trigger 2 above reasons about for the tool drawer.
+  // Trigger 3: a FloatingDropdown popover opening. Adapts safely to the exact measured drawer height.
   useEffect(() => {
     const only = canvasSelection.length === 1 ? canvasSelection[0] : undefined;
-    if (!isMobile || !only || !anyPopoverOpen) return;
-    const maxSafeViewportY = window.innerHeight * (1 - MOBILE_SHEET_MAX_HEIGHT_FRACTION);
+    if (!isMobile || !only || !anyPopoverOpen || floatingDrawerHeightPx <= 0) return;
+    const maxSafeViewportY = window.innerHeight - floatingDrawerHeightPx - 16;
     const raf = requestAnimationFrame(() => panLayerIntoView(only.id, { maxSafeViewportY }));
     return () => cancelAnimationFrame(raf);
-  }, [isMobile, canvasSelection, anyPopoverOpen, panLayerIntoView]);
+  }, [isMobile, canvasSelection, anyPopoverOpen, floatingDrawerHeightPx, panLayerIntoView]);
 
   const textDetached = !selectedTextLayer && !!pinnedOwners.text;
   const imageDetached = !selectedImageLayer && !!pinnedOwners.image;
@@ -2832,9 +2854,11 @@ function Index() {
                 // doesn't work for this: it only repositions an already-
                 // fixed-size box, which ResizeObserver has no reason to
                 // notice, so the canvas itself never actually resizes.
-                paddingBottom: mobileDrawerLiftActive || mobileToolDrawerNearPeek
-                  ? `${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh`
-                  : "calc(60px + env(safe-area-inset-bottom) + 12px)",
+                paddingBottom: mobileDrawerLiftActive
+                  ? `${floatingDrawerHeightPx + 8}px`
+                  : mobileToolDrawerNearPeek
+                    ? `${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh`
+                    : "calc(60px + env(safe-area-inset-bottom) + 12px)",
                 transition: "padding-bottom 0.5s cubic-bezier(0.32, 0.72, 0, 1)", marginBottom: "20px"
               }}
             >
@@ -2881,6 +2905,9 @@ function Index() {
                     <TextSelectionToolbar
                       layer={selectedTextLayer}
                       handle={selectedTextLayerHandle}
+                      onAnyPopoverOpenChange={(open) =>
+                        handlePinnedPopoverChange("text", selectedTextLayer.id, open)
+                      }
                       onOpenEffectsTab={() => {
                         setTab("text");
                         setTextSubTab("effects");
@@ -2890,6 +2917,9 @@ function Index() {
                   ) : selectedImageLayer ? (
                     <ImageSelectionToolbar
                       layer={selectedImageLayer}
+                      onAnyPopoverOpenChange={(open) =>
+                        handlePinnedPopoverChange("image", selectedImageLayer.id, open)
+                      }
                       onUpdate={(patch) =>
                         set("images", withImageUpdated(s, selectedImageLayer.id, patch))
                       }
@@ -2899,6 +2929,9 @@ function Index() {
                   ) : selectedShapeLayer ? (
                     <ShapeSelectionToolbar
                       layer={selectedShapeLayer}
+                      onAnyPopoverOpenChange={(open) =>
+                        handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
+                      }
                       onUpdate={(patch) =>
                         set("shapes", withShapeUpdated(s, selectedShapeLayer.id, patch))
                       }
@@ -2925,6 +2958,9 @@ function Index() {
                       layers={multiSelectedShapeLayers}
                       canvasWidth={s.width}
                       canvasHeight={s.height}
+                      onAnyPopoverOpenChange={(open) =>
+                        handlePinnedPopoverChange("shape", "multi-shape", open)
+                      }
                       onArrange={handleShapeArrange}
                       onAlign={handleShapeAlign}
                       onShiftGroup={handleShapeShiftGroup}
@@ -2963,6 +2999,9 @@ function Index() {
                       layers={multiSelectedImageLayers}
                       canvasWidth={s.width}
                       canvasHeight={s.height}
+                      onAnyPopoverOpenChange={(open) =>
+                        handlePinnedPopoverChange("image", "multi-image", open)
+                      }
                       onArrange={handleImageArrange}
                       onAlign={handleImageAlign}
                       onShiftGroup={handleImageShiftGroup}
@@ -3025,6 +3064,7 @@ function Index() {
             >
               <DrawerContent
                 ref={toolDrawerContentRef}
+                data-keep-text-editing=""
                 overlayClassName="bg-transparent pointer-events-none"
                 // The overlay's own pointer-events-none only stops IT from
                 // swallowing taps — it doesn't touch Radix's separate
@@ -3043,29 +3083,29 @@ function Index() {
                 // handled separately, neither goes through this) close it.
                 onPointerDownOutside={(e) => e.preventDefault()}
                 onInteractOutside={(e) => e.preventDefault()}
-                // A fixed h-[100vh] (genuinely full screen — see
-                // MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION's own comment),
-                // not max-h — vaul's snap points only ever TRANSLATE this
-                // box between heights, they never resize it, so with a
-                // content-driven max-height a tab with modest content
-                // (Text/Uploads/Layers, next to something like a full
-                // template gallery) would just render shorter than 100vh
-                // outright and never actually look "tall" no matter which
-                // snap point is nominally active. Forcing a genuine fixed
-                // height fixes that — and doesn't break the short "peek"
-                // position either: since the box stays anchored to the
-                // screen's bottom edge, translating a 100vh-tall box down
+                // A fixed h-[92vh] (genuinely near-full-screen — see
+                // MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION's own comment for
+                // why 92 and not a literal 100), not max-h — vaul's snap
+                // points only ever TRANSLATE this box between heights, they
+                // never resize it, so with a content-driven max-height a tab
+                // with modest content (Text/Uploads/Layers, next to
+                // something like a full template gallery) would just render
+                // shorter outright and never actually look "tall" no matter
+                // which snap point is nominally active. Forcing a genuine
+                // fixed height fixes that — and doesn't break the short
+                // "peek" position either: since the box stays anchored to
+                // the screen's bottom edge, translating a 92vh-tall box down
                 // until only 45vh of it remains on screen looks IDENTICAL
                 // to a box that was only ever 45vh tall to begin with.
-                className="mt-0 flex h-[100vh] flex-col rounded-t-2xl"
+                className="mt-0 flex h-[92vh] flex-col rounded-t-2xl"
               >
                 {/* Constrains header+content to however much of the (fixed
-                    h-[100vh]) box above is ACTUALLY visible on screen right
+                    h-[92vh]) box above is ACTUALLY visible on screen right
                     now — mobileToolDrawerVisiblePx, measured live off the
                     DOM (see its own comment above). Without this, the
                     content below always measures its available height
-                    against the full 100vh box regardless of how much of it
-                    is on screen, so content shorter than 100vh but taller
+                    against the full 92vh box regardless of how much of it
+                    is on screen, so content shorter than 92vh but taller
                     than the visible 45vh would render (and fit) entirely,
                     with zero scroll distance left to bring the rest into
                     view — the flex-1 + min-h-0 below still does the actual

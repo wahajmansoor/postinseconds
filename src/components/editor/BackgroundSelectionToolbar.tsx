@@ -132,12 +132,12 @@ export function BackgroundSelectionToolbar({
       style={
         detached
           ? {
-              position: "fixed",
-              top: lastLiveRectRef.current?.top ?? 0,
-              left: lastLiveRectRef.current?.left ?? 0,
-              visibility: "hidden",
-              pointerEvents: "none",
-            }
+            position: "fixed",
+            top: lastLiveRectRef.current?.top ?? 0,
+            left: lastLiveRectRef.current?.left ?? 0,
+            visibility: "hidden",
+            pointerEvents: "none",
+          }
           : undefined
       }
       className="flex flex-nowrap items-center gap-1 whitespace-nowrap rounded-2xl border border-border/80 bg-background/95 p-1.5 shadow-2xl backdrop-blur-md"
@@ -231,115 +231,115 @@ export function BackgroundSelectionToolbar({
             onClose={() => setGradientOpen(false)}
           />
           <div className="space-y-3 p-3">
-          {!showCustomGradient ? (
-            // Preset view — swapped out entirely for the Custom editor below
-            // rather than the editor just appending underneath it, so
-            // building a gradient from scratch gets the popover's full
-            // width/attention instead of competing with a still-visible
-            // preset grid above it.
-            <div className="space-y-3">
-              <div className="grid grid-cols-4 gap-2">
-                {GRADIENTS.map((g) => (
-                  <button
-                    key={g.value}
-                    type="button"
-                    onClick={() => applyColor(g.value)}
-                    title={g.label}
-                    style={{ background: g.value }}
-                    className={cn(
-                      "h-10 w-full rounded-xl border transition-transform hover:scale-105 active:scale-95",
-                      isGradientActive && s.background === g.value
-                        ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
-                        : "border-border/60",
-                    )}
-                  />
-                ))}
-              </div>
+            {!showCustomGradient ? (
+              // Preset view — swapped out entirely for the Custom editor below
+              // rather than the editor just appending underneath it, so
+              // building a gradient from scratch gets the popover's full
+              // width/attention instead of competing with a still-visible
+              // preset grid above it.
+              <div className="space-y-3">
+                <div className="grid grid-cols-4 gap-2">
+                  {GRADIENTS.map((g) => (
+                    <button
+                      key={g.value}
+                      type="button"
+                      onClick={() => applyColor(g.value)}
+                      title={g.label}
+                      style={{ background: g.value }}
+                      className={cn(
+                        "h-10 w-full rounded-xl border transition-transform hover:scale-105 active:scale-95",
+                        isGradientActive && s.background === g.value
+                          ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
+                          : "border-border/60",
+                      )}
+                    />
+                  ))}
+                </div>
 
-              <button
-                type="button"
-                onClick={() => setShowCustomGradient(true)}
-                className="flex w-full items-center justify-between rounded-xl px-1 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
-              >
-                Custom
-                <ArrowDown01Icon size={13} className="-rotate-90 text-muted-foreground" />
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <button
-                type="button"
-                onClick={() => setShowCustomGradient(false)}
-                className="flex items-center gap-1 rounded-lg px-1 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <ArrowLeft01Icon size={14} />
-                Custom Gradient
-              </button>
-
-              <div
-                className="relative flex h-20 w-full items-end justify-between rounded-2xl border border-border p-2.5 shadow-inner"
-                style={{ background: customGradValue }}
-              >
-                <span className="rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-md">
-                  {gradType === "radial" ? "Radial" : `${gradAngle}° Linear`}
-                </span>
                 <button
                   type="button"
-                  onClick={() => applyColor(customGradValue)}
-                  className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-zinc-950 shadow-md transition-transform hover:scale-105 active:scale-95"
+                  onClick={() => setShowCustomGradient(true)}
+                  className="flex w-full items-center justify-between rounded-xl px-1 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
                 >
-                  Apply
+                  Custom
+                  <ArrowDown01Icon size={13} className="-rotate-90 text-muted-foreground" />
                 </button>
               </div>
+            ) : (
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCustomGradient(false)}
+                  className="flex items-center gap-1 rounded-lg px-1 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ArrowLeft01Icon size={14} />
+                  Custom Gradient
+                </button>
 
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Start color">
-                  <ColorInput value={gradStart} onChange={setGradStart} />
-                </Field>
-                <Field label="End color">
-                  <ColorInput value={gradEnd} onChange={setGradEnd} />
-                </Field>
+                <div
+                  className="relative flex h-20 w-full items-end justify-between rounded-2xl border border-border p-2.5 shadow-inner"
+                  style={{ background: customGradValue }}
+                >
+                  <span className="rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur-md">
+                    {gradType === "radial" ? "Radial" : `${gradAngle}° Linear`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => applyColor(customGradValue)}
+                    className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-zinc-950 shadow-md transition-transform hover:scale-105 active:scale-95"
+                  >
+                    Apply
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Start color">
+                    <ColorInput value={gradStart} onChange={setGradStart} />
+                  </Field>
+                  <Field label="End color">
+                    <ColorInput value={gradEnd} onChange={setGradEnd} />
+                  </Field>
+                </div>
+
+                <Toggle checked={useMid} onChange={setUseMid} label="Add 3rd accent color stop" />
+                {useMid ? (
+                  <Field label="Middle color stop">
+                    <ColorInput value={gradMid} onChange={setGradMid} />
+                  </Field>
+                ) : null}
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Chip active={gradType === "linear"} onClick={() => setGradType("linear")}>
+                    Linear
+                  </Chip>
+                  <Chip active={gradType === "radial"} onClick={() => setGradType("radial")}>
+                    Radial
+                  </Chip>
+                </div>
+                {gradType === "linear" ? (
+                  <Field label={`Angle — ${gradAngle}°`}>
+                    <Range value={gradAngle} min={0} max={360} onChange={setGradAngle} />
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+                        <button
+                          key={deg}
+                          type="button"
+                          onClick={() => setGradAngle(deg)}
+                          className={cn(
+                            "rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                            gradAngle === deg
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-secondary text-muted-foreground hover:border-primary hover:text-foreground",
+                          )}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                ) : null}
               </div>
-
-              <Toggle checked={useMid} onChange={setUseMid} label="Add 3rd accent color stop" />
-              {useMid ? (
-                <Field label="Middle color stop">
-                  <ColorInput value={gradMid} onChange={setGradMid} />
-                </Field>
-              ) : null}
-
-              <div className="grid grid-cols-2 gap-2">
-                <Chip active={gradType === "linear"} onClick={() => setGradType("linear")}>
-                  Linear
-                </Chip>
-                <Chip active={gradType === "radial"} onClick={() => setGradType("radial")}>
-                  Radial
-                </Chip>
-              </div>
-              {gradType === "linear" ? (
-                <Field label={`Angle — ${gradAngle}°`}>
-                  <Range value={gradAngle} min={0} max={360} onChange={setGradAngle} />
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
-                      <button
-                        key={deg}
-                        type="button"
-                        onClick={() => setGradAngle(deg)}
-                        className={cn(
-                          "rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
-                          gradAngle === deg
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border bg-secondary text-muted-foreground hover:border-primary hover:text-foreground",
-                        )}
-                      >
-                        {deg}°
-                      </button>
-                    ))}
-                  </div>
-                </Field>
-              ) : null}
-            </div>
-          )}
+            )}
           </div>
         </div>
       </FloatingDropdown>
@@ -382,122 +382,122 @@ export function BackgroundSelectionToolbar({
             onClose={() => setImagePopoverOpen(false)}
           />
           <div className="max-h-[75vh] space-y-3 overflow-y-auto p-3">
-          <UploadButton
-            label={s.bgImage ? "Change background image" : "Upload background image"}
-            onFile={(dataUrl) => set("bgImage", dataUrl)}
-          />
+            <UploadButton
+              label={s.bgImage ? "Change background image" : "Upload background image"}
+              onFile={(dataUrl) => set("bgImage", dataUrl)}
+            />
 
-          {s.bgImage ? (
-            <>
-              {/* Same preview card + Position & Zoom + Blur/Darkness
+            {s.bgImage ? (
+              <>
+                {/* Same preview card + Position & Zoom + Blur/Darkness
                   controls as the sidebar's own "Background image" panel —
                   100% the same fields, not a trimmed-down subset. */}
-              <div className="flex items-center gap-3 rounded-2xl border border-primary/40 bg-primary/5 p-2.5">
-                <img
-                  src={s.bgImage}
-                  alt="Background preview"
-                  className="h-14 w-20 shrink-0 rounded-xl border border-border object-cover"
-                />
-                <div className="flex flex-1 items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-xs font-semibold text-foreground">Custom Image</span>
-                    <span className="text-[10px] text-muted-foreground">Active background</span>
+                <div className="flex items-center gap-3 rounded-2xl border border-primary/40 bg-primary/5 p-2.5">
+                  <img
+                    src={s.bgImage}
+                    alt="Background preview"
+                    className="h-14 w-20 shrink-0 rounded-xl border border-border object-cover"
+                  />
+                  <div className="flex flex-1 items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-semibold text-foreground">Custom Image</span>
+                      <span className="text-[10px] text-muted-foreground">Active background</span>
+                    </div>
+                    <Chip
+                      onClick={() => set("bgImage", null)}
+                      className="px-2.5 py-1 text-[11px] text-destructive hover:border-destructive hover:text-destructive"
+                    >
+                      Remove
+                    </Chip>
                   </div>
-                  <Chip
-                    onClick={() => set("bgImage", null)}
-                    className="px-2.5 py-1 text-[11px] text-destructive hover:border-destructive hover:text-destructive"
-                  >
-                    Remove
-                  </Chip>
                 </div>
-              </div>
 
-              <div className="space-y-3 rounded-2xl border border-border bg-card/60 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-foreground">Position &amp; Zoom</span>
-                  {(s.bgImageZoom ?? 100) !== 100 ||
-                  (s.bgImagePosX ?? 50) !== 50 ||
-                  (s.bgImagePosY ?? 50) !== 50 ? (
-                    <button
-                      type="button"
+                <div className="space-y-3 rounded-2xl border border-border bg-card/60 p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">Position &amp; Zoom</span>
+                    {(s.bgImageZoom ?? 100) !== 100 ||
+                      (s.bgImagePosX ?? 50) !== 50 ||
+                      (s.bgImagePosY ?? 50) !== 50 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          set("bgImageZoom", 100);
+                          set("bgImagePosX", 50);
+                          set("bgImagePosY", 50);
+                        }}
+                        className="text-[10px] font-medium text-primary hover:underline"
+                      >
+                        Reset adjustments
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <Field label={`Zoom — ${s.bgImageZoom ?? 100}%`}>
+                    {/* min is 100, not 50 — anything lower shrinks the image
+                      below its own "fills the canvas" size, exposing the
+                      background behind it instead of zooming out. */}
+                    <Range value={s.bgImageZoom ?? 100} min={100} max={300} onChange={(v) => set("bgImageZoom", v)} />
+                  </Field>
+
+                  <Field label={`Left ↔ Right position — ${s.bgImagePosX ?? 50}%`}>
+                    <Range value={s.bgImagePosX ?? 50} min={0} max={100} onChange={(v) => set("bgImagePosX", v)} />
+                  </Field>
+
+                  <Field label={`Top ↕ Bottom position — ${s.bgImagePosY ?? 50}%`}>
+                    <Range value={s.bgImagePosY ?? 50} min={0} max={100} onChange={(v) => set("bgImagePosY", v)} />
+                  </Field>
+
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <span className="text-[10px] font-medium text-muted-foreground">Quick align:</span>
+                    <Chip
                       onClick={() => {
-                        set("bgImageZoom", 100);
                         set("bgImagePosX", 50);
                         set("bgImagePosY", 50);
                       }}
-                      className="text-[10px] font-medium text-primary hover:underline"
+                      active={(s.bgImagePosX ?? 50) === 50 && (s.bgImagePosY ?? 50) === 50}
+                      className="px-2 py-0.5 text-[10px]"
                     >
-                      Reset adjustments
-                    </button>
-                  ) : null}
+                      Center
+                    </Chip>
+                    <Chip
+                      onClick={() => set("bgImagePosY", 0)}
+                      active={(s.bgImagePosY ?? 50) === 0}
+                      className="px-2 py-0.5 text-[10px]"
+                    >
+                      Top
+                    </Chip>
+                    <Chip
+                      onClick={() => set("bgImagePosY", 100)}
+                      active={(s.bgImagePosY ?? 50) === 100}
+                      className="px-2 py-0.5 text-[10px]"
+                    >
+                      Bottom
+                    </Chip>
+                    <Chip
+                      onClick={() => set("bgImagePosX", 0)}
+                      active={(s.bgImagePosX ?? 50) === 0}
+                      className="px-2 py-0.5 text-[10px]"
+                    >
+                      Left
+                    </Chip>
+                    <Chip
+                      onClick={() => set("bgImagePosX", 100)}
+                      active={(s.bgImagePosX ?? 50) === 100}
+                      className="px-2 py-0.5 text-[10px]"
+                    >
+                      Right
+                    </Chip>
+                  </div>
                 </div>
 
-                <Field label={`Zoom — ${s.bgImageZoom ?? 100}%`}>
-                  {/* min is 100, not 50 — anything lower shrinks the image
-                      below its own "fills the canvas" size, exposing the
-                      background behind it instead of zooming out. */}
-                  <Range value={s.bgImageZoom ?? 100} min={100} max={300} onChange={(v) => set("bgImageZoom", v)} />
+                <Field label={`Blur — ${s.bgBlur}px`}>
+                  <Range value={s.bgBlur} min={0} max={40} onChange={(v) => set("bgBlur", v)} />
                 </Field>
-
-                <Field label={`Left ↔ Right position — ${s.bgImagePosX ?? 50}%`}>
-                  <Range value={s.bgImagePosX ?? 50} min={0} max={100} onChange={(v) => set("bgImagePosX", v)} />
+                <Field label={`Darkness overlay — ${s.bgDim}%`}>
+                  <Range value={s.bgDim} min={0} max={90} onChange={(v) => set("bgDim", v)} />
                 </Field>
-
-                <Field label={`Top ↕ Bottom position — ${s.bgImagePosY ?? 50}%`}>
-                  <Range value={s.bgImagePosY ?? 50} min={0} max={100} onChange={(v) => set("bgImagePosY", v)} />
-                </Field>
-
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-[10px] font-medium text-muted-foreground">Quick align:</span>
-                  <Chip
-                    onClick={() => {
-                      set("bgImagePosX", 50);
-                      set("bgImagePosY", 50);
-                    }}
-                    active={(s.bgImagePosX ?? 50) === 50 && (s.bgImagePosY ?? 50) === 50}
-                    className="px-2 py-0.5 text-[10px]"
-                  >
-                    Center
-                  </Chip>
-                  <Chip
-                    onClick={() => set("bgImagePosY", 0)}
-                    active={(s.bgImagePosY ?? 50) === 0}
-                    className="px-2 py-0.5 text-[10px]"
-                  >
-                    Top
-                  </Chip>
-                  <Chip
-                    onClick={() => set("bgImagePosY", 100)}
-                    active={(s.bgImagePosY ?? 50) === 100}
-                    className="px-2 py-0.5 text-[10px]"
-                  >
-                    Bottom
-                  </Chip>
-                  <Chip
-                    onClick={() => set("bgImagePosX", 0)}
-                    active={(s.bgImagePosX ?? 50) === 0}
-                    className="px-2 py-0.5 text-[10px]"
-                  >
-                    Left
-                  </Chip>
-                  <Chip
-                    onClick={() => set("bgImagePosX", 100)}
-                    active={(s.bgImagePosX ?? 50) === 100}
-                    className="px-2 py-0.5 text-[10px]"
-                  >
-                    Right
-                  </Chip>
-                </div>
-              </div>
-
-              <Field label={`Blur — ${s.bgBlur}px`}>
-                <Range value={s.bgBlur} min={0} max={40} onChange={(v) => set("bgBlur", v)} />
-              </Field>
-              <Field label={`Darkness overlay — ${s.bgDim}%`}>
-                <Range value={s.bgDim} min={0} max={90} onChange={(v) => set("bgDim", v)} />
-              </Field>
-            </>
-          ) : null}
+              </>
+            ) : null}
           </div>
         </div>
       </FloatingDropdown>

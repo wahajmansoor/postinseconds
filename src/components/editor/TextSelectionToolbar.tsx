@@ -197,7 +197,7 @@ export function TextSelectionToolbar({
       onRequestClose={() => setFontOpen(false)}
       triggerRef={fontTriggerRef}
     >
-      <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl max-md:border-none max-md:shadow-none max-md:bg-transparent max-md:rounded-none">
         <DragHandle
           label="Text Font"
           {...fontDrag.dragHandleProps}
@@ -272,12 +272,12 @@ export function TextSelectionToolbar({
         style={
           detached
             ? {
-                position: "fixed",
-                top: lastLiveRectRef.current?.top ?? 0,
-                left: lastLiveRectRef.current?.left ?? 0,
-                visibility: "hidden",
-                pointerEvents: "none",
-              }
+              position: "fixed",
+              top: lastLiveRectRef.current?.top ?? 0,
+              left: lastLiveRectRef.current?.left ?? 0,
+              visibility: "hidden",
+              pointerEvents: "none",
+            }
             : undefined
         }
         className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap"
@@ -344,12 +344,12 @@ export function TextSelectionToolbar({
       style={
         detached
           ? {
-              position: "fixed",
-              top: lastLiveRectRef.current?.top ?? 0,
-              left: lastLiveRectRef.current?.left ?? 0,
-              visibility: "hidden",
-              pointerEvents: "none",
-            }
+            position: "fixed",
+            top: lastLiveRectRef.current?.top ?? 0,
+            left: lastLiveRectRef.current?.left ?? 0,
+            visibility: "hidden",
+            pointerEvents: "none",
+          }
           : undefined
       }
       className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
@@ -430,7 +430,14 @@ export function TextSelectionToolbar({
       <button
         ref={textColorTriggerRef}
         type="button"
-        onPointerDown={() => handle.snapshotSelection()}
+        onPointerDown={(e) => {
+          handle.snapshotSelection();
+          preserveSelection(e);
+        }}
+        onMouseDown={(e) => {
+          handle.snapshotSelection();
+          preserveSelection(e);
+        }}
         onClick={() => {
           setTextColorOpen((wasOpen) => {
             if (!wasOpen) {
@@ -452,7 +459,7 @@ export function TextSelectionToolbar({
         onRequestClose={() => setTextColorOpen(false)}
         triggerRef={textColorTriggerRef}
       >
-        <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl">
+        <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl max-md:border-none max-md:shadow-none max-md:bg-transparent max-md:rounded-none">
           <DragHandle
             label="Text Color"
             {...textColorDrag.dragHandleProps}
@@ -611,7 +618,7 @@ export function TextSelectionToolbar({
         onRequestClose={() => setSpacingOpen(false)}
         triggerRef={spacingTriggerRef}
       >
-        <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-xl">
+        <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-2xl backdrop-blur-xl max-md:border-none max-md:shadow-none max-md:bg-transparent max-md:rounded-none">
           <DragHandle
             label="Spacing"
             {...spacingDrag.dragHandleProps}
@@ -668,11 +675,10 @@ export function TextSelectionToolbar({
                   type="button"
                   title="Anchor Top"
                   onClick={() => handle.setVerticalAlign("top")}
-                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
-                    (layer.verticalAlign ?? "top") === "top"
+                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${(layer.verticalAlign ?? "top") === "top"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  }`}
+                    }`}
                 >
                   <svg
                     width="15"
@@ -691,11 +697,10 @@ export function TextSelectionToolbar({
                   type="button"
                   title="Anchor Middle"
                   onClick={() => handle.setVerticalAlign("middle")}
-                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
-                    layer.verticalAlign === "middle"
+                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${layer.verticalAlign === "middle"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  }`}
+                    }`}
                 >
                   <svg
                     width="15"
@@ -714,11 +719,10 @@ export function TextSelectionToolbar({
                   type="button"
                   title="Anchor Bottom"
                   onClick={() => handle.setVerticalAlign("bottom")}
-                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${
-                    layer.verticalAlign === "bottom"
+                  className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${layer.verticalAlign === "bottom"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  }`}
+                    }`}
                 >
                   <svg
                     width="15"

@@ -1765,11 +1765,8 @@ function RotateMoveHandleRow({
       </div>
 
       {/* Live angle readout, shown only while actively dragging the rotate
-          handle. Lives inside the same rotated overlay as everything else
-          here, so it needs its own counter-rotation (by the in-progress
-          angle) to stay upright and readable no matter how far the layer
-          has been turned — a tilted number is much harder to read at a
-          glance than the tilt itself. */}
+          handle. Stays upright and readable (screen-aligned, not rotating with
+          the gesture) no matter how far the layer has been turned. */}
       {liveAngle !== null ? (
         <div
           style={{
@@ -1777,7 +1774,7 @@ function RotateMoveHandleRow({
             left: "50%",
             top: placement === "bottom" ? "100%" : undefined,
             bottom: placement === "top" ? "100%" : undefined,
-            transform: `translateX(-50%) rotate(${-liveAngle}deg)`,
+            transform: "translateX(-50%)",
             marginTop: placement === "bottom" ? (44 + 14) * invScale : undefined,
             marginBottom: placement === "top" ? (44 + 14) * invScale : undefined,
             zIndex: 90,
@@ -2333,6 +2330,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const dblClickPointRef = useRef<{ x: number; y: number } | null>(null);
   const pendingListCommandRef = useRef<RichFormatCmd | null>(null);
   const selectionSnapshotRef = useRef<Range | null>(null);
+  const activeStyledSpanRef = useRef<HTMLElement | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   // The controls-portal outline/handles below read this instead of
@@ -2560,7 +2558,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const hasLiveSelection = () => {
     const el = editableRef.current;
     const sel = window.getSelection();
-    if (!isEditing || !el || !sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+    if (!el || !sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
     const r = sel.getRangeAt(0);
     return el === r.commonAncestorContainer || el.contains(r.commonAncestorContainer);
   };
@@ -2645,16 +2643,30 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   };
 
   const snapshotSelection = () => {
+    activeStyledSpanRef.current = null;
     selectionSnapshotRef.current = hasLiveSelection() ? window.getSelection()!.getRangeAt(0).cloneRange() : null;
   };
 
   const applyStyleSmart = (cssProps: Partial<CSSStyleDeclaration>, wholeLayerPatch: Partial<Omit<TextLayer, "id">>) => {
+    const el = editableRef.current;
+    if (!el) {
+      update(wholeLayerPatch);
+      return;
+    }
+
+    // If an active span was already styled during this color picker session,
+    // update it directly so dragging sliders or picking multiple colors doesn't nest spans.
+    if (activeStyledSpanRef.current && el.contains(activeStyledSpanRef.current)) {
+      Object.assign(activeStyledSpanRef.current.style, cssProps);
+      syncFromLiveDom(el);
+      return;
+    }
+
     const liveRange = hasLiveSelection() ? window.getSelection()!.getRangeAt(0) : null;
     const range = liveRange ?? selectionSnapshotRef.current;
     selectionSnapshotRef.current = null;
 
-    const el = editableRef.current;
-    if (!range || !el) {
+    if (!range) {
       update(wholeLayerPatch);
       return;
     }
@@ -2665,6 +2677,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       const contents = range.extractContents();
       wrapper.appendChild(contents);
       range.insertNode(wrapper);
+      activeStyledSpanRef.current = wrapper;
       if (liveRange) {
         const sel = window.getSelection();
         const newRange = document.createRange();
@@ -2958,6 +2971,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           onBlur={(e) => {
             syncFromLiveDom(e.currentTarget);
             setIsEditing(false);
+            activeStyledSpanRef.current = null;
           }}
           style={{
             fontFamily: t.fontFamily,
