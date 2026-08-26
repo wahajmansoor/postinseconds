@@ -2204,17 +2204,21 @@ function centerShiftY(handleId: HandleId, appliedDh: number): number {
 // range is currently highlighted inside a text layer being edited, letting
 // Bold/Italic/Underline/Strikethrough apply to just that selection instead
 
-// Reconstructs "double-click selects the word under the cursor" from a
-// viewport point, for the one case the browser can't do it natively: this
-// div isn't contentEditable/selectable yet at the moment the double-click
-// physically lands (see the isEditing effect in DraggableTextLayer for
-// why), so nothing places a caret or word-selection on its own once it
-// does become editable a moment later. Falls back to a collapsed caret at
-// the point (still far better than the previous behavior of always
-// jumping to the very start of the text) when the point lands on
-// whitespace/punctuation, on a non-text node, or on a browser that
-// supports neither caretRangeFromPoint nor caretPositionFromPoint.
-function wordRangeFromPoint(x: number, y: number, container: HTMLElement): Range | null {
+// Resolves a viewport point to a (node, offset) position inside container,
+// for the cases the browser can't place a caret/selection there natively
+// itself: this div isn't contentEditable/selectable yet at the moment a
+// click or double-click physically lands (see the isEditing effect in
+// DraggableTextLayer for why), so nothing places a caret or word-selection
+// on its own once it does become editable a moment later — both
+// caretRangeFromPointInContainer and wordRangeFromPoint below reconstruct
+// it manually from this. Returns null on a non-text node, a point outside
+// container, or a browser supporting neither caretRangeFromPoint nor
+// caretPositionFromPoint.
+function resolveCaretPosition(
+  x: number,
+  y: number,
+  container: HTMLElement,
+): { node: Node; offset: number } | null {
   const doc = document as Document & {
     caretRangeFromPoint?: (x: number, y: number) => Range | null;
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
@@ -2235,6 +2239,30 @@ function wordRangeFromPoint(x: number, y: number, container: HTMLElement): Range
     return null;
   }
   if (!node || !container.contains(node)) return null;
+  return { node, offset };
+}
+
+// A plain collapsed caret at a viewport point — what a single click on an
+// already-selected text layer should place (Canva-style "click again to
+// start typing right here"), as opposed to wordRangeFromPoint's word
+// selection below (real double-click behavior).
+function caretRangeFromPointInContainer(x: number, y: number, container: HTMLElement): Range | null {
+  const pos = resolveCaretPosition(x, y, container);
+  if (!pos) return null;
+  const range = document.createRange();
+  range.setStart(pos.node, pos.offset);
+  range.collapse(true);
+  return range;
+}
+
+// Reconstructs "double-click selects the word under the cursor" from a
+// viewport point. Falls back to a collapsed caret at the point (still far
+// better than always jumping to the very start of the text) when the point
+// lands on whitespace/punctuation or a non-text node.
+function wordRangeFromPoint(x: number, y: number, container: HTMLElement): Range | null {
+  const pos = resolveCaretPosition(x, y, container);
+  if (!pos) return null;
+  const { node, offset } = pos;
 
   const range = document.createRange();
   if (node.nodeType !== Node.TEXT_NODE) {
@@ -2256,6 +2284,73 @@ function wordRangeFromPoint(x: number, y: number, container: HTMLElement): Range
   range.setStart(node, start);
   range.setEnd(node, end);
   return range;
+}
+
+function getSelectionCharacterOffsets(container: HTMLElement, range: Range): { start: number; end: number } | null {
+  try {
+    const treeWalker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    let charCount = 0;
+    let start = -1;
+    let end = -1;
+
+    while (treeWalker.nextNode()) {
+      const node = treeWalker.currentNode;
+      const nodeLen = node.textContent?.length || 0;
+
+      if (start === -1 && node === range.startContainer) {
+        start = charCount + range.startOffset;
+      }
+      if (end === -1 && node === range.endContainer) {
+        end = charCount + range.endOffset;
+      }
+      charCount += nodeLen;
+    }
+
+    if (start !== -1 && end !== -1 && start < end) {
+      return { start, end };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function createRangeFromCharacterOffsets(container: HTMLElement, start: number, end: number): Range | null {
+  if (start >= end) return null;
+  try {
+    const treeWalker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    let charCount = 0;
+    let startNode: Node | null = null;
+    let startOffset = 0;
+    let endNode: Node | null = null;
+    let endOffset = 0;
+
+    while (treeWalker.nextNode()) {
+      const node = treeWalker.currentNode;
+      const nodeLen = node.textContent?.length || 0;
+
+      if (!startNode && charCount + nodeLen >= start) {
+        startNode = node;
+        startOffset = Math.max(0, start - charCount);
+      }
+      if (!endNode && charCount + nodeLen >= end) {
+        endNode = node;
+        endOffset = Math.max(0, end - charCount);
+        break;
+      }
+      charCount += nodeLen;
+    }
+
+    if (startNode && endNode) {
+      const range = document.createRange();
+      range.setStart(startNode, startOffset);
+      range.setEnd(endNode, endOffset);
+      return range;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function CurvedTextSvg({
@@ -2433,9 +2528,20 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const [isRotating, setIsRotating] = useState(false);
   const editableRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const dblClickPointRef = useRef<{ x: number; y: number } | null>(null);
+  // Where to place the caret the moment isEditing flips true — set by
+  // either entry path (a plain click on an already-selected layer, or a
+  // real double-click) just before calling setIsEditing(true); consumed by
+  // the isEditing effect below. `selectWord` distinguishes the two: a
+  // double-click selects the whole word under the point (native browser
+  // dblclick behavior, reconstructed manually — see wordRangeFromPoint's
+  // own comment for why), a plain click-to-edit just drops a collapsed
+  const pendingCaretPointRef = useRef<{ x: number; y: number; selectWord: boolean } | null>(null);
   const pendingListCommandRef = useRef<RichFormatCmd | null>(null);
-  const selectionSnapshotRef = useRef<Range | null>(null);
+  type SelectionSnapshot = {
+    range: Range | null;
+    charOffsets: { start: number; end: number } | null;
+  };
+  const selectionSnapshotRef = useRef<SelectionSnapshot | null>(null);
   const activeStyledSpanRef = useRef<HTMLElement | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -2487,14 +2593,14 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     const el = editableRef.current;
     if (!el) return;
     el.focus();
-    if (dblClickPointRef.current) {
-      const { x, y } = dblClickPointRef.current;
-      dblClickPointRef.current = null;
-      const wordRange = wordRangeFromPoint(x, y, el);
-      if (wordRange) {
+    if (pendingCaretPointRef.current) {
+      const { x, y, selectWord } = pendingCaretPointRef.current;
+      pendingCaretPointRef.current = null;
+      const range = selectWord ? wordRangeFromPoint(x, y, el) : caretRangeFromPointInContainer(x, y, el);
+      if (range) {
         const sel = window.getSelection();
         sel?.removeAllRanges();
-        sel?.addRange(wordRange);
+        sel?.addRange(range);
       }
     } else if (pendingListCommandRef.current) {
       const cmd = pendingListCommandRef.current;
@@ -2761,8 +2867,48 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
   const snapshotSelection = () => {
     activeStyledSpanRef.current = null;
-    selectionSnapshotRef.current = hasLiveSelection() ? window.getSelection()!.getRangeAt(0).cloneRange() : null;
+    const el = editableRef.current;
+    if (el && hasLiveSelection()) {
+      const sel = window.getSelection();
+      const r = sel?.getRangeAt(0) ?? null;
+      if (r && !r.collapsed) {
+        const offsets = getSelectionCharacterOffsets(el, r);
+        selectionSnapshotRef.current = { range: r.cloneRange(), charOffsets: offsets };
+        return;
+      }
+    }
   };
+
+  // Keeps selectionSnapshotRef continuously fresh with the latest
+  // non-collapsed selection while editing, instead of relying solely on
+  // snapshotSelection() above being called at exactly the right instant —
+  // that's only invoked from each toolbar control's own pointerdown, a
+  // single narrow window that a "highlight text, then click a formatting
+  // control" gesture has to land in precisely; any selectionchange in
+  // between (a stray pointerdown elsewhere, focus settling, etc.) that
+  // this doesn't otherwise catch would leave the snapshot stale or empty
+  // by the time it's actually needed. Mirrors notifyActiveFormat's own
+  // selectionchange subscription just above. Deliberately only updates on
+  // a genuine non-collapsed selection — a collapsed one (focus moved away,
+  // selection cleared) leaves the last known good range in place instead
+  // of clobbering it with null, since surviving exactly that moment is the
+  // whole point of this snapshot.
+  useEffect(() => {
+    if (!isEditing) return;
+    const handler = () => {
+      const el = editableRef.current;
+      if (el && hasLiveSelection()) {
+        const sel = window.getSelection();
+        const r = sel?.getRangeAt(0) ?? null;
+        if (r && !r.collapsed) {
+          const offsets = getSelectionCharacterOffsets(el, r);
+          selectionSnapshotRef.current = { range: r.cloneRange(), charOffsets: offsets };
+        }
+      }
+    };
+    document.addEventListener("selectionchange", handler);
+    return () => document.removeEventListener("selectionchange", handler);
+  }, [isEditing]);
 
   const applyStyleSmart = (cssProps: Partial<CSSStyleDeclaration>, wholeLayerPatch: Partial<Omit<TextLayer, "id">>) => {
     const el = editableRef.current;
@@ -2779,23 +2925,46 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       return;
     }
 
-    const liveRange = hasLiveSelection() ? window.getSelection()!.getRangeAt(0) : null;
-    const range = liveRange ?? selectionSnapshotRef.current;
-    selectionSnapshotRef.current = null;
+    let range: Range | null = null;
+    const isLive = hasLiveSelection();
+    if (isLive) {
+      range = window.getSelection()!.getRangeAt(0);
+    } else if (selectionSnapshotRef.current?.charOffsets) {
+      const { start, end } = selectionSnapshotRef.current.charOffsets;
+      range = createRangeFromCharacterOffsets(el, start, end);
+    } else if (selectionSnapshotRef.current?.range) {
+      const r = selectionSnapshotRef.current.range;
+      if (el === r.commonAncestorContainer || el.contains(r.commonAncestorContainer)) {
+        range = r;
+      }
+    }
 
-    if (!range) {
+    if (!range || range.collapsed) {
       update(wholeLayerPatch);
       return;
     }
+
     try {
+      const cloned = range.cloneContents();
+      if (!cloned.textContent || cloned.textContent.length === 0) {
+        update(wholeLayerPatch);
+        return;
+      }
+
       const wrapper = document.createElement("span");
       wrapper.style.display = "inline";
       Object.assign(wrapper.style, cssProps);
       const contents = range.extractContents();
+      if (!contents.textContent || contents.textContent.length === 0) {
+        update(wholeLayerPatch);
+        return;
+      }
+
       wrapper.appendChild(contents);
       range.insertNode(wrapper);
       activeStyledSpanRef.current = wrapper;
-      if (liveRange) {
+
+      if (isLive) {
         const sel = window.getSelection();
         const newRange = document.createRange();
         newRange.selectNodeContents(wrapper);
@@ -2977,6 +3146,14 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               return;
             }
 
+            // Captured before onSelect below — Canva-style "click again to
+            // start typing" (see onUp further down) only fires for a click
+            // that lands on a layer that was ALREADY the sole selection
+            // before this click, never for the click that first selects it
+            // (that click should only select, same as before) and never
+            // for a multi-selected layer (that's a group-drag click, left
+            // untouched here).
+            const wasAlreadySelected = selected && selectedCount === 1;
             if (!selected) {
               onSelect(t.id);
             }
@@ -2994,6 +3171,14 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               };
             }
 
+            // Whether the pointer has moved past a real "this is a drag,
+            // not a click" threshold since pointerdown — same 4px-ish
+            // threshold used elsewhere in this file for the same
+            // click-vs-drag distinction (e.g. the marquee-select gesture in
+            // index.tsx). Only meaningful for the single-item path above;
+            // group drags never consult it.
+            let hasMoved = false;
+
             const onMove = (moveEv: PointerEvent) => {
               if (suppressDragRef?.current) {
                 onUp();
@@ -3005,6 +3190,9 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               }
               const d = dragRef.current;
               if (!d) return;
+              if (!hasMoved && Math.hypot(moveEv.clientX - e.clientX, moveEv.clientY - e.clientY) > 4) {
+                hasMoved = true;
+              }
 
               const dx = ((moveEv.clientX - d.x) / scale / sRef.current.width) * 100;
               const dy = ((moveEv.clientY - d.y) / scale / sRef.current.height) * 100;
@@ -3033,6 +3221,15 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               if (groupDraggingRef.current) {
                 groupDraggingRef.current = false;
                 onGroupDragEnd();
+              } else if (wasAlreadySelected && !hasMoved) {
+                // Canva-style: a plain click (no real drag) on a layer that
+                // was already selected enters edit mode, caret placed
+                // exactly where the click landed — "click to select, click
+                // again to type," no double-click required. A genuine
+                // double-click still also works (handleDoubleClick above,
+                // selects the whole word instead of just placing a caret).
+                pendingCaretPointRef.current = { x: e.clientX, y: e.clientY, selectWord: false };
+                setIsEditing(true);
               }
               setIsMoving(false);
               onGuides({ vCenter: false, hCenter: false });
@@ -3049,7 +3246,28 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       const handleDoubleClick = (e: React.MouseEvent) => {
         if (!canInteract || locked) return;
         e.stopPropagation();
-        dblClickPointRef.current = { x: e.clientX, y: e.clientY };
+        // Already editing — most commonly because this same gesture's
+        // first click already entered edit mode via the plain
+        // click-on-an-already-selected-layer path below (a genuine
+        // double-click on a layer that was already selected flips
+        // isEditing true on click 1's pointerup, before this dblclick
+        // event even fires). The isEditing effect that normally places the
+        // caret only reruns on isEditing's false->true transition, which
+        // already happened, so it won't fire again for this — apply the
+        // word-selection directly instead of routing through it.
+        if (isEditing) {
+          const el = editableRef.current;
+          if (el) {
+            const wordRange = wordRangeFromPoint(e.clientX, e.clientY, el);
+            if (wordRange) {
+              const sel = window.getSelection();
+              sel?.removeAllRanges();
+              sel?.addRange(wordRange);
+            }
+          }
+          return;
+        }
+        pendingCaretPointRef.current = { x: e.clientX, y: e.clientY, selectWord: true };
         setIsEditing(true);
       };
 
@@ -3089,7 +3307,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           onBlur={(e) => {
             syncFromLiveDom(e.currentTarget);
             setIsEditing(false);
-            activeStyledSpanRef.current = null;
           }}
           style={{
             fontFamily: t.fontFamily,

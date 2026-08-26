@@ -51,10 +51,15 @@ export function sanitizeTextHtml(raw: string): string {
         .join("; ");
     });
   }
-  return DOMPurify.sanitize(raw, {
+  const clean = DOMPurify.sanitize(raw, {
     ALLOWED_TAGS: RICH_TEXT_ALLOWED_TAGS,
     ALLOWED_ATTR: RICH_TEXT_ALLOWED_ATTR,
   });
+  let stripped = clean;
+  while (/<(span|b|i|u|s)\b[^>]*>\s*<\/\1>/i.test(stripped)) {
+    stripped = stripped.replace(/<(span|b|i|u|s)\b[^>]*>\s*<\/\1>/gi, "");
+  }
+  return stripped;
 }
 
 export function hexToRgba(hex: string, alpha: number): string {
