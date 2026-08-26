@@ -28,7 +28,7 @@ export function MobileBottomTabBar({ activeTab, isDrawerOpen, onTabChange }: Pro
         // open, so this is the one thing that was actually stopping that
         // from being reachable: the bar sitting BEHIND the drawer,
         // invisible and untappable, at the old z-30.
-        "fixed inset-x-0 bottom-0 z-50 flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl",
+        "fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl pointer-events-auto",
         "shadow-[0_-12px_28px_-14px_oklch(0_0_0/0.14)] dark:shadow-[0_-12px_28px_-14px_oklch(0_0_0/0.6)]",
       )}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -39,21 +39,34 @@ export function MobileBottomTabBar({ activeTab, isDrawerOpen, onTabChange }: Pro
       {/* Light gradient fade effect on right side */}
       <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
 
-      {/* Fullwidth scrollable slider row */}
-      <div className="flex min-w-full items-center justify-between gap-1 overflow-x-auto px-4 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
+      {/* Fullwidth scrollable slider row with gaps between buttons */}
+      <div className="flex min-w-full items-center justify-between gap-3 overflow-x-auto px-4 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
         {RAIL.map((r) => {
           const active = activeTab === r.id && isDrawerOpen;
           return (
             <button
               key={r.id}
               type="button"
-              onClick={() => onTabChange(r.id)}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onTabChange(r.id);
+              }}
               className={cn(
-                "relative flex min-w-[56px] flex-1 flex-col items-center justify-center gap-1 py-1 text-[9px] font-medium transition-colors active:scale-95 shrink-0",
-                active ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground",
+                "group relative flex min-w-[52px] flex-1 flex-col items-center justify-center gap-1 py-1 text-[9px] font-medium transition-transform active:scale-95 shrink-0",
+                active ? "text-foreground font-semibold" : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <r.icon size={20} />
+              <span
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-xl transition-colors",
+                  active
+                    ? "bg-secondary dark:bg-[#1d1f26] text-foreground dark:text-white shadow-sm ring-1 ring-border/50"
+                    : "bg-transparent text-muted-foreground group-hover:bg-secondary/60 group-hover:text-foreground",
+                )}
+              >
+                <r.icon size={18} />
+              </span>
               <span className="leading-none whitespace-nowrap">{r.label}</span>
             </button>
           );

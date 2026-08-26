@@ -934,6 +934,8 @@ export function LeftPanel({
           width: s.width,
           height: s.height,
           cacheBust: false,
+          skipFonts: true,
+          fontEmbedCSS: "",
         });
         const ctx = canvas.getContext("2d");
         if (!ctx) return;

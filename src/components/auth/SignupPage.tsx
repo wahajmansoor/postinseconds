@@ -68,7 +68,7 @@ export function SignupPage() {
       </div>
 
       {/* RIGHT COLUMN: Authentication Form */}
-      <div className="flex w-full flex-col justify-between p-8 sm:p-12 lg:w-1/2 lg:p-16">
+      <div className="flex w-full flex-col justify-between p-4 sm:p-8 lg:w-1/2 lg:p-8">
         {/* Center Container */}
         <div className="mx-auto my-auto w-full max-w-md space-y-8 py-8">
           {/* Logo + Header Title — logo sits directly above the headline
@@ -160,7 +160,7 @@ export function SignupPage() {
                 </div>
                 <div className="flex items-center gap-2.5 text-foreground font-medium">
                   <CheckmarkCircle02Icon size={16} className="text-emerald-500 shrink-0" />
-                  <span>High-resolution exports in PNG, JPG, or WEBP — zero watermark</span>
+                  <span>High-resolution exports in PNG, JPG, or WEBP. No Watermark</span>
                 </div>
               </div>
             </div>
@@ -169,7 +169,7 @@ export function SignupPage() {
         </div>
 
         {/* Footer info */}
-        <div className="border-t border-border/60 pt-4 text-center text-[10px] text-muted-foreground">
+        <div className="border-t border-border/60 pt-4 text-center text-[14px] text-muted-foreground">
           <p>© {new Date().getFullYear()} Post In Seconds Studio. All rights reserved.</p>
         </div>
       </div>

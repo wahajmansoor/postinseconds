@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   fetchAllTemplates,
@@ -478,6 +479,9 @@ function Index() {
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
   const isMobile = useIsMobile();
   const [mobileToolDrawerOpen, setMobileToolDrawerOpen] = useState(false);
+  const [mobileToolDrawerSnap, setMobileToolDrawerSnap] = useState<number | string | null>(
+    MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
+  );
   // Ground-truth for how tall the tool drawer's box actually is ON SCREEN
   // right now (in px) — measured directly off the DOM instead of trusting
   // vaul's activeSnapPoint/setActiveSnapPoint controlled-state callback,
@@ -892,8 +896,8 @@ function Index() {
       // splits this budget evenly top+bottom, so reserving enough for the
       // toolbar means doubling it (some of that ends up as harmless extra
       // breathing room at the bottom too, a fine trade for "never overlaps").
-      const paddingX = isMobile ? 16 : 64;
-      const paddingY = isMobile ? 16 : 160;
+      const paddingX = isMobile ? 12 : 64;
+      const paddingY = isMobile ? 12 : 160;
 
       const availW = Math.max(100, stW - rulerOffset - paddingX);
       const availH = Math.max(100, stH - rulerOffset - paddingY);
@@ -2141,7 +2145,6 @@ function Index() {
       layer: { kind: "image" | "text" | "shape"; id: string },
       opts?: { toggle?: boolean; selectAll?: boolean },
     ) => {
-      setMobileToolDrawerOpen(false);
       if (opts?.selectAll) {
         const all: { kind: "image" | "text" | "shape"; id: string }[] = [
           ...getTextLayers(s).map((t) => ({ kind: "text" as const, id: t.id })),
@@ -2879,188 +2882,197 @@ function Index() {
                 paddingBottom: mobileDrawerLiftActive
                   ? `${floatingDrawerHeightPx + 8}px`
                   : mobileToolDrawerNearPeek
-                    ? `${MOBILE_SHEET_MAX_HEIGHT_FRACTION * 100}vh`
+                    ? `${mobileToolDrawerVisiblePx}px`
                     : "calc(60px + env(safe-area-inset-bottom) + 12px)",
-                transition: "padding-bottom 0.5s cubic-bezier(0.32, 0.72, 0, 1)", marginBottom: "20px"
+                transition: "padding-bottom 0.5s cubic-bezier(0.32, 0.72, 0, 1)", marginBottom: "20px",
               }}
             >
               {canvasStage}
             </div>
 
-            {!(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection) ? (
-              <MobileBottomTabBar
-                activeTab={tab}
-                isDrawerOpen={mobileToolDrawerOpen}
-                onTabChange={(id) => {
-                  if (id === tab && mobileToolDrawerOpen) {
-                    setMobileToolDrawerOpen(false);
-                  } else {
-                    setTab(id);
-                    setMobileToolDrawerOpen(true);
-                  }
-                }}
-              />
-            ) : (
-              <div
-                data-nopan=""
-                data-keep-text-editing=""
-                className="fixed inset-x-0 bottom-0 z-30 flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl"
-                style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-              >
-                {/* Absolute solid Tick02Icon button on far left */}
-                <button
-                  type="button"
-                  onClick={() => setCanvasSelection([])}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
-                  title="Done (Deselect)"
-                >
-                  <Tick02Icon size={16} />
-                </button>
-
-                {/* Left & Right gradient edge fades */}
-                <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
-                <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
-
-                {/* Scrollable toolbar items with pl-14 pr-3 */}
-                <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
-                  {selectedTextLayer && selectedTextLayerHandle ? (
-                    <TextSelectionToolbar
-                      layer={selectedTextLayer}
-                      handle={selectedTextLayerHandle}
-                      onAnyPopoverOpenChange={(open) =>
-                        handlePinnedPopoverChange("text", selectedTextLayer.id, open)
-                      }
-                      onOpenEffectsTab={() => {
-                        setTab("text");
-                        setTextSubTab("effects");
+            {typeof document !== "undefined"
+              ? createPortal(
+                !(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection) ? (
+                  <MobileBottomTabBar
+                    activeTab={tab}
+                    isDrawerOpen={mobileToolDrawerOpen}
+                    onTabChange={(id) => {
+                      if (id === tab && mobileToolDrawerOpen) {
+                        setMobileToolDrawerOpen(false);
+                      } else {
+                        setTab(id);
                         setMobileToolDrawerOpen(true);
-                      }}
-                    />
-                  ) : selectedImageLayer ? (
-                    <ImageSelectionToolbar
-                      layer={selectedImageLayer}
-                      onAnyPopoverOpenChange={(open) =>
-                        handlePinnedPopoverChange("image", selectedImageLayer.id, open)
                       }
-                      onUpdate={(patch) =>
-                        set("images", withImageUpdated(s, selectedImageLayer.id, patch))
-                      }
-                      onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
-                      onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
-                    />
-                  ) : selectedShapeLayer ? (
-                    <ShapeSelectionToolbar
-                      layer={selectedShapeLayer}
-                      onAnyPopoverOpenChange={(open) =>
-                        handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
-                      }
-                      onUpdate={(patch) =>
-                        set("shapes", withShapeUpdated(s, selectedShapeLayer.id, patch))
-                      }
-                      onDuplicate={() => {
-                        const dup = withShapeDuplicated(s, selectedShapeLayer.id);
-                        set("shapes", dup.list);
-                        setCanvasSelection([{ kind: "shape", id: dup.newId }]);
-                      }}
-                      onDelete={() => {
-                        set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                    }}
+                  />
+                ) : (
+                  <div
+                    data-nopan=""
+                    data-keep-text-editing=""
+                    className="fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl pointer-events-auto"
+                    style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+                  >
+                    {/* Absolute solid Tick02Icon button on far left */}
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.currentTarget.blur();
                         setCanvasSelection([]);
                       }}
-                      onToggleLock={() =>
-                        set(
-                          "shapes",
-                          withShapeUpdated(s, selectedShapeLayer.id, {
-                            locked: !selectedShapeLayer.locked,
-                          }),
-                        )
-                      }
-                    />
-                  ) : isMultiShapeSelection ? (
-                    <MultiShapeSelectionToolbar
-                      layers={multiSelectedShapeLayers}
-                      canvasWidth={s.width}
-                      canvasHeight={s.height}
-                      onAnyPopoverOpenChange={(open) =>
-                        handlePinnedPopoverChange("shape", "multi-shape", open)
-                      }
-                      onArrange={handleShapeArrange}
-                      onAlign={handleShapeAlign}
-                      onShiftGroup={handleShapeShiftGroup}
-                      onUpdateAll={(patch) =>
-                        set(
-                          "shapes",
-                          withShapesUpdated(
-                            s,
-                            multiSelectedShapeLayers.map((l) => l.id),
-                            patch,
-                          ),
-                        )
-                      }
-                      onToggleLockAll={() => {
-                        const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                        set(
-                          "shapes",
-                          withShapesLockSet(
-                            s,
-                            multiSelectedShapeLayers.map((l) => l.id),
-                            !allLocked,
-                          ),
-                        );
-                      }}
-                      onDeleteAll={() => {
-                        const result = withMultipleLayersRemoved(s, canvasSelection);
-                        set("texts", result.texts);
-                        set("images", result.images);
-                        set("shapes", result.shapes);
-                        set("layerOrder", result.layerOrder);
-                        setCanvasSelection([]);
-                      }}
-                    />
-                  ) : isMultiImageSelection ? (
-                    <MultiImageSelectionToolbar
-                      layers={multiSelectedImageLayers}
-                      canvasWidth={s.width}
-                      canvasHeight={s.height}
-                      onAnyPopoverOpenChange={(open) =>
-                        handlePinnedPopoverChange("image", "multi-image", open)
-                      }
-                      onArrange={handleImageArrange}
-                      onAlign={handleImageAlign}
-                      onShiftGroup={handleImageShiftGroup}
-                      onUpdateAll={(patch) =>
-                        set(
-                          "images",
-                          withImagesUpdated(
-                            s,
-                            multiSelectedImageLayers.map((l) => l.id),
-                            patch,
-                          ),
-                        )
-                      }
-                      onToggleLockAll={() => {
-                        const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                        set(
-                          "images",
-                          withImagesLockSet(
-                            s,
-                            multiSelectedImageLayers.map((l) => l.id),
-                            !allLocked,
-                          ),
-                        );
-                      }}
-                      onDeleteAll={() => {
-                        const result = withMultipleLayersRemoved(s, canvasSelection);
-                        set("texts", result.texts);
-                        set("images", result.images);
-                        set("shapes", result.shapes);
-                        set("layerOrder", result.layerOrder);
-                        setCanvasSelection([]);
-                      }}
-                    />
-                  ) : null}
-                </div>
-              </div>
-            )}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
+                      title="Done (Deselect)"
+                    >
+                      <Tick02Icon size={16} />
+                    </button>
+
+                    {/* Left & Right gradient edge fades */}
+                    <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
+                    <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
+
+                    {/* Scrollable toolbar items with pl-14 pr-3 */}
+                    <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
+                      {selectedTextLayer && selectedTextLayerHandle ? (
+                        <TextSelectionToolbar
+                          layer={selectedTextLayer}
+                          handle={selectedTextLayerHandle}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("text", selectedTextLayer.id, open)
+                          }
+                          onOpenEffectsTab={() => {
+                            setTab("text");
+                            setTextSubTab("effects");
+                            setMobileToolDrawerOpen(true);
+                          }}
+                        />
+                      ) : selectedImageLayer ? (
+                        <ImageSelectionToolbar
+                          layer={selectedImageLayer}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("image", selectedImageLayer.id, open)
+                          }
+                          onUpdate={(patch) =>
+                            set("images", withImageUpdated(s, selectedImageLayer.id, patch))
+                          }
+                          onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
+                          onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
+                        />
+                      ) : selectedShapeLayer ? (
+                        <ShapeSelectionToolbar
+                          layer={selectedShapeLayer}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
+                          }
+                          onUpdate={(patch) =>
+                            set("shapes", withShapeUpdated(s, selectedShapeLayer.id, patch))
+                          }
+                          onDuplicate={() => {
+                            const dup = withShapeDuplicated(s, selectedShapeLayer.id);
+                            set("shapes", dup.list);
+                            setCanvasSelection([{ kind: "shape", id: dup.newId }]);
+                          }}
+                          onDelete={() => {
+                            set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                            setCanvasSelection([]);
+                          }}
+                          onToggleLock={() =>
+                            set(
+                              "shapes",
+                              withShapeUpdated(s, selectedShapeLayer.id, {
+                                locked: !selectedShapeLayer.locked,
+                              }),
+                            )
+                          }
+                        />
+                      ) : isMultiShapeSelection ? (
+                        <MultiShapeSelectionToolbar
+                          layers={multiSelectedShapeLayers}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("shape", "multi-shape", open)
+                          }
+                          onArrange={handleShapeArrange}
+                          onAlign={handleShapeAlign}
+                          onShiftGroup={handleShapeShiftGroup}
+                          onUpdateAll={(patch) =>
+                            set(
+                              "shapes",
+                              withShapesUpdated(
+                                s,
+                                multiSelectedShapeLayers.map((l) => l.id),
+                                patch,
+                              ),
+                            )
+                          }
+                          onToggleLockAll={() => {
+                            const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
+                            set(
+                              "shapes",
+                              withShapesLockSet(
+                                s,
+                                multiSelectedShapeLayers.map((l) => l.id),
+                                !allLocked,
+                              ),
+                            );
+                          }}
+                          onDeleteAll={() => {
+                            const result = withMultipleLayersRemoved(s, canvasSelection);
+                            set("texts", result.texts);
+                            set("images", result.images);
+                            set("shapes", result.shapes);
+                            set("layerOrder", result.layerOrder);
+                            setCanvasSelection([]);
+                          }}
+                        />
+                      ) : isMultiImageSelection ? (
+                        <MultiImageSelectionToolbar
+                          layers={multiSelectedImageLayers}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("image", "multi-image", open)
+                          }
+                          onArrange={handleImageArrange}
+                          onAlign={handleImageAlign}
+                          onShiftGroup={handleImageShiftGroup}
+                          onUpdateAll={(patch) =>
+                            set(
+                              "images",
+                              withImagesUpdated(
+                                s,
+                                multiSelectedImageLayers.map((l) => l.id),
+                                patch,
+                              ),
+                            )
+                          }
+                          onToggleLockAll={() => {
+                            const allLocked = multiSelectedImageLayers.every((l) => l.locked);
+                            set(
+                              "images",
+                              withImagesLockSet(
+                                s,
+                                multiSelectedImageLayers.map((l) => l.id),
+                                !allLocked,
+                              ),
+                            );
+                          }}
+                          onDeleteAll={() => {
+                            const result = withMultipleLayersRemoved(s, canvasSelection);
+                            set("texts", result.texts);
+                            set("images", result.images);
+                            set("shapes", result.shapes);
+                            set("layerOrder", result.layerOrder);
+                            setCanvasSelection([]);
+                          }}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                ),
+                document.body,
+              )
+              : null}
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
                 just inside a bottom sheet instead of a fixed side aside.
@@ -3080,9 +3092,17 @@ function Index() {
                 now. */}
             <Drawer
               open={mobileToolDrawerOpen}
-              onOpenChange={setMobileToolDrawerOpen}
+              onOpenChange={(open) => {
+                setMobileToolDrawerOpen(open);
+                if (open) {
+                  setMobileToolDrawerSnap(MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION);
+                }
+              }}
               shouldScaleBackground={false}
               snapPoints={MOBILE_TOOL_DRAWER_SNAP_POINTS}
+              activeSnapPoint={mobileToolDrawerSnap}
+              setActiveSnapPoint={setMobileToolDrawerSnap}
+              modal={false}
             >
               <DrawerContent
                 ref={toolDrawerContentRef}
@@ -3171,29 +3191,19 @@ function Index() {
                       s={s}
                       set={set}
                       applyTemplate={(t) => {
-                        setMobileToolDrawerOpen(false);
-                        requestAnimationFrame(() => {
-                          applyTemplate(t);
-                        });
+                        applyTemplate(t);
                       }}
                       tab={tab}
                       selection={canvasSelection}
                       onSelectLayer={(layer, opts) => {
-                        setMobileToolDrawerOpen(false);
-                        requestAnimationFrame(() => {
-                          handleSelectLayer(layer, opts);
-                        });
+                        handleSelectLayer(layer, opts);
                       }}
-                      onItemSelect={() => setMobileToolDrawerOpen(false)}
                       textSubTab={textSubTab}
                       onTextSubTabChange={setTextSubTab}
                       templateCategory={templateCategory}
                       onTemplateCategoryChange={setTemplateCategory}
                       onSelectSavedQuote={(quote) => {
-                        setMobileToolDrawerOpen(false);
-                        requestAnimationFrame(() => {
-                          setEditingSavedQuoteTarget({ id: quote.id, title: quote.title });
-                        });
+                        setEditingSavedQuoteTarget({ id: quote.id, title: quote.title });
                       }}
                       activeSavedQuote={editingSavedQuoteTarget}
                       onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}

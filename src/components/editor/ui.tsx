@@ -46,8 +46,8 @@ export const MOBILE_SHEET_MAX_HEIGHT_FRACTION = 0.45;
 // broken/cramped rather than intentional (why a bare 45vh was rejected).
 export const MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION = 0.92;
 export const MOBILE_TOOL_DRAWER_SNAP_POINTS: (number | string)[] = [
-  MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
   MOBILE_SHEET_MAX_HEIGHT_FRACTION,
+  MOBILE_TOOL_DRAWER_OPEN_HEIGHT_FRACTION,
 ];
 
 // Shared by every floating toolbar's Popover dropdowns (Text/Shape/Image/
@@ -347,6 +347,7 @@ export function FloatingDropdown({
         }}
         dismissible={!pinned}
         shouldScaleBackground={false}
+        modal={false}
       >
         {/* pointer-events-none on top of the transparent background — a
             regular `fixed inset-0` overlay would still swallow every touch
@@ -359,12 +360,12 @@ export function FloatingDropdown({
           data-floating-dropdown=""
           data-keep-text-editing=""
           overlayClassName="bg-transparent pointer-events-none"
-          className="mt-0 flex max-h-[75vh] flex-col rounded-t-2xl"
+          className="mt-0 flex max-h-[75vh] flex-col rounded-t-2xl border bg-background shadow-2xl"
         >
           <div
             data-keep-text-editing=""
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 mt-2"
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y px-3 py-2"
+            style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 20px)" }}
           >
             {children}
           </div>
