@@ -24,6 +24,7 @@ import {
   Bookmark01Icon,
   DragDropVerticalIcon,
 } from "hugeicons-react";
+import { CaseUpper } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { fetchSavedQuotes, deleteSavedQuote, updateSavedQuoteDesign, fetchAllTemplates, type DbSavedQuote } from "@/lib/supabase";
@@ -1419,6 +1420,21 @@ export function LeftPanel({
                             title="Underline"
                           >
                             <TextUnderlineIcon size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateActiveLayer({ uppercase: !activeTextLayer.uppercase })
+                            }
+                            className={cn(
+                              "flex flex-1 items-center justify-center rounded-md py-1 text-xs transition-colors",
+                              activeTextLayer.uppercase
+                                ? "bg-background font-bold text-primary shadow-sm"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                            title="Uppercase"
+                          >
+                            <CaseUpper size={14} />
                           </button>
                         </div>
                       </Field>

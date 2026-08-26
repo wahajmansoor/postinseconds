@@ -21,6 +21,7 @@ import {
   TextUnderlineIcon,
   Tick02Icon,
 } from "hugeicons-react";
+import { CaseUpper } from "lucide-react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -102,7 +103,121 @@ export function TextSelectionToolbar({
   const fontDrag = useDraggableOffset();
   const fontTriggerRef = useRef<HTMLButtonElement>(null);
   const fontAnchor = useStableAnchor(fontOpen, fontTriggerRef);
-  const currentFontLabel = FONTS.find((f) => f.value === layer.fontFamily)?.label ?? "Text Font";
+
+  // Mirrors handle.getActiveFormat() live so Bold/Italic/Underline/
+  // Strikethrough/list here light up for whatever's actually under the
+  // caret or highlighted right now (a highlighted bold word shows Bold as
+  // active even if the rest of the box isn't bold), not just the whole
+  // layer's own fields — see LiveTextFormat/subscribeActiveFormat in
+  // QuoteCanvas.tsx. Re-subscribes whenever `handle` itself changes (i.e.
+  // the selected layer changed), which also pushes that new layer's
+  // current format immediately.
+  const [activeFormat, setActiveFormat] = useState<LiveTextFormat>(() => handle.getActiveFormat());
+  useEffect(() => handle.subscribeActiveFormat(setActiveFormat), [handle]);
+
+  const currentFontLabel = useMemo(() => {
+    if (activeFormat.fontFamily === "multiple") {
+      return "Multiple fonts";
+    }
+    if (activeFormat.fontFamily) {
+      const cleanActive = activeFormat.fontFamily.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase() || "";
+      const match = FONTS.find((f) => f.value.toLowerCase().includes(cleanActive) || f.label.toLowerCase() === cleanActive);
+      if (match) return match.label;
+    }
+
+    if (layer.html) {
+      const fontsInHtml = new Set<string>();
+      const basePrimary = (layer.fontFamily || "").split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase() || "";
+
+      const matches = layer.html.matchAll(/font-family:\s*([^;"]+)/gi);
+      for (const match of matches) {
+        const rawFont = match?.[1]?.trim().replace(/^['"]|['"]$/g, "");
+        if (rawFont) {
+          const primary = rawFont.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase();
+          if (primary) fontsInHtml.add(primary);
+        }
+      }
+
+      if (fontsInHtml.size > 0) {
+        if (typeof document !== "undefined") {
+          try {
+            const tmp = document.createElement("div");
+            tmp.innerHTML = layer.html;
+            const fontSpans = tmp.querySelectorAll<HTMLElement>("[style*='font-family']");
+            let totalSpanTextLen = 0;
+            fontSpans.forEach((s) => (totalSpanTextLen += s.textContent?.length || 0));
+            const totalTextLen = tmp.textContent?.length || 0;
+            if (totalTextLen > totalSpanTextLen) {
+              fontsInHtml.add(basePrimary);
+            }
+          } catch {}
+        }
+      }
+
+      if (fontsInHtml.size > 1) {
+        return "Multiple fonts";
+      }
+      if (fontsInHtml.size === 1) {
+        const singleFont = Array.from(fontsInHtml)[0];
+        if (singleFont) {
+          const match = FONTS.find((f) => f.value.toLowerCase().includes(singleFont) || f.label.toLowerCase() === singleFont);
+          if (match) return match.label;
+        }
+      }
+    }
+
+    return FONTS.find((f) => f.value === layer.fontFamily)?.label ?? "Text Font";
+  }, [activeFormat.fontFamily, layer.fontFamily, layer.html]);
+
+  const currentColors = useMemo((): string[] => {
+    if (activeFormat.colors && activeFormat.colors.length > 1) {
+      return activeFormat.colors.slice(0, 2);
+    }
+    if (activeFormat.color && activeFormat.color !== "multiple") {
+      return [activeFormat.color];
+    }
+
+    const baseColor = (layer.color || "#000000").trim();
+    if (!layer.html) {
+      return [baseColor];
+    }
+
+    try {
+      if (typeof document !== "undefined") {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = layer.html;
+
+        const colorSpans = tmp.querySelectorAll<HTMLElement>("[style*='color']");
+        const foundColors: string[] = [];
+        let totalStyledTextLen = 0;
+
+        colorSpans.forEach((el) => {
+          const c = el.style.color?.trim();
+          if (c && !foundColors.some((fc) => fc.toLowerCase() === c.toLowerCase())) {
+            foundColors.push(c);
+          }
+          totalStyledTextLen += el.textContent?.length || 0;
+        });
+
+        const totalTextLen = tmp.textContent?.length || 0;
+        if (totalTextLen > totalStyledTextLen) {
+          if (!foundColors.some((fc) => fc.toLowerCase() === baseColor.toLowerCase())) {
+            foundColors.unshift(baseColor);
+          }
+        }
+
+        if (foundColors.length > 1) {
+          return foundColors.slice(0, 2);
+        }
+        if (foundColors.length === 1 && foundColors[0]) {
+          return [foundColors[0]];
+        }
+      }
+    } catch {
+    }
+
+    return [baseColor];
+  }, [activeFormat.colors, activeFormat.color, layer.color, layer.html]);
   const filteredFonts = useMemo(() => {
     const q = fontSearch.trim().toLowerCase();
     return q ? FONTS.filter((f) => f.label.toLowerCase().includes(q)) : FONTS;
@@ -187,16 +302,22 @@ export function TextSelectionToolbar({
   const sizeDecHold = useHoldRepeat(() => handle.setSize(Math.max(8, layer.size - 1)));
   const sizeIncHold = useHoldRepeat(() => handle.setSize(layer.size + 1));
 
-  // Mirrors handle.getActiveFormat() live so Bold/Italic/Underline/
-  // Strikethrough/list here light up for whatever's actually under the
-  // caret or highlighted right now (a highlighted bold word shows Bold as
-  // active even if the rest of the box isn't bold), not just the whole
-  // layer's own fields — see LiveTextFormat/subscribeActiveFormat in
-  // QuoteCanvas.tsx. Re-subscribes whenever `handle` itself changes (i.e.
-  // the selected layer changed), which also pushes that new layer's
-  // current format immediately.
-  const [activeFormat, setActiveFormat] = useState<LiveTextFormat>(() => handle.getActiveFormat());
-  useEffect(() => handle.subscribeActiveFormat(setActiveFormat), [handle]);
+  const [sizeInput, setSizeInput] = useState<string>(() => String(layer.size));
+  useEffect(() => {
+    setSizeInput(String(layer.size));
+  }, [layer.size]);
+
+  const commitSizeInput = (raw: string) => {
+    const parsed = parseInt(raw, 10);
+    if (!isNaN(parsed) && parsed >= 8 && parsed <= 400) {
+      handle.setSize(parsed);
+      setSizeInput(String(parsed));
+    } else {
+      setSizeInput(String(layer.size));
+    }
+  };
+
+
 
   // Hoisted out of the main return below so it can also be reached from the
   // mobile font-strip's own "expand" button (see fontStripOpen above) — both
@@ -334,8 +455,14 @@ export function TextSelectionToolbar({
           <button
             ref={fontTriggerRef}
             type="button"
-            onPointerDown={preserveSelection}
-            onMouseDown={preserveSelection}
+            onPointerDown={(e) => {
+              handle.snapshotSelection();
+              preserveSelection(e);
+            }}
+            onMouseDown={(e) => {
+              handle.snapshotSelection();
+              preserveSelection(e);
+            }}
             onClick={() => {
               fontDrag.reset();
               setFontSearch("");
@@ -372,8 +499,14 @@ export function TextSelectionToolbar({
         <button
           ref={fontTriggerRef}
           type="button"
-          onPointerDown={preserveSelection}
-          onMouseDown={preserveSelection}
+          onPointerDown={(e) => {
+            handle.snapshotSelection();
+            preserveSelection(e);
+          }}
+          onMouseDown={(e) => {
+            handle.snapshotSelection();
+            preserveSelection(e);
+          }}
           onClick={() => {
             if (isMobile) {
               setFontStripOpen(true);
@@ -397,7 +530,10 @@ export function TextSelectionToolbar({
             fontOpen && "border-primary text-primary",
           )}
         >
-          <span className="min-w-0 flex-1 truncate text-left" style={{ fontFamily: layer.fontFamily }}>
+          <span
+            className="min-w-0 flex-1 truncate text-left"
+            style={{ fontFamily: currentFontLabel === "Multiple fonts" ? undefined : layer.fontFamily }}
+          >
             {currentFontLabel}
           </span>
           <ArrowDown01Icon size={12} className="shrink-0 text-muted-foreground" />
@@ -422,7 +558,36 @@ export function TextSelectionToolbar({
             <MinusSignIcon size={14} />
           </Chip>
         </AppTooltip>
-        <span className="w-7 text-center text-xs font-semibold text-foreground">{layer.size}</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={sizeInput}
+          onChange={(e) => {
+            const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 3);
+            setSizeInput(val);
+            const num = parseInt(val, 10);
+            if (!isNaN(num) && num >= 8 && num <= 400) {
+              handle.setSize(num);
+            }
+          }}
+          onFocus={(e) => e.target.select()}
+          onBlur={() => commitSizeInput(sizeInput)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commitSizeInput(sizeInput);
+              (e.target as HTMLInputElement).blur();
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              handle.setSize(Math.min(400, layer.size + 1));
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              handle.setSize(Math.max(8, layer.size - 1));
+            }
+          }}
+          className="h-7 w-9 rounded-md bg-transparent text-center font-mono text-xs font-semibold text-foreground outline-none transition-colors hover:bg-secondary/80 focus:bg-background focus:ring-1 focus:ring-primary/50"
+          title="Font size (type to change)"
+        />
         <AppTooltip content="Increase size">
           <Chip
             title="Increase size"
@@ -461,9 +626,13 @@ export function TextSelectionToolbar({
             return !wasOpen;
           });
         }}
-        title="Text color"
-        className="h-7 w-7 shrink-0 overflow-hidden rounded-xl border border-border/80 shadow-sm transition-transform hover:scale-105"
-        style={{ backgroundColor: layer.color || "#000000" }}
+        title={currentColors.length > 1 ? `Text colors (${currentColors.join(" / ")})` : "Text color"}
+        className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-border/80 shadow-sm transition-transform hover:scale-110 active:scale-95"
+        style={
+          currentColors.length > 1
+            ? { background: `linear-gradient(135deg, ${currentColors[0]} 50%, ${currentColors[1]} 50%)` }
+            : { backgroundColor: currentColors[0] || layer.color || "#000000" }
+        }
       />
       <FloatingDropdown
         anchor={textColorAnchor}
@@ -533,6 +702,18 @@ export function TextSelectionToolbar({
           className={btn}
         >
           <TextStrikethroughIcon size={15} />
+        </Chip>
+      </AppTooltip>
+      <AppTooltip content="Uppercase">
+        <Chip
+          title="Uppercase"
+          active={activeFormat.uppercase || !!layer.uppercase}
+          onPointerDown={preserveSelection}
+          onMouseDown={preserveSelection}
+          onClick={() => handle.applyFormat("uppercase")}
+          className={btn}
+        >
+          <CaseUpper size={15} />
         </Chip>
       </AppTooltip>
 

@@ -35,13 +35,17 @@ import {
 import { getTextEffectStyle } from "./textEffects";
 import type { EditorState, ImageLayer, ShapeLayer, TextLayer } from "./types";
 
-export type RichFormatCmd = "bold" | "italic" | "underline" | "strike" | "bulletList" | "numberedList";
+export type RichFormatCmd = "bold" | "italic" | "underline" | "strike" | "uppercase" | "bulletList" | "numberedList";
 
 export type LiveTextFormat = {
   bold: boolean;
   italic: boolean;
   underline: boolean;
   strike: boolean;
+  uppercase: boolean;
+  fontFamily?: string | "multiple" | undefined;
+  color?: string | "multiple" | undefined;
+  colors?: string[] | undefined;
   bulletList: boolean;
   numberedList: boolean;
 };
@@ -2586,7 +2590,16 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
   useEffect(() => {
     loadGoogleFont(t.fontFamily);
-  }, [t.fontFamily]);
+    if (t.html) {
+      const matchFonts = t.html.match(/font-family:\s*([^;"]+)/gi);
+      if (matchFonts) {
+        matchFonts.forEach((mf) => {
+          const font = mf.replace(/font-family:\s*/i, "").trim().replace(/['"]/g, "");
+          if (font) loadGoogleFont(font);
+        });
+      }
+    }
+  }, [t.fontFamily, t.html]);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -2654,7 +2667,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     const text = el.textContent ?? "";
     const html = sanitizeTextHtml(el.innerHTML);
     editSnapshotRef.current = html;
-    update({ text, html });
+    update({ text, html, minHeight: undefined });
   };
 
   // Dedicated drag state/handlers for the overlay's Move handle — kept
@@ -2730,7 +2743,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
     let executed = false;
     try {
-      const commandMap: Record<RichFormatCmd, string> = {
+      const commandMap: Partial<Record<RichFormatCmd, string>> = {
         bold: "bold",
         italic: "italic",
         underline: "underline",
@@ -2738,7 +2751,10 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         bulletList: "insertUnorderedList",
         numberedList: "insertOrderedList",
       };
-      executed = document.execCommand(commandMap[cmd], false);
+      const mapped = commandMap[cmd];
+      if (mapped) {
+        executed = document.execCommand(mapped, false);
+      }
     } catch {
       executed = false;
     }
@@ -2798,11 +2814,59 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
     if (liveSelectionInside) {
       try {
+        let isUpper = false;
+        let selectedFont: string | undefined = undefined;
+        let isMultipleFonts = false;
+        const selRange = sel.getRangeAt(0);
+        const fragment = selRange.cloneContents();
+        if (fragment && fragment.querySelectorAll) {
+          const fontElements = fragment.querySelectorAll<HTMLElement>("[style*='font-family']");
+          const foundFonts = new Set<string>();
+          fontElements.forEach((el) => {
+            const ff = el.style.fontFamily;
+            if (ff) {
+              const cleanF = ff.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase();
+              if (cleanF) foundFonts.add(cleanF);
+            }
+          });
+          if (foundFonts.size > 1) {
+            isMultipleFonts = true;
+          } else if (foundFonts.size === 1) {
+            selectedFont = Array.from(foundFonts)[0];
+          }
+        }
+
+        let foundColors = new Set<string>();
+        if (fragment && fragment.querySelectorAll) {
+          const colorElements = fragment.querySelectorAll<HTMLElement>("[style*='color']");
+          colorElements.forEach((el) => {
+            const col = el.style.color;
+            if (col) foundColors.add(col);
+          });
+        }
+
+        const node = selRange.commonAncestorContainer;
+        const elContainer = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+        let selectedColor: string | undefined = foundColors.size === 1 ? Array.from(foundColors)[0] : undefined;
+        if (elContainer) {
+          const comp = window.getComputedStyle(elContainer);
+          isUpper = comp.textTransform === "uppercase";
+          if (!selectedFont && !isMultipleFonts) {
+            selectedFont = comp.fontFamily;
+          }
+          if (!selectedColor && foundColors.size === 0) {
+            selectedColor = comp.color;
+          }
+        }
         return {
           bold: document.queryCommandState("bold"),
           italic: document.queryCommandState("italic"),
           underline: document.queryCommandState("underline"),
           strike: document.queryCommandState("strikeThrough"),
+          uppercase: isUpper || !!t.uppercase,
+          fontFamily: isMultipleFonts ? "multiple" : selectedFont,
+          color: foundColors.size > 1 ? "multiple" : selectedColor,
+          colors: foundColors.size > 1 ? Array.from(foundColors) : selectedColor ? [selectedColor] : undefined,
           bulletList: document.queryCommandState("insertUnorderedList"),
           numberedList: document.queryCommandState("insertOrderedList"),
         };
@@ -2814,10 +2878,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       italic: !!t.italic,
       underline: !!t.underline,
       strike: !!t.strike,
+      uppercase: !!t.uppercase,
       bulletList: false,
       numberedList: false,
     };
-  }, [isEditing, t.weight, t.italic, t.underline, t.strike]);
+  }, [isEditing, t.weight, t.italic, t.underline, t.strike, t.uppercase]);
 
   const activeFormatListenersRef = useRef<Set<(format: LiveTextFormat) => void>>(new Set());
 
@@ -2848,6 +2913,23 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   }, [isEditing, notifyActiveFormat]);
 
   const applyFormatSmart = (cmd: RichFormatCmd) => {
+    if (cmd === "uppercase") {
+      if (hasLiveSelection()) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+          const r = sel.getRangeAt(0);
+          const node = r.commonAncestorContainer;
+          const elContainer = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+          const currentTrans = elContainer ? window.getComputedStyle(elContainer).textTransform : "none";
+          const nextTrans = currentTrans === "uppercase" ? "none" : "uppercase";
+          applyStyleSmart({ textTransform: nextTrans }, { uppercase: !t.uppercase });
+          return;
+        }
+      }
+      update({ uppercase: !t.uppercase });
+      return;
+    }
+
     if (hasLiveSelection()) {
       applyFormat(cmd);
       return;
@@ -2903,6 +2985,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         if (r && !r.collapsed) {
           const offsets = getSelectionCharacterOffsets(el, r);
           selectionSnapshotRef.current = { range: r.cloneRange(), charOffsets: offsets };
+          // User highlighted a new/different range, reset the previously styled span
+          activeStyledSpanRef.current = null;
         }
       }
     };
@@ -2940,7 +3024,24 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     }
 
     if (!range || range.collapsed) {
-      update(wholeLayerPatch);
+      if (el && cssProps.color) {
+        el.querySelectorAll<HTMLElement>("[style]").forEach((child) => {
+          child.style.removeProperty("color");
+          if (!child.getAttribute("style")?.trim()) child.removeAttribute("style");
+        });
+        syncFromLiveDom(el);
+      }
+      if (el && cssProps.fontFamily) {
+        el.querySelectorAll<HTMLElement>("[style]").forEach((child) => {
+          child.style.removeProperty("font-family");
+          if (!child.getAttribute("style")?.trim()) child.removeAttribute("style");
+        });
+        syncFromLiveDom(el);
+      }
+      const cleanHtml = t.html && cssProps.color ? stripInlineStyleProps(t.html, ["color"])
+        : t.html && cssProps.fontFamily ? stripInlineStyleProps(t.html, ["font-family"])
+        : undefined;
+      update({ ...wholeLayerPatch, ...(cleanHtml !== undefined ? { html: cleanHtml } : {}) });
       return;
     }
 
@@ -2953,11 +3054,38 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
       const wrapper = document.createElement("span");
       wrapper.style.display = "inline";
-      Object.assign(wrapper.style, cssProps);
+      const cleanCssProps: Partial<CSSStyleDeclaration> = { ...cssProps };
+      if (typeof cleanCssProps.fontFamily === "string") {
+        cleanCssProps.fontFamily = cleanCssProps.fontFamily.replace(/"/g, "'");
+      }
+      Object.assign(wrapper.style, cleanCssProps);
       const contents = range.extractContents();
       if (!contents.textContent || contents.textContent.length === 0) {
         update(wholeLayerPatch);
         return;
+      }
+
+      // Remove conflicting styles from any child elements inside the selection so the new style takes full effect
+      const keys = Object.keys(cssProps);
+      if (contents.querySelectorAll) {
+        contents.querySelectorAll<HTMLElement>("*").forEach((child) => {
+          keys.forEach((k) => {
+            const cssPropName = k.replace(/([A-Z])/g, "-$1").toLowerCase();
+            child.style.removeProperty(cssPropName);
+          });
+          if (!child.getAttribute("style")?.trim()) {
+            child.removeAttribute("style");
+          }
+          if (child.tagName.toLowerCase() === "span" && (!child.getAttribute("style") || child.getAttribute("style")?.trim() === "")) {
+            const parent = child.parentNode;
+            if (parent) {
+              while (child.firstChild) {
+                parent.insertBefore(child.firstChild, child);
+              }
+              parent.removeChild(child);
+            }
+          }
+        });
       }
 
       wrapper.appendChild(contents);
@@ -3006,25 +3134,20 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   };
 
   const setFontFamily = (v: string) => {
-    // Clear out any font-family left over on individual spans from before
-    // this change, so the whole layer visibly and uniformly reflects v —
-    // otherwise a more-specific inline span from an earlier edit would keep
-    // overriding the new layer-level font on just that stretch of text.
-    const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["font-family"]) : undefined;
-    update({ fontFamily: v, ...(cleanHtml !== undefined ? { html: cleanHtml } : {}) });
+    loadGoogleFont(v);
+    applyStyleSmart({ fontFamily: v }, { fontFamily: v });
   };
 
   const setSize = (v: number) => {
     const currentSize = t.size || 32;
     const ratio = v / currentSize;
     const nextWidth = typeof t.width === "number" && t.width > 0 ? Math.round(Math.max(40, t.width * ratio)) : undefined;
-    const nextMinHeight = typeof t.minHeight === "number" && t.minHeight > 0 ? Math.round(t.minHeight * ratio) : undefined;
     const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["font-size"]) : undefined;
     update({
       size: v,
       ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-      ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
-      ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+      minHeight: undefined,
+      ...(cleanHtml !== undefined ? { html: cleanHtml } : {})
     });
   };
   const setColor = (v: string) => applyStyleSmart({ color: v }, { color: v });
@@ -3316,6 +3439,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             textDecoration: [t.underline ? "underline" : "", t.strike ? "line-through" : ""]
               .filter(Boolean)
               .join(" "),
+            textTransform: t.uppercase ? "uppercase" : "none",
             color: t.color,
             textAlign: t.align,
             textAlignLast: t.align === "justify" ? "justify" : undefined,
@@ -3355,6 +3479,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       t.italic,
       t.underline,
       t.strike,
+      t.uppercase,
       t.color,
       t.align,
       t.minHeight,
@@ -3531,7 +3656,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                           const nextSize = Math.round(Math.max(10, Math.min(300, r.startSize + delta / 2)));
                           const scaleRatio = nextSize / r.startSize;
                           const nextWidth = r.startWidth ? Math.round(Math.max(40, r.startWidth * scaleRatio)) : undefined;
-                          const nextMinHeight = r.startMinHeight ? Math.round(r.startMinHeight * scaleRatio) : undefined;
                           const cleanHtml = t.html ? (() => {
                             try {
                               const tmp = document.createElement("div");
@@ -3546,54 +3670,40 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                           update({
                             size: nextSize,
                             ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                            ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+                            minHeight: undefined,
                             ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
                           });
-                          // Corner resize doesn't move x/y (it grows in
-                          // place), so the guide check runs against the
-                          // layer's existing position — see the edge branch
-                          // below for the same check when the box does shift.
                           onGuides(
                             calculateAlignmentSnap({
                               currentId: t.id,
                               rawX: t.x,
                               rawY: t.y,
                               width: nextWidth ?? (containerRef.current?.offsetWidth ?? 520),
-                              height: nextMinHeight ?? (containerRef.current?.offsetHeight ?? t.size * 1.3),
+                              height: containerRef.current?.offsetHeight ?? t.size * 1.3,
                               s: sRef.current,
                               otherElements: getAllCanvasElements(sRef.current),
                             }).guides,
                           );
                         } else {
                           const dw = widthDeltaFor(h.id, dx);
-                          const dh = heightDeltaFor(h.id, dy);
                           const nextWidth = Math.round(Math.max(40, r.startWidth + dw));
-                          const nextMinHeight = Math.round(Math.max(0, r.startMinHeight + dh));
                           const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextMinHeight - r.startMinHeight;
-                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                          const shift = rotateVector(centerShiftX(h.id, appliedDw), 0, rotation);
                           const nextX = r.startPosX + (shift.dx / s.width) * 100;
                           const nextY = r.startPosY + (shift.dy / s.height) * 100;
                           update({
                             width: nextWidth,
-                            minHeight: nextMinHeight,
+                            minHeight: undefined,
                             x: nextX,
                             y: nextY,
                           });
-                          // Guide-only check against the resized box's own
-                          // new position/size (see calculateAlignmentSnap's
-                          // own comment on the spacing-badge/edge logic) —
-                          // its returned nextX/nextY are intentionally
-                          // discarded here, since resize already computed its
-                          // own correct position above; only `.guides` (what
-                          // to draw) is used.
                           onGuides(
                             calculateAlignmentSnap({
                               currentId: t.id,
                               rawX: nextX,
                               rawY: nextY,
                               width: nextWidth,
-                              height: nextMinHeight,
+                              height: containerRef.current?.offsetHeight ?? t.size * 1.3,
                               s: sRef.current,
                               otherElements: getAllCanvasElements(sRef.current),
                             }).guides,

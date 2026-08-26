@@ -30,7 +30,7 @@ const RICH_TEXT_ALLOWED_TAGS = [
 const RICH_TEXT_ALLOWED_ATTR = ["style", "color"];
 const RICH_TEXT_ALLOWED_STYLE_PROPS = new Set([
   "color", "font-weight", "font-style", "text-decoration", "list-style-type", "padding-left", "margin",
-  "font-family", "font-size", "letter-spacing", "line-height",
+  "font-family", "font-size", "letter-spacing", "line-height", "display", "text-transform",
 ]);
 let richTextHooksReady = false;
 
@@ -40,13 +40,16 @@ export function sanitizeTextHtml(raw: string): string {
     richTextHooksReady = true;
     DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
       if (data.attrName !== "style") return;
-      data.attrValue = data.attrValue
+      const normalized = data.attrValue.replace(/&quot;/g, "'").replace(/"/g, "'");
+      data.attrValue = normalized
         .split(";")
         .map((decl) => decl.trim())
         .filter(Boolean)
         .filter((decl) => {
-          const prop = decl.split(":")[0]?.trim().toLowerCase();
-          return prop ? RICH_TEXT_ALLOWED_STYLE_PROPS.has(prop) : false;
+          const colonIdx = decl.indexOf(":");
+          if (colonIdx === -1) return false;
+          const prop = decl.slice(0, colonIdx).trim().toLowerCase();
+          return RICH_TEXT_ALLOWED_STYLE_PROPS.has(prop);
         })
         .join("; ");
     });
@@ -276,16 +279,17 @@ export type TextLayer = {
   italic: boolean;
   underline: boolean;
   strike: boolean;
-  locked?: boolean;
-  hidden?: boolean;
+  uppercase?: boolean | undefined;
+  locked?: boolean | undefined;
+  hidden?: boolean | undefined;
   // Corner handles scale `size` (font); the 4 pill-shaped edge handles
   // resize the box instead — left/right rewrap text within a wider/
   // narrower column via `width`, top/bottom reserve extra vertical room
   // via `minHeight`, neither touching font size. Unset means "auto":
   // shrink-wrapped up to a 520px cap for width, no minimum for height —
   // same optional/fallback pattern as ImageLayer.height.
-  width?: number;
-  minHeight?: number;
+  width?: number | undefined;
+  minHeight?: number | undefined;
   // Per-selection rich formatting (bold/italic/underline/strike applied to
   // just part of the text, via the highlight-to-style popover) — sanitized
   // HTML, takes priority over `text` for rendering when present. `text`
@@ -294,9 +298,9 @@ export type TextLayer = {
   // there clears `html`, since the two would otherwise no longer match.
   html?: string | undefined;
   // Spacing & vertical anchor (Canva/Figma parity)
-  letterSpacing?: number; // e.g. -50 to 500 (unitless, /1000 em)
-  lineHeight?: number; // e.g. 0.8 to 2.5 (line-height multiplier)
-  verticalAlign?: "top" | "middle" | "bottom"; // Anchor text box
+  letterSpacing?: number | undefined; // e.g. -50 to 500 (unitless, /1000 em)
+  lineHeight?: number | undefined; // e.g. 0.8 to 2.5 (line-height multiplier)
+  verticalAlign?: "top" | "middle" | "bottom" | undefined; // Anchor text box
 
   // Text Effects (Canva-style)
   effectType?: TextEffectType;
