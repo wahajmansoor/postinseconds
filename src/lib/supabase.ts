@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   STARTER_TEMPLATES,
   PREMIUM_TEMPLATES,
@@ -16,7 +16,17 @@ export const isSupabaseConfigured = Boolean(
     !(import.meta.env["VITE_SUPABASE_URL"] as string).includes("your-project"),
 );
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const globalForSupabase = globalThis as unknown as { __supabaseClientInstance?: SupabaseClient<any> };
+
+export const supabase: SupabaseClient<any> =
+  globalForSupabase.__supabaseClientInstance ??
+  (globalForSupabase.__supabaseClientInstance = createClient<any>(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+  }));
 
 export interface DbProfile {
   id: string;

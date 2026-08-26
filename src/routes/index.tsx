@@ -65,6 +65,7 @@ import {
   type ShapeArrangeDirection,
 } from "@/components/editor/MultiShapeSelectionToolbar";
 import { MultiImageSelectionToolbar } from "@/components/editor/MultiImageSelectionToolbar";
+import { MultiMixedSelectionToolbar } from "@/components/editor/MultiMixedSelectionToolbar";
 import {
   INITIAL_STATE,
   PREMIUM_TEMPLATES,
@@ -93,11 +94,16 @@ import {
   withTextDuplicated,
   withTextRemoved,
   withTextUpdated,
+  withTextsUpdated,
+  withTextsLockSet,
+  withMixedLayersAligned,
+  withMixedLayersShifted,
   withUnifiedLayersReordered,
   getUnifiedLayers,
   getArrangeEligibility,
   type EditorState,
   type ImageLayer,
+  type MixedLayerRef,
   type ShapeAlignEdge,
   type ShapeLayer,
   type Template,
@@ -213,6 +219,8 @@ function ZoomInput({
   return (
     <input
       type="text"
+      id="canvas-zoom-percentage-input"
+      name="zoomPercentage"
       value={isFocused ? localVal : `${localVal}%`}
       onFocus={(e) => {
         setIsFocused(true);
@@ -935,6 +943,9 @@ function Index() {
   const registerTextLayerHandle = useCallback((id: string, handle: TextLayerHandle | null) => {
     if (handle) textLayerHandlesRef.current.set(id, handle);
     else textLayerHandlesRef.current.delete(id);
+    if (typeof window !== "undefined") {
+      (window as any).__PIX_TEXT_HANDLES__ = textLayerHandlesRef.current;
+    }
   }, []);
 
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -1101,8 +1112,16 @@ function Index() {
   const lastCommitTimeRef = useRef<number>(0);
   const lastCommitKeyRef = useRef<string>("");
 
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const updateUndoRedoState = useCallback(() => {
+    setCanUndo(historyIdx.current > 0);
+    setCanRedo(historyIdx.current < history.current.length - 1);
+  }, []);
+
   const commit = useCallback(
-    (fn: (prev: EditorState) => EditorState, opts?: { replace?: boolean; key?: string }) => {
+    (fn: (prev: EditorState) => EditorState, opts?: { replace?: boolean | undefined; key?: string | undefined }) => {
       setS((prev) => {
         const next = fn(prev);
         if (next === prev) return prev;
@@ -1115,7 +1134,7 @@ function Index() {
         // into a single undo frame so 1 press of Ctrl+Z undos the full action immediately.
         const shouldReplace =
           historyIdx.current > 0 &&
-          (opts?.replace || (sameKey && timeSinceLast < 600));
+          (opts?.replace || (sameKey && timeSinceLast < 1000));
 
         if (shouldReplace) {
           history.current[historyIdx.current] = next;
@@ -1132,16 +1151,18 @@ function Index() {
         lastCommitTimeRef.current = now;
         if (opts?.key) lastCommitKeyRef.current = opts.key;
 
+        updateUndoRedoState();
         return next;
       });
     },
-    [],
+    [updateUndoRedoState],
   );
 
   const set = useCallback(
     <K extends keyof EditorState>(
       k: K,
       v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+      opts?: { replace?: boolean | undefined },
     ) => {
       commit(
         (p) => {
@@ -1151,7 +1172,7 @@ function Index() {
               : v;
           return { ...p, [k]: nextVal };
         },
-        { key: String(k) },
+        { key: String(k), ...(opts?.replace !== undefined ? { replace: opts.replace } : {}) },
       );
     },
     [commit],
@@ -1166,8 +1187,9 @@ function Index() {
         // Reset grouping timer so subsequent changes start a fresh undo frame
         lastCommitTimeRef.current = 0;
       }
+      updateUndoRedoState();
     }
-  }, []);
+  }, [updateUndoRedoState]);
 
   const redo = useCallback(() => {
     if (historyIdx.current < history.current.length - 1) {
@@ -1177,8 +1199,9 @@ function Index() {
         setS(target);
         lastCommitTimeRef.current = 0;
       }
+      updateUndoRedoState();
     }
-  }, []);
+  }, [updateUndoRedoState]);
 
   // "Fit canvas to screen" computes the true proportional scale needed
   // to fit the entire canvas comfortably inside the current stage viewport with
@@ -2138,6 +2161,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
         });
         return () => { };
       },
+      startEditing: () => { },
     };
   }, [selectedTextLayer, s, set]);
 
@@ -2219,6 +2243,57 @@ function dataUrlToBlob(dataUrl: string): Blob {
         .filter(Boolean) as ImageLayer[])
       : [];
   const isMultiImageSelection = multiSelectedImageLayers.length > 1;
+
+  // Mixed multi-selection: 2+ layers that are NOT all the same kind (i.e.
+  // not covered by isMultiShapeSelection or isMultiImageSelection). Also
+  // covers "all text" multi-selection which previously had no dedicated
+  // toolbar at all. Fired whenever there are 2+ layers selected and neither
+  // of the homogeneous toolbars applies.
+  const isMixedMultiSelection =
+    canvasSelection.length > 1 && !isMultiShapeSelection && !isMultiImageSelection;
+
+  // Text layers that are part of a mixed multi-selection
+  const mixedSelectedTextLayers = isMixedMultiSelection
+    ? (canvasSelection
+        .filter((sel) => sel.kind === "text")
+        .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
+        .filter(Boolean) as import("@/components/editor/types").TextLayer[])
+    : [];
+  const mixedAllText = isMixedMultiSelection && canvasSelection.every((sel) => sel.kind === "text");
+
+  const handleMixedAlign = useCallback(
+    (edge: ShapeAlignEdge) => {
+      const result = withMixedLayersAligned(s, canvasSelection as MixedLayerRef[], edge);
+      set("texts", result.texts);
+      set("images", result.images);
+      set("shapes", result.shapes);
+    },
+    [canvasSelection, s, set],
+  );
+
+  const handleMixedArrange = useCallback(
+    (direction: ShapeArrangeDirection) => {
+      const ids = canvasSelection.map((l) => l.id);
+      commit(
+        (prev) => ({
+          ...prev,
+          layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
+        }),
+        { key: "arrange" },
+      );
+    },
+    [canvasSelection, commit],
+  );
+
+  const handleMixedUpdateAllTexts = useCallback(
+    (patch: Partial<Omit<import("@/components/editor/types").TextLayer, "id">>) => {
+      if (!mixedAllText) return;
+      set("texts", (_, prev) =>
+        withTextsUpdated(prev, mixedSelectedTextLayers.map((t) => t.id), patch),
+      );
+    },
+    [mixedAllText, mixedSelectedTextLayers, set],
+  );
 
   const handleImageArrange = useCallback(
     (direction: ShapeArrangeDirection) => {
@@ -2577,6 +2652,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
           (canvasSelection.length === 1 ||
             isMultiShapeSelection ||
             isMultiImageSelection ||
+            isMixedMultiSelection ||
             isBackgroundSelected ||
             textDetached ||
             imageDetached ||
@@ -2725,6 +2801,44 @@ function dataUrlToBlob(dataUrl: string): Blob {
                       ),
                     );
                   }}
+                  onDeleteAll={() => {
+                    commit((prev) => {
+                      const result = withMultipleLayersRemoved(prev, canvasSelection);
+                      return { ...prev, ...result };
+                    });
+                    setCanvasSelection([]);
+                  }}
+                />
+              ) : null}
+              {isMixedMultiSelection ? (
+                <MultiMixedSelectionToolbar
+                  selectedIds={canvasSelection as MixedLayerRef[]}
+                  textLayers={mixedSelectedTextLayers}
+                  allText={mixedAllText}
+                  canvasWidth={s.width}
+                  canvasHeight={s.height}
+                  onAlign={handleMixedAlign}
+                  onArrange={handleMixedArrange}
+                  canArrange={getArrangeEligibility(unifiedLayers, canvasSelection.map((l) => l.id))}
+                  onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
+                  onToggleLockAll={() => {
+                    const allLocked = canvasSelection.every((sel) => {
+                      if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                      if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                      return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                    });
+                    const textIds = canvasSelection.filter((l) => l.kind === "text").map((l) => l.id);
+                    const imageIds = canvasSelection.filter((l) => l.kind === "image").map((l) => l.id);
+                    const shapeIds = canvasSelection.filter((l) => l.kind === "shape").map((l) => l.id);
+                    if (textIds.length)  set("texts",  (_, prev) => withTextsLockSet(prev,  textIds,  !allLocked));
+                    if (imageIds.length) set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
+                    if (shapeIds.length) set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
+                  }}
+                  allLocked={canvasSelection.every((sel) => {
+                    if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                    if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                    return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                  })}
                   onDeleteAll={() => {
                     commit((prev) => {
                       const result = withMultipleLayersRemoved(prev, canvasSelection);
@@ -3012,8 +3126,8 @@ function dataUrlToBlob(dataUrl: string): Blob {
 
         {isMobile ? (
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when user did changes */}
-            {(historyIdx.current > 0 || historyIdx.current < history.current.length - 1) ? (
+            {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when changes exist */}
+            {(canUndo || canRedo) ? (
               <div
                 className="pointer-events-none fixed left-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
@@ -3022,8 +3136,8 @@ function dataUrlToBlob(dataUrl: string): Blob {
                   <button
                     type="button"
                     onClick={undo}
-                    disabled={historyIdx.current <= 0}
-                    className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-40"
+                    disabled={!canUndo}
+                    className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
                     title="Undo"
                   >
                     <Undo02Icon size={15} />
@@ -3034,8 +3148,8 @@ function dataUrlToBlob(dataUrl: string): Blob {
                   <button
                     type="button"
                     onClick={redo}
-                    disabled={historyIdx.current >= history.current.length - 1}
-                    className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-40"
+                    disabled={!canRedo}
+                    className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
                     title="Redo"
                   >
                     <Redo02Icon size={15} />
@@ -3605,12 +3719,20 @@ function dataUrlToBlob(dataUrl: string): Blob {
                   </AppTooltip>
                   <div className="h-4 w-px bg-border/60 mx-0.5" />
                   <AppTooltip content="Undo last change" shortcut="Ctrl+Z">
-                    <Chip onClick={undo} className="flex h-7 w-7 items-center justify-center p-0">
+                    <Chip
+                      onClick={undo}
+                      disabled={!canUndo}
+                      className="flex h-7 w-7 items-center justify-center p-0 disabled:opacity-30 disabled:pointer-events-none"
+                    >
                       <Undo02Icon size={13} />
                     </Chip>
                   </AppTooltip>
                   <AppTooltip content="Redo change" shortcut="Ctrl+Y">
-                    <Chip onClick={redo} className="flex h-7 w-7 items-center justify-center p-0">
+                    <Chip
+                      onClick={redo}
+                      disabled={!canRedo}
+                      className="flex h-7 w-7 items-center justify-center p-0 disabled:opacity-30 disabled:pointer-events-none"
+                    >
                       <Redo02Icon size={13} />
                     </Chip>
                   </AppTooltip>

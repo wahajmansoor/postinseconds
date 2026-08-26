@@ -2108,36 +2108,49 @@ function isDarkBg(bg: string): boolean {
 }
 
 function makeTextLayer(
-  position: number,
-  opts?: { text?: string; size?: number; weight?: number; color?: string; fontFamily?: string; width?: number },
+  _position: number,
+  opts?: {
+    text?: string;
+    size?: number;
+    weight?: number;
+    color?: string;
+    fontFamily?: string;
+    width?: number;
+    x?: number;
+    y?: number;
+    align?: "left" | "center" | "right" | "justify";
+  },
 ): TextLayer {
-  const offset = (position % 6) * 6;
   return {
     id: newLayerId(),
     text: opts?.text ?? "New text",
-    x: 50 + offset,
-    y: 50 + offset,
+    x: opts?.x ?? 50,
+    y: opts?.y ?? 50,
     size: opts?.size ?? 32,
     color: opts?.color ?? "#0d0d12",
     fontFamily: opts?.fontFamily ?? '"Outfit", sans-serif',
     weight: opts?.weight ?? 600,
-    align: "left",
+    align: opts?.align ?? "center",
     italic: false,
     underline: false,
     strike: false,
-    // Only set when the caller already measured the text's real one-line
-    // pixel width (see addPresetText in LeftPanel.tsx) — an explicit width
-    // here skips the fit-content-up-to-a-canvas-relative-maxWidth sizing
-    // QuoteCanvas falls back to otherwise, which is only ever an estimate
-    // and can wrap short preset text (e.g. a large heading) that would
-    // actually fit on one line under its real font metrics.
     ...(opts?.width !== undefined ? { width: opts.width } : {}),
   };
 }
 
 export function withTextAdded(
   s: EditorState,
-  opts?: { text?: string; size?: number; weight?: number; color?: string; fontFamily?: string; width?: number },
+  opts?: {
+    text?: string;
+    size?: number;
+    weight?: number;
+    color?: string;
+    fontFamily?: string;
+    width?: number;
+    x?: number;
+    y?: number;
+    align?: "left" | "center" | "right" | "justify";
+  },
 ): { list: TextLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
   const list = getTextLayers(s);
   const dark = isDarkBg(s.background);
@@ -2590,4 +2603,89 @@ export function withMultipleLayersDuplicated(
   const layerOrder = [...getUnifiedLayers(s), ...newRefs];
 
   return { texts, images, shapes, layerOrder, newSelection };
+}
+
+// Batch text utilities — mirrors withShapesAligned / withShapesShifted /
+// withShapesUpdated / withShapesLockSet for a multi-text selection.
+
+export function withTextsAligned(s: EditorState, ids: string[], edge: ShapeAlignEdge): TextLayer[] {
+  const idSet = new Set(ids);
+  return getTextLayers(s).map((t) => {
+    if (!idSet.has(t.id) || t.locked) return t;
+    const el = typeof document !== "undefined"
+      ? (document.querySelector(`[data-layer-id="${t.id}"]`) as HTMLElement | null)
+      : null;
+    const w = el ? el.offsetWidth : (t.width ?? 400);
+    const h = el ? el.offsetHeight : (t.minHeight ?? t.size * 1.3);
+    switch (edge) {
+      case "left":      return { ...t, x: (w / 2 / s.width) * 100 };
+      case "center-h":  return { ...t, x: 50 };
+      case "right":     return { ...t, x: 100 - (w / 2 / s.width) * 100 };
+      case "top":       return { ...t, y: (h / 2 / s.height) * 100 };
+      case "middle-v":  return { ...t, y: 50 };
+      case "bottom":    return { ...t, y: 100 - (h / 2 / s.height) * 100 };
+      default:          return t;
+    }
+  });
+}
+
+export function withTextsShifted(s: EditorState, ids: string[], dxPercent: number, dyPercent: number): TextLayer[] {
+  const idSet = new Set(ids);
+  return getTextLayers(s).map((t) =>
+    idSet.has(t.id) && !t.locked ? { ...t, x: t.x + dxPercent, y: t.y + dyPercent } : t,
+  );
+}
+
+export function withTextsUpdated(
+  s: EditorState,
+  ids: string[],
+  patch: Partial<Omit<TextLayer, "id">>,
+): TextLayer[] {
+  const idSet = new Set(ids);
+  return getTextLayers(s).map((t) =>
+    idSet.has(t.id) && !t.locked ? { ...t, ...patch } : t,
+  );
+}
+
+export function withTextsLockSet(s: EditorState, ids: string[], locked: boolean): TextLayer[] {
+  const idSet = new Set(ids);
+  return getTextLayers(s).map((t) =>
+    idSet.has(t.id) ? { ...t, locked } : t,
+  );
+}
+
+// Cross-kind alignment: aligns every selected layer (text, image, or shape)
+// independently against the same canvas edge/center. Each kind still uses
+// its own typed helper so all the width/height logic stays consistent.
+export type MixedLayerRef = { kind: "text" | "image" | "shape"; id: string };
+
+export function withMixedLayersAligned(
+  s: EditorState,
+  selected: MixedLayerRef[],
+  edge: ShapeAlignEdge,
+): { texts: TextLayer[]; images: ImageLayer[]; shapes: ShapeLayer[] } {
+  const textIds = selected.filter((l) => l.kind === "text").map((l) => l.id);
+  const imageIds = selected.filter((l) => l.kind === "image").map((l) => l.id);
+  const shapeIds = selected.filter((l) => l.kind === "shape").map((l) => l.id);
+  return {
+    texts: textIds.length ? withTextsAligned(s, textIds, edge) : getTextLayers(s),
+    images: imageIds.length ? withImagesAligned(s, imageIds, edge) : getImageLayers(s),
+    shapes: shapeIds.length ? withShapesAligned(s, shapeIds, edge) : getShapeLayers(s),
+  };
+}
+
+export function withMixedLayersShifted(
+  s: EditorState,
+  selected: MixedLayerRef[],
+  dxPercent: number,
+  dyPercent: number,
+): { texts: TextLayer[]; images: ImageLayer[]; shapes: ShapeLayer[] } {
+  const textIds = selected.filter((l) => l.kind === "text").map((l) => l.id);
+  const imageIds = selected.filter((l) => l.kind === "image").map((l) => l.id);
+  const shapeIds = selected.filter((l) => l.kind === "shape").map((l) => l.id);
+  return {
+    texts: textIds.length ? withTextsShifted(s, textIds, dxPercent, dyPercent) : getTextLayers(s),
+    images: imageIds.length ? withImagesShifted(s, imageIds, dxPercent, dyPercent) : getImageLayers(s),
+    shapes: shapeIds.length ? withShapesShifted(s, shapeIds, dxPercent, dyPercent) : getShapeLayers(s),
+  };
 }

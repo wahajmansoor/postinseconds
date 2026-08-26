@@ -167,7 +167,7 @@ export function TextSelectionToolbar({
             if (totalTextLen > totalSpanTextLen) {
               fontsInHtml.add(basePrimary);
             }
-          } catch {}
+          } catch { }
         }
       }
 
@@ -997,8 +997,8 @@ export function TextSelectionToolbar({
                   title="Anchor Top"
                   onClick={() => handle.setVerticalAlign("top")}
                   className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${(layer.verticalAlign ?? "top") === "top"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
                 >
                   <svg
@@ -1019,8 +1019,8 @@ export function TextSelectionToolbar({
                   title="Anchor Middle"
                   onClick={() => handle.setVerticalAlign("middle")}
                   className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${layer.verticalAlign === "middle"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
                 >
                   <svg
@@ -1041,8 +1041,8 @@ export function TextSelectionToolbar({
                   title="Anchor Bottom"
                   onClick={() => handle.setVerticalAlign("bottom")}
                   className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${layer.verticalAlign === "bottom"
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
                 >
                   <svg

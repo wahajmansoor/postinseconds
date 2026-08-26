@@ -645,9 +645,11 @@ export function AdminDashboard() {
               </div>
 
               <div>
-                <label className="mb-1 block font-semibold text-foreground">Template Name</label>
+                <label htmlFor="admin-edit-template-name" className="mb-1 block font-semibold text-foreground">Template Name</label>
                 <input
                   type="text"
+                  id="admin-edit-template-name"
+                  name="templateName"
                   value={editLabel}
                   onChange={(e) => setEditLabel(e.target.value)}
                   className="w-full rounded-xl border border-border bg-card px-3 py-2 text-foreground focus:border-primary focus:outline-none"
@@ -656,8 +658,10 @@ export function AdminDashboard() {
               </div>
 
               <div>
-                <label className="mb-1 block font-semibold text-foreground">Category Tier</label>
+                <label htmlFor="admin-edit-category-tier" className="mb-1 block font-semibold text-foreground">Category Tier</label>
                 <select
+                  id="admin-edit-category-tier"
+                  name="categoryTier"
                   value={editCategory}
                   onChange={(e) => setEditCategory(e.target.value as any)}
                   className="w-full rounded-xl border border-border bg-card px-3 py-2 text-foreground focus:border-primary focus:outline-none"
@@ -668,9 +672,11 @@ export function AdminDashboard() {
               </div>
 
               <div>
-                <label className="mb-1 block font-semibold text-foreground">Description</label>
+                <label htmlFor="admin-edit-description" className="mb-1 block font-semibold text-foreground">Description</label>
                 <input
                   type="text"
+                  id="admin-edit-description"
+                  name="templateDescription"
                   value={editDesc}
                   onChange={(e) => setEditDesc(e.target.value)}
                   className="w-full rounded-xl border border-border bg-card px-3 py-2 text-foreground focus:border-primary focus:outline-none"

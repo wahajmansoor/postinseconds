@@ -64,6 +64,7 @@ export type TextLayerHandle = {
   snapshotSelection: () => void;
   getActiveFormat: () => LiveTextFormat;
   subscribeActiveFormat: (cb: (format: LiveTextFormat) => void) => () => void;
+  startEditing?: () => void;
 };
 
 type Props = {
@@ -339,31 +340,46 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       let dxPct = ((clientX - g.startMouseX) / scaleRef.current / s.width) * 100;
       let dyPct = ((clientY - g.startMouseY) / scaleRef.current / s.height) * 100;
 
-      // Group alignment snapping calculation
-      let showVCenter = false;
-      let showHCenter = false;
-      let showEdgeLeft = false;
-      let showEdgeRight = false;
-      let showEdgeTop = false;
-      let showEdgeBottom = false;
-
-      if (g.items.length > 1) {
-        const minStartX = Math.min(...g.items.map((it) => it.startX));
-        const maxStartX = Math.max(...g.items.map((it) => it.startX));
-        const minStartY = Math.min(...g.items.map((it) => it.startY));
-        const maxStartY = Math.max(...g.items.map((it) => it.startY));
-
+      // Alignment snapping & guide calculation for ALL drag sizes (single or multi).
+      // Previously this block was gated behind g.items.length > 1, which meant
+      // single-layer drags never showed any guides at all. Now we always compute
+      // the group's combined bounding box and run calculateAlignmentSnap against
+      // every non-selected element so guides appear on every drag.
+      {
         const selectedIds = new Set(g.items.map((it) => it.id));
         const otherElements = getAllCanvasElements(s).filter((el) => !selectedIds.has(el.id));
 
-        const groupWidth = selectedBounds?.width ?? Math.max(20, ((maxStartX - minStartX) / 100) * s.width);
-        const groupHeight = selectedBounds?.height ?? Math.max(20, ((maxStartY - minStartY) / 100) * s.height);
-        const rawGroupCenterX = (minStartX + maxStartX) / 2 + dxPct;
-        const rawGroupCenterY = (minStartY + maxStartY) / 2 + dyPct;
+        let groupWidth: number;
+        let groupHeight: number;
+        let rawGroupCenterX: number;
+        let rawGroupCenterY: number;
 
-        const { nextX: snappedGroupCenterX, nextY: snappedGroupCenterY, guides: snapGuides } =
+        if (g.items.length === 1) {
+          // Single-layer drag: use the element's actual on-screen dimensions so
+          // guides snap precisely to the layer's own edges/center.
+          const solo = g.items[0]!; // length===1 guarantees this exists
+          const el = document.querySelector(`[data-layer-id="${solo.id}"]`) as HTMLElement | null;
+          groupWidth = el ? el.offsetWidth : 40;
+          groupHeight = el ? el.offsetHeight : 40;
+          rawGroupCenterX = solo.startX + dxPct;
+          rawGroupCenterY = solo.startY + dyPct;
+        } else {
+          // Multi-layer drag: treat the whole selection bounding box as one unit.
+          const minStartX = Math.min(...g.items.map((it) => it.startX));
+          const maxStartX = Math.max(...g.items.map((it) => it.startX));
+          const minStartY = Math.min(...g.items.map((it) => it.startY));
+          const maxStartY = Math.max(...g.items.map((it) => it.startY));
+          groupWidth = selectedBounds?.width ?? Math.max(20, ((maxStartX - minStartX) / 100) * s.width);
+          groupHeight = selectedBounds?.height ?? Math.max(20, ((maxStartY - minStartY) / 100) * s.height);
+          rawGroupCenterX = (minStartX + maxStartX) / 2 + dxPct;
+          rawGroupCenterY = (minStartY + maxStartY) / 2 + dyPct;
+        }
+
+        const soloItem = g.items.length === 1 ? g.items[0]! : null;
+
+        const { nextX: snappedCX, nextY: snappedCY, guides: snapGuides } =
           calculateAlignmentSnap({
-            currentId: "__multi_group__",
+            currentId: soloItem ? soloItem.id : "__multi_group__",
             rawX: rawGroupCenterX,
             rawY: rawGroupCenterY,
             width: groupWidth,
@@ -372,10 +388,24 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
             otherElements,
           });
 
-        dxPct = snappedGroupCenterX - (minStartX + maxStartX) / 2;
-        dyPct = snappedGroupCenterY - (minStartY + maxStartY) / 2;
+        // Back out the snap offset from the raw displacement so all items move
+        // by exactly the same snapped delta.
+        if (soloItem) {
+          dxPct = snappedCX - soloItem.startX;
+          dyPct = snappedCY - soloItem.startY;
+        } else {
+          const minStartX = Math.min(...g.items.map((it) => it.startX));
+          const maxStartX = Math.max(...g.items.map((it) => it.startX));
+          const minStartY = Math.min(...g.items.map((it) => it.startY));
+          const maxStartY = Math.max(...g.items.map((it) => it.startY));
+          dxPct = snappedCX - (minStartX + maxStartX) / 2;
+          dyPct = snappedCY - (minStartY + maxStartY) / 2;
+        }
 
-        handleGuidesChange(snapGuides);
+        // Use the ref (not the closure) so we always call the latest
+        // handleGuidesChange even though updateGroupDrag is memoized with
+        // [set] alone — the ref is updated every render.
+        handleGuidesChangeRef.current(snapGuides);
       }
 
       const imageItems = g.items.filter((it) => it.kind === "image");
@@ -418,7 +448,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
 
   const endGroupDrag = useCallback(() => {
     groupDragRef.current = null;
-    handleGuidesChange({ vCenter: false, hCenter: false });
+    handleGuidesChangeRef.current({ vCenter: false, hCenter: false });
   }, []);
 
   const selectedRef = useRef(selected);
@@ -2584,15 +2614,31 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   // tears down and rebuilds the DOM regardless of whether the string
   // actually changed, which resets the caret to the start every time.
   const editSnapshotRef = useRef<string>(sanitizeTextHtml(t.html || t.text));
+  const lastEmittedHtmlRef = useRef<string | null>(null);
+
   if (!isEditing) {
     editSnapshotRef.current = sanitizeTextHtml(t.html || t.text);
   }
   const content = editSnapshotRef.current;
 
+  // Synchronize DOM content with external state changes (such as Undo, Redo, template resets)
+  // even when isEditing is active, without disrupting keystroke carets:
   useEffect(() => {
-    loadGoogleFont(t.fontFamily);
+    const currentHtml = sanitizeTextHtml(t.html || t.text);
+    if (currentHtml !== lastEmittedHtmlRef.current) {
+      editSnapshotRef.current = currentHtml;
+      const el = editableRef.current;
+      if (el && el.innerHTML !== currentHtml) {
+        el.innerHTML = currentHtml;
+      }
+    }
+  }, [t.html, t.text]);
+
+  useEffect(() => {
+    if (t.fontFamily) loadGoogleFont(t.fontFamily);
     if (t.html) {
-      const matchFonts = t.html.match(/font-family:\s*([^;"]+)/gi);
+      const cleanHtml = t.html.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      const matchFonts = cleanHtml.match(/font-family:\s*([^;"]+)/gi);
       if (matchFonts) {
         matchFonts.forEach((mf) => {
           const font = mf.replace(/font-family:\s*/i, "").trim().replace(/['"]/g, "");
@@ -2628,7 +2674,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     } else {
       const range = document.createRange();
       range.selectNodeContents(el);
-      range.collapse(false);
       const sel = window.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(range);
@@ -2664,12 +2709,34 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   // that happens WHILE still editing. Same "recreating the element resets
   // the DOM" bug class documented on editSnapshotRef's own declaration,
   // just reached through a mid-edit state update instead of a fresh mount.
-  const syncFromLiveDom = (el: HTMLElement) => {
-    const text = el.textContent ?? "";
-    const html = sanitizeTextHtml(el.innerHTML);
-    editSnapshotRef.current = html;
-    update({ text, html, minHeight: undefined });
-  };
+  const syncTimeoutRef = useRef<any>(null);
+
+  const syncFromLiveDom = useCallback(
+    (el: HTMLElement, immediate: boolean = false) => {
+      const text = el.textContent ?? "";
+      const html = sanitizeTextHtml(el.innerHTML);
+      lastEmittedHtmlRef.current = html;
+      editSnapshotRef.current = html;
+
+      if (immediate) {
+        if (syncTimeoutRef.current) {
+          clearTimeout(syncTimeoutRef.current);
+          syncTimeoutRef.current = null;
+        }
+        update({ text, html, minHeight: undefined });
+        return;
+      }
+
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+      syncTimeoutRef.current = setTimeout(() => {
+        syncTimeoutRef.current = null;
+        update({ text, html, minHeight: undefined });
+      }, 150);
+    },
+    [update],
+  );
 
   // Dedicated drag state/handlers for the overlay's Move handle — kept
   // separate from editableNode's memoized handlePointerDown above (which
@@ -3164,6 +3231,21 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const setLineHeight = (v: number) => update({ lineHeight: v });
   const setVerticalAlign = (v: "top" | "middle" | "bottom") => update({ verticalAlign: v });
 
+  const startEditing = useCallback(() => {
+    setIsEditing(true);
+    requestAnimationFrame(() => {
+      const el = editableRef.current;
+      if (el) {
+        el.focus();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      }
+    });
+  }, []);
+
   const handleRef = useRef<TextLayerHandle>({
     applyFormat: applyFormatSmart,
     setFontFamily,
@@ -3177,6 +3259,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     snapshotSelection,
     getActiveFormat,
     subscribeActiveFormat,
+    startEditing,
   });
   handleRef.current.applyFormat = applyFormatSmart;
   handleRef.current.setFontFamily = setFontFamily;
@@ -3190,6 +3273,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   handleRef.current.snapshotSelection = snapshotSelection;
   handleRef.current.getActiveFormat = getActiveFormat;
   handleRef.current.subscribeActiveFormat = subscribeActiveFormat;
+  handleRef.current.startEditing = startEditing;
 
   useEffect(() => {
     registerHandle?.(t.id, handleRef.current);
@@ -3420,16 +3504,42 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
-          onDoubleClick={handleDoubleClick}
+          onInput={(e) => {
+            syncFromLiveDom(e.currentTarget, false);
+            notifyActiveFormat();
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            const text = e.clipboardData?.getData("text/plain") ?? "";
+            if (!text) return;
+            // Insert plain text cleanly so it inherits the layer's current font, size, weight, and color
+            const inserted = document.execCommand("insertText", false, text);
+            if (!inserted) {
+              const sel = window.getSelection();
+              if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                const node = document.createTextNode(text);
+                range.insertNode(node);
+                range.setStartAfter(node);
+                range.setEndAfter(node);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+            }
+            const el = editableRef.current;
+            if (el) syncFromLiveDom(el, true);
+            notifyActiveFormat();
+          }}
           onKeyUp={() => {
             if (isEditing) {
               const el = editableRef.current;
-              if (el) syncFromLiveDom(el);
+              if (el) syncFromLiveDom(el, false);
               notifyActiveFormat();
             }
           }}
           onBlur={(e) => {
-            syncFromLiveDom(e.currentTarget);
+            syncFromLiveDom(e.currentTarget, true);
             setIsEditing(false);
           }}
           style={{
@@ -3449,6 +3559,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             lineHeight: t.lineHeight ?? 1.3,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
+            overflowWrap: "break-word",
             minHeight: t.minHeight,
             outline: "none",
             touchAction: isEditing ? "auto" : "none",
@@ -3523,6 +3634,10 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const validTextWidth =
     typeof t.width === "number" && Number.isFinite(t.width) && t.width > 0 ? t.width : undefined;
 
+  const distToRight = Math.max(0, s.width - (t.x / 100) * s.width - 24);
+  const distToLeft = Math.max(0, (t.x / 100) * s.width - 24);
+  const autoMaxWidth = Math.max(120, Math.min(s.width - 48, Math.min(distToRight, distToLeft) * 2));
+
   if (t.hidden) return null;
 
   return (
@@ -3536,14 +3651,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           left: `${t.x}%`,
           top: `${t.y}%`,
           transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-          width: validTextWidth ?? "fit-content",
-          // Only bounded by the canvas itself (a small margin in from each
-          // edge) — no separate flat px cap. A flat cap here (900 used to)
-          // sits well under a large canvas's own width, which forced short
-          // single-line presets (e.g. the "Add a heading" preset at its
-          // large default size) to wrap onto a second line immediately on
-          // add, well before actually running out of canvas room.
-          maxWidth: validTextWidth ? undefined : s.width * 0.92,
+          width: validTextWidth ?? "max-content",
+          maxWidth: validTextWidth ? undefined : autoMaxWidth,
           minWidth: 40,
           minHeight: t.minHeight,
           display: t.minHeight ? "flex" : "block",

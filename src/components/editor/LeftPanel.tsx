@@ -23,6 +23,8 @@ import {
   ViewOffIcon,
   Bookmark01Icon,
   DragDropVerticalIcon,
+  CheckmarkCircle02Icon,
+  Tick02Icon,
 } from "hugeicons-react";
 import { CaseUpper } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -671,6 +673,7 @@ export function LeftPanel({
   // row increments; this is continuous).
   const [dragDeltaY, setDragDeltaY] = useState(0);
   const dragStateRef = useRef<{ startIndex: number; startY: number; rowPitch: number } | null>(null);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
 
   if (tab === "templates") {
     return (
@@ -921,16 +924,6 @@ export function LeftPanel({
         ? textLayersList[0]
         : null;
 
-    // withTextAdded's own color pick (see isDarkBg in types.ts) is a fast,
-    // instant guess against the canvas's flat `background` setting alone —
-    // it has no idea a background IMAGE, gradient, or another layer might
-    // actually sit under this text's specific (x, y) drop point. This
-    // renders the real canvas to a small offscreen bitmap right after
-    // (reusing the same html-to-image snapshot export already uses) and
-    // samples the actual pixels there, flipping the color if the fast
-    // guess turns out to have been wrong. New text still appears instantly
-    // either way — this only ever corrects it a moment later, and never
-    // touches a color the user has since picked by hand.
     const DEFAULT_TEXT_COLORS = ["#ffffff", "#0d0d12"];
     const refineTextColorFromCanvas = async (textId: string, x: number, y: number, guessedColor: string) => {
       const node = canvasRef?.current;
@@ -959,7 +952,7 @@ export function LeftPanel({
         let total = 0;
         let count = 0;
         for (let i = 0; i < data.length; i += 4) {
-          if (data[i + 3] === 0) continue; // fully transparent — nothing visually there, ignore
+          if (data[i + 3] === 0) continue;
           total += ((data[i] ?? 0) * 299 + (data[i + 1] ?? 0) * 587 + (data[i + 2] ?? 0) * 114) / 1000;
           count++;
         }
@@ -974,7 +967,6 @@ export function LeftPanel({
           set("texts", withTextUpdated(latest, textId, { color: nextColor }));
         }
       } catch {
-        // Best-effort refinement only — keep the fast heuristic's guess on failure.
       }
     };
 
@@ -984,37 +976,19 @@ export function LeftPanel({
     // fallback font the browser has on hand (its default sans-serif is
     // usually wider than Outfit), then visibly reflow/un-wrap once the
     // real webfont's stylesheet+file finish loading and the browser swaps
-    // it in. loadGoogleFont's own <link> injection dedupes per family, but
-    // that alone doesn't wait for the fetch — document.fonts.load is what
-    // actually blocks until this specific weight is usable, matching the
-    // CSS font shorthand text itself renders with (family alone isn't
-    // enough: a bold heading can still trigger its own separate fetch/swap
-    // even after a lighter weight of the same family already loaded).
-    // Resolves near-instantly once a font's been loaded once this session
-    // (browser cache), so this only adds a perceptible pause the very
-    // first time a given family/weight combo is used.
+    // it in.
     const ensureFontReady = async (fontFamily: string, weight: number, size: number) => {
       loadGoogleFont(fontFamily);
       if (typeof document === "undefined" || !("fonts" in document)) return;
       try {
         await Promise.race([
           document.fonts.load(`${weight} ${size}px ${fontFamily}`),
-          new Promise((resolve) => setTimeout(resolve, 800)), // never block on a slow/offline connection
+          new Promise((resolve) => setTimeout(resolve, 800)),
         ]);
       } catch {
-        // Best-effort only — worst case, today's occasional flash/reflow.
       }
     };
 
-    // Measures the preset's real one-line rendered width (now that
-    // ensureFontReady has guaranteed the actual webfont, not a fallback,
-    // is what gets measured) so the new layer can be given that as an
-    // explicit width — skipping QuoteCanvas's fit-content-up-to-a-canvas-
-    // relative-maxWidth sizing, which is only ever an estimate and was
-    // wrapping short presets like "Add a heading" onto two lines even
-    // though they'd comfortably fit on one under their real metrics. Falls
-    // back to `undefined` (today's estimate-based sizing) if canvas
-    // measurement isn't available for any reason.
     const measureSingleLineWidth = (text: string, weight: number, size: number): number | undefined => {
       if (typeof document === "undefined") return undefined;
       try {
@@ -1024,31 +998,67 @@ export function LeftPanel({
         ctx.font = `${weight} ${size}px "Outfit", sans-serif`;
         const measured = ctx.measureText(text).width;
         if (!Number.isFinite(measured) || measured <= 0) return undefined;
-        // A little breathing room — canvas measureText and the actual
-        // contentEditable's own text layout engine don't round/kern
-        // identically down to the pixel, so a bare-minimum width can still
-        // wrap by a hair in the real DOM.
         const withMargin = Math.ceil(measured) + 16;
-        // Still bounded by the canvas itself, same margin QuoteCanvas's own
-        // estimate used — a genuinely too-long preset should wrap rather
-        // than spill off the canvas, this only replaces the estimate with
-        // a real measurement for the common case where it comfortably fits.
         return Math.min(withMargin, Math.round(s.width * 0.92));
       } catch {
         return undefined;
       }
     };
 
-    const addPresetText = async (preset: { text: string; size: number; weight: number }) => {
+    const addPresetText = async (preset: {
+      text: string;
+      size: number;
+      weight: number;
+      kind: "heading" | "subheading" | "body";
+    }) => {
       await ensureFontReady('"Outfit", sans-serif', preset.weight, preset.size);
-      const width = measureSingleLineWidth(preset.text, preset.weight, preset.size);
-      const res = withTextAdded(s, { ...preset, ...(width !== undefined ? { width } : {}) });
+      const existingTexts = getTextLayers(s);
+
+      let targetY = 50;
+      if (preset.kind === "heading") {
+        targetY = 42;
+      } else if (preset.kind === "subheading") {
+        const heading = existingTexts.find((t) => (t.size || 0) >= 70) || existingTexts[0];
+        if (heading) {
+          const headingHeightPct = ((heading.size || 84) / s.height) * 100;
+          targetY = Math.min(85, Math.round(heading.y + headingHeightPct * 1.1 + 2));
+        } else {
+          targetY = 52;
+        }
+      } else if (preset.kind === "body") {
+        const subheading = existingTexts.find((t) => (t.size || 0) >= 40 && (t.size || 0) < 70);
+        const heading = existingTexts.find((t) => (t.size || 0) >= 70);
+        const reference = subheading || heading || existingTexts[existingTexts.length - 1];
+        if (reference) {
+          const refHeightPct = ((reference.size || 52) / s.height) * 100;
+          targetY = Math.min(90, Math.round(reference.y + refHeightPct * 1.1 + 2));
+        } else {
+          targetY = 60;
+        }
+      }
+
+      const res = withTextAdded(s, {
+        text: preset.text,
+        size: preset.size,
+        weight: preset.weight,
+        x: 50,
+        y: targetY,
+      });
+
       set("texts", res.list);
       set("layerOrder", res.layerOrder);
       if (res.newId) {
         onSelectLayer?.({ kind: "text", id: res.newId });
         const added = res.list.find((t) => t.id === res.newId);
         if (added) void refineTextColorFromCanvas(added.id, added.x, added.y, added.color);
+        // Auto start editing and open virtual keyboard / desktop focus
+        setTimeout(() => {
+          const handles = (window as any).__PIX_TEXT_HANDLES__;
+          if (handles && typeof handles.get === "function") {
+            const h = handles.get(res.newId);
+            h?.startEditing?.();
+          }
+        }, 120);
       }
       onItemSelect?.();
     };
@@ -1123,7 +1133,7 @@ export function LeftPanel({
                   <button
                     type="button"
                     onClick={() =>
-                      addPresetText({ text: "Add a heading", size: 100, weight: 700 })
+                      addPresetText({ text: "Add a heading", size: 84, weight: 700, kind: "heading" })
                     }
                     className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-3 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
                   >
@@ -1139,7 +1149,7 @@ export function LeftPanel({
                   <button
                     type="button"
                     onClick={() =>
-                      addPresetText({ text: "Add a subheading", size: 75, weight: 600 })
+                      addPresetText({ text: "Add a subheading", size: 52, weight: 600, kind: "subheading" })
                     }
                     className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-2.5 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
                   >
@@ -1157,8 +1167,9 @@ export function LeftPanel({
                     onClick={() =>
                       addPresetText({
                         text: "Add a little bit of body text",
-                        size: 50,
+                        size: 32,
                         weight: 400,
+                        kind: "body",
                       })
                     }
                     className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-2 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
@@ -1641,15 +1652,19 @@ export function LeftPanel({
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <p className="text-[11px] leading-snug text-muted-foreground">
-                Click any layer to select & highlight it on the canvas. Shift+Click to select multiple.
+                {multiSelectMode
+                  ? "Tap layers to select or deselect multiple. Use Delete or Deselect All to manage selection."
+                  : "Click any layer to select & highlight it on the canvas. Tap Select to pick multiple layers."}
               </p>
             </div>
 
             {totalCount > 0 ? (
-              <div className="flex items-center justify-between border-b border-border/50 pb-2">
-                <span className="text-[11px] font-semibold text-muted-foreground">
-                  {selection?.length ? `${selection.length} selected` : "No selection"}
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-border/50 pb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-muted-foreground">
+                    {selection?.length ? `${selection.length} selected` : "No selection"}
+                  </span>
+                </div>
                 <div className="flex items-center gap-1.5">
                   {selection && selection.length > 0 ? (
                     <button
@@ -1679,7 +1694,21 @@ export function LeftPanel({
                     }
                     className="rounded-lg bg-secondary/80 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-secondary"
                   >
-                    {allSelected ? "Deselect All" : "Select All (Shift+A)"}
+                    {allSelected ? "Deselect All" : "Select All"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMultiSelectMode((m) => !m)}
+                    className={cn(
+                      "flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all",
+                      multiSelectMode
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "bg-secondary/80 text-foreground hover:bg-secondary",
+                    )}
+                    title={multiSelectMode ? "Exit multi-select mode" : "Select multiple layers"}
+                  >
+                    <CheckmarkCircle02Icon size={12} />
+                    <span>{multiSelectMode ? "Done" : "Select"}</span>
                   </button>
                 </div>
               </div>
@@ -1724,7 +1753,7 @@ export function LeftPanel({
                         key={t.id}
                         data-layer-row=""
                         onClick={(e) =>
-                          onSelectLayer?.({ kind: "text", id: t.id }, { toggle: e.shiftKey })
+                          onSelectLayer?.({ kind: "text", id: t.id }, { toggle: multiSelectMode || e.shiftKey })
                         }
                         style={dragRowStyle(t.id)}
                         className={cn(
@@ -1736,18 +1765,31 @@ export function LeftPanel({
                           dragLayerId === t.id && "shadow-lg ring-1 ring-primary/50",
                         )}
                       >
-                        <button
-                          type="button"
-                          onClick={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => startLayerDrag(e, t.id, panelIdx)}
-                          onPointerMove={moveLayerDrag}
-                          onPointerUp={endLayerDrag}
-                          onPointerCancel={endLayerDrag}
-                          className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
-                          title="Drag to reorder"
-                        >
-                          <DragDropVerticalIcon size={14} />
-                        </button>
+                        {multiSelectMode ? (
+                          <div
+                            className={cn(
+                              "grid h-4 w-4 shrink-0 place-items-center rounded-full border transition-all",
+                              selected
+                                ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                : "border-muted-foreground/40 bg-card hover:border-primary",
+                            )}
+                          >
+                            {selected ? <Tick02Icon size={10} className="stroke-[3]" /> : null}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => startLayerDrag(e, t.id, panelIdx)}
+                            onPointerMove={moveLayerDrag}
+                            onPointerUp={endLayerDrag}
+                            onPointerCancel={endLayerDrag}
+                            className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
+                            title="Drag to reorder"
+                          >
+                            <DragDropVerticalIcon size={14} />
+                          </button>
+                        )}
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <span
                             className={cn(
@@ -1830,7 +1872,7 @@ export function LeftPanel({
                         key={img.id}
                         data-layer-row=""
                         onClick={(e) =>
-                          onSelectLayer?.({ kind: "image", id: img.id }, { toggle: e.shiftKey })
+                          onSelectLayer?.({ kind: "image", id: img.id }, { toggle: multiSelectMode || e.shiftKey })
                         }
                         style={dragRowStyle(img.id)}
                         className={cn(
@@ -1842,18 +1884,31 @@ export function LeftPanel({
                           dragLayerId === img.id && "shadow-lg ring-1 ring-primary/50",
                         )}
                       >
-                        <button
-                          type="button"
-                          onClick={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => startLayerDrag(e, img.id, panelIdx)}
-                          onPointerMove={moveLayerDrag}
-                          onPointerUp={endLayerDrag}
-                          onPointerCancel={endLayerDrag}
-                          className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
-                          title="Drag to reorder"
-                        >
-                          <DragDropVerticalIcon size={14} />
-                        </button>
+                        {multiSelectMode ? (
+                          <div
+                            className={cn(
+                              "grid h-4 w-4 shrink-0 place-items-center rounded-full border transition-all",
+                              selected
+                                ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                : "border-muted-foreground/40 bg-card hover:border-primary",
+                            )}
+                          >
+                            {selected ? <Tick02Icon size={10} className="stroke-[3]" /> : null}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => startLayerDrag(e, img.id, panelIdx)}
+                            onPointerMove={moveLayerDrag}
+                            onPointerUp={endLayerDrag}
+                            onPointerCancel={endLayerDrag}
+                            className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
+                            title="Drag to reorder"
+                          >
+                            <DragDropVerticalIcon size={14} />
+                          </button>
+                        )}
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <img
                             src={img.src}
@@ -1934,7 +1989,7 @@ export function LeftPanel({
                         key={sh.id}
                         data-layer-row=""
                         onClick={(e) =>
-                          onSelectLayer?.({ kind: "shape", id: sh.id }, { toggle: e.shiftKey })
+                          onSelectLayer?.({ kind: "shape", id: sh.id }, { toggle: multiSelectMode || e.shiftKey })
                         }
                         style={dragRowStyle(sh.id)}
                         className={cn(
@@ -1946,18 +2001,31 @@ export function LeftPanel({
                           dragLayerId === sh.id && "shadow-lg ring-1 ring-primary/50",
                         )}
                       >
-                        <button
-                          type="button"
-                          onClick={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => startLayerDrag(e, sh.id, panelIdx)}
-                          onPointerMove={moveLayerDrag}
-                          onPointerUp={endLayerDrag}
-                          onPointerCancel={endLayerDrag}
-                          className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
-                          title="Drag to reorder"
-                        >
-                          <DragDropVerticalIcon size={14} />
-                        </button>
+                        {multiSelectMode ? (
+                          <div
+                            className={cn(
+                              "grid h-4 w-4 shrink-0 place-items-center rounded-full border transition-all",
+                              selected
+                                ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                : "border-muted-foreground/40 bg-card hover:border-primary",
+                            )}
+                          >
+                            {selected ? <Tick02Icon size={10} className="stroke-[3]" /> : null}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => startLayerDrag(e, sh.id, panelIdx)}
+                            onPointerMove={moveLayerDrag}
+                            onPointerUp={endLayerDrag}
+                            onPointerCancel={endLayerDrag}
+                            className="flex h-6 w-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
+                            title="Drag to reorder"
+                          >
+                            <DragDropVerticalIcon size={14} />
+                          </button>
+                        )}
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                           <div
                             className="h-5 w-5 shrink-0 border border-border/80"

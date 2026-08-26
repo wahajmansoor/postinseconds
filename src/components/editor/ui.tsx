@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinIcon, Upload01Icon } from "hugeicons-react";
 import { cn } from "@/lib/utils";
@@ -626,9 +626,15 @@ export function ColorInput({
   );
 }
 
-export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+export function TextInput({ id, name, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
+  const autoId = useId();
+  const effectiveId = id ?? autoId;
+  const effectiveName = name ?? (typeof effectiveId === "string" ? effectiveId : undefined);
+
   return (
     <input
+      id={effectiveId}
+      name={effectiveName}
       {...props}
       className={cn(
         "w-full rounded-full border border-border bg-input px-4 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary",
@@ -639,10 +645,16 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 }
 
 export const AreaInput = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  (props, ref) => {
+  ({ id, name, ...props }, ref) => {
+    const autoId = useId();
+    const effectiveId = id ?? autoId;
+    const effectiveName = name ?? (typeof effectiveId === "string" ? effectiveId : undefined);
+
     return (
       <textarea
         ref={ref}
+        id={effectiveId}
+        name={effectiveName}
         {...props}
         className={cn(
           "w-full resize-y rounded-2xl border border-border bg-input px-4 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary",
@@ -752,11 +764,15 @@ export function Range({
 
   const decHold = useHoldRepeat(() => onChange(Math.max(min, Number((value - step).toFixed(2)))));
   const incHold = useHoldRepeat(() => onChange(Math.min(max, Number((value + step).toFixed(2)))));
+  const rangeId = useId();
+  const numberId = useId();
 
   return (
     <div className="flex min-w-0 items-center gap-2">
       <input
         type="range"
+        id={rangeId}
+        name={rangeId}
         value={value}
         min={min}
         max={max}
@@ -777,6 +793,8 @@ export function Range({
           </button>
           <input
             type="number"
+            id={numberId}
+            name={numberId}
             value={inputValue}
             min={min}
             max={max}
@@ -825,6 +843,7 @@ export function UploadButton({
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCountRef = useRef(0);
+  const fileInputId = useId();
 
   const processFiles = (fileList: FileList | File[]) => {
     const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
@@ -886,6 +905,8 @@ export function UploadButton({
       </div>
       <input
         type="file"
+        id={fileInputId}
+        name={fileInputId}
         accept="image/*"
         multiple={multiple}
         className="hidden"

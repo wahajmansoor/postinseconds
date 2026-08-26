@@ -90,6 +90,8 @@ export function EditProfileDialog({ open, onClose }: EditProfileDialogProps) {
           <form onSubmit={handleSave} className="mt-4 space-y-4">
             <input
               type="file"
+              id="edit-profile-avatar-input"
+              name="avatar"
               ref={fileInputRef}
               accept="image/*"
               className="hidden"
@@ -125,9 +127,12 @@ export function EditProfileDialog({ open, onClose }: EditProfileDialogProps) {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-foreground">Full name</label>
+              <label htmlFor="edit-profile-full-name" className="mb-1.5 block text-xs font-semibold text-foreground">Full name</label>
               <input
                 type="text"
+                id="edit-profile-full-name"
+                name="fullName"
+                autoComplete="name"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}

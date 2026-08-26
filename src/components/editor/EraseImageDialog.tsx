@@ -9,12 +9,13 @@ import {
   Add01Icon,
   MinusSignIcon,
 } from "hugeicons-react";
+import { cn } from "@/lib/utils";
 // HandGrabIcon (the "Drag to move" icon used elsewhere in the editor, e.g.
 // QuoteCanvas.tsx) only exists in this newer icon package, not the
 // hugeicons-react one everything else on this page comes from.
 import { HugeiconsIcon } from "@hugeicons/react";
 import { HandGrabIcon } from "@hugeicons/core-free-icons";
-import { Chip, Range, useHoldRepeat } from "./ui";
+import { Chip, ColorInput, Range, useHoldRepeat } from "./ui";
 
 interface EraseImageDialogProps {
   open: boolean;
@@ -25,15 +26,19 @@ interface EraseImageDialogProps {
 
 type Point = { x: number; y: number };
 
-// Both modes below share the exact same first step — punch a transparent
-// stroke into the working canvas — which is what makes Restore able to
-// reuse Erase's own drawing code instead of needing a separate masking/clip
-// implementation: a stroke clipped to just the brushed area is genuinely
-// awkward to build directly (canvas has no "clip to a stroke outline"
-// primitive, only fillable paths), but "clear a stroke-shaped hole, then
-// paint the pristine original in behind only where the destination is now
-// transparent" produces the identical visual result with none of that
-// complexity.
+const BRUSH_PRESET_COLORS = [
+  "#000000",
+  "#ffffff",
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#06b6d4",
+  "#3b82f6",
+  "#a855f7",
+  "#ec4899",
+];
+
 function strokeErase(ctx: CanvasRenderingContext2D, from: Point, to: Point, radius: number) {
   ctx.globalCompositeOperation = "destination-out";
   ctx.lineWidth = radius * 2;
@@ -45,16 +50,34 @@ function strokeErase(ctx: CanvasRenderingContext2D, from: Point, to: Point, radi
   ctx.stroke();
 }
 
+function strokePaint(ctx: CanvasRenderingContext2D, from: Point, to: Point, radius: number, color: string) {
+  ctx.globalCompositeOperation = "source-over";
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = radius * 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+}
+
+function dabPaint(ctx: CanvasRenderingContext2D, point: Point, radius: number, color: string) {
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 /**
- * Manual eraser for an image layer — brush away parts of the picture to
- * transparency (e.g. pulling a subject off a busy background by hand), with
- * a Restore brush to paint any of that back in, brush size, one-level
- * undo per stroke, and a full Reset back to the untouched original.
- * Outputs PNG (never JPEG — the whole point is the transparency this
- * produces) via onErased, same shape as ImageCropDialog's onCropComplete.
+ * Manual eraser & painter for an image layer — brush away parts of the picture to
+ * transparency, restore original details, or draw with a color brush & color picker.
  */
 export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseImageDialogProps) {
-  const [mode, setMode] = useState<"erase" | "restore">("erase");
+  const [mode, setMode] = useState<"erase" | "restore" | "brush">("erase");
+  const [brushColor, setBrushColor] = useState("#ef4444");
   const [brushSize, setBrushSize] = useState(40); // CSS px, at the on-screen display size — see getRadiusInCanvasPx
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasEdits, setHasEdits] = useState(false);
@@ -204,9 +227,13 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
     lastPointRef.current = point;
     const radius = getRadiusInCanvasPx();
     // A dab at the down point too — otherwise a plain tap/click with no
-    // drag afterward erases nothing at all.
-    strokeErase(ctx, point, point, radius);
-    if (mode === "restore") applyRestoreBackfill(ctx, canvas);
+    // drag afterward paints/erases nothing at all.
+    if (mode === "brush") {
+      dabPaint(ctx, point, radius, brushColor);
+    } else {
+      strokeErase(ctx, point, point, radius);
+      if (mode === "restore") applyRestoreBackfill(ctx, canvas);
+    }
     setHasEdits(true);
   };
 
@@ -236,8 +263,12 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const radius = getRadiusInCanvasPx();
-    strokeErase(ctx, last, point, radius);
-    if (mode === "restore") applyRestoreBackfill(ctx, canvas);
+    if (mode === "brush") {
+      strokePaint(ctx, last, point, radius, brushColor);
+    } else {
+      strokeErase(ctx, last, point, radius);
+      if (mode === "restore") applyRestoreBackfill(ctx, canvas);
+    }
     lastPointRef.current = point;
   };
 
@@ -320,17 +351,17 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               <Eraser01Icon size={18} />
             </span>
             <div>
-              <DialogTitle className="text-base font-bold text-foreground">Erase Image</DialogTitle>
+              <DialogTitle className="text-base font-bold text-foreground">Erase & Paint Image</DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                Brush to erase part of the image to transparency, or switch to Restore to paint it back in.
+                Erase to transparency, restore original pixels, or paint with custom brush colors.
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="mt-4 space-y-4">
-          {/* Erase / Restore mode toggle */}
-          <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-border/80 bg-secondary/40 p-1">
+        <div className="mt-4 space-y-3.5">
+          {/* Erase / Restore / Color Brush mode toggle */}
+          <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-border/80 bg-secondary/40 p-1">
             <button
               type="button"
               onClick={() => setMode("erase")}
@@ -354,10 +385,56 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
                   : "text-muted-foreground hover:text-foreground")
               }
             >
-              <PaintBrush01Icon size={14} />
+              <ReloadIcon size={14} />
               <span>Restore</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setMode("brush")}
+              className={
+                "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-all " +
+                (mode === "brush"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground")
+              }
+            >
+              <PaintBrush01Icon size={14} />
+              <span>Color Brush</span>
+            </button>
           </div>
+
+          {/* Brush Color Picker Bar (when Color Brush mode is active) */}
+          {mode === "brush" ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card/60 px-3 py-2">
+              <span className="text-xs font-semibold text-foreground">Brush Color</span>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  {BRUSH_PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setBrushColor(c)}
+                      style={{ backgroundColor: c }}
+                      className={cn(
+                        "h-5 w-5 rounded-full border border-black/20 transition-transform hover:scale-110 active:scale-95",
+                        brushColor.toLowerCase() === c.toLowerCase() &&
+                          "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110",
+                      )}
+                      title={c}
+                    />
+                  ))}
+                </div>
+                <div className="h-4 w-px bg-border mx-0.5" />
+                <ColorInput
+                  value={brushColor}
+                  onChange={setBrushColor}
+                  showHex={true}
+                  align="end"
+                  className="h-7"
+                />
+              </div>
+            </div>
+          ) : null}
 
           {/* Canvas stage — checkerboard shows through wherever erased.
               overflow-hidden here is what makes zooming in behave like a
@@ -403,7 +480,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               className="max-h-84 max-w-full select-none rounded-sm shadow-2xl ring-1 ring-white/20"
             />
             {/* Brush cursor — a live-sized ring following the pointer so
-                the actual erase area is obvious before you commit a stroke.
+                the actual erase/brush area is obvious before you commit a stroke.
                 Hidden in Pan mode, where dragging repositions the view
                 instead of brushing, so the ring would be misleading. */}
             {cursorPos.visible && !panMode ? (
@@ -414,7 +491,13 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
                   height: brushSize,
                   left: cursorPos.x - brushSize / 2,
                   top: cursorPos.y - brushSize / 2,
-                  backgroundColor: mode === "erase" ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
+                  backgroundColor:
+                    mode === "erase"
+                      ? "rgba(239,68,68,0.25)"
+                      : mode === "restore"
+                        ? "rgba(34,197,94,0.25)"
+                        : brushColor,
+                  opacity: mode === "brush" ? 0.65 : 1,
                 }}
               />
             ) : null}

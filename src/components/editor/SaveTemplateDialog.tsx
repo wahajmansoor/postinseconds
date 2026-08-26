@@ -222,11 +222,13 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
 
             {/* Template Name */}
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-foreground">
+              <label htmlFor="save-template-name" className="mb-1.5 block text-xs font-semibold text-foreground">
                 Template Name <span className="text-destructive">*</span>
               </label>
               <input
                 type="text"
+                id="save-template-name"
+                name="templateName"
                 required
                 placeholder="e.g. My Weekly Announcement Design"
                 value={label}
@@ -238,9 +240,11 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
             {/* Description (for Admin platform templates) */}
             {isAdmin && saveType !== "my_saved" ? (
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-foreground">Description</label>
+                <label htmlFor="save-template-desc" className="mb-1.5 block text-xs font-semibold text-foreground">Description</label>
                 <input
                   type="text"
+                  id="save-template-desc"
+                  name="templateDescription"
                   placeholder="e.g. High-impact dark theme with top badge and custom gradients."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}

@@ -131,6 +131,8 @@ export function CropDialog({
           Drag & drop an image here, or click to browse
           <input
             type="file"
+            id="crop-dialog-image-file"
+            name="cropImageFile"
             accept="image/*"
             className="hidden"
             onChange={(e) => readFile(e.target.files?.[0])}
