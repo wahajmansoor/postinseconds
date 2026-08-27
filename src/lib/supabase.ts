@@ -82,6 +82,7 @@ export async function fetchAllTemplates(): Promise<Template[]> {
           id: d.id,
           label: d.label,
           description: d.description || "",
+          thumbnailUrl: d.thumbnail_url || d.state?.thumbnailUrl || d.thumbnailUrl || undefined,
           state: d.state,
         }));
       }
@@ -93,31 +94,55 @@ export async function fetchAllTemplates(): Promise<Template[]> {
 }
 
 export async function upsertTemplate(template: Template, isPremium: boolean = false): Promise<boolean> {
+  // Ensure template state also safely contains thumbnailUrl
+  const templateWithThumb: Template = {
+    ...template,
+    state: {
+      ...(template.state || {}),
+      thumbnailUrl: template.thumbnailUrl || undefined,
+    },
+  };
+
   // Update local storage
   const current = getLocalTemplates();
-  const existingIdx = current.findIndex((t) => t.id === template.id);
+  const existingIdx = current.findIndex((t) => t.id === templateWithThumb.id);
   let next: Template[];
   if (existingIdx >= 0) {
-    next = current.map((t) => (t.id === template.id ? template : t));
+    next = current.map((t) => (t.id === templateWithThumb.id ? templateWithThumb : t));
   } else {
-    next = [template, ...current];
+    next = [templateWithThumb, ...current];
   }
   saveLocalTemplates(next);
 
   if (isSupabaseConfigured) {
     try {
-      const { error } = await supabase.from("templates").upsert({
-        id: template.id,
-        label: template.label,
+      const payload: any = {
+        id: templateWithThumb.id,
+        label: templateWithThumb.label,
         category: isPremium ? "premium" : "starter",
-        description: template.description,
-        state: template.state,
+        description: templateWithThumb.description,
+        thumbnail_url: templateWithThumb.thumbnailUrl || null,
+        state: templateWithThumb.state,
         is_premium: isPremium,
         is_published: true,
         updated_at: new Date().toISOString(),
-      });
+      };
+
+      let { error } = await supabase.from("templates").upsert(payload);
+
+      // If database table doesn't have thumbnail_url column, retry without it since state carries thumbnailUrl
+      if (error && error.message && error.message.toLowerCase().includes("thumbnail_url")) {
+        delete payload.thumbnail_url;
+        const retry = await supabase.from("templates").upsert(payload);
+        error = retry.error;
+      }
+
+      if (error) {
+        console.warn("Supabase upsertTemplate warning:", error);
+      }
       return !error;
-    } catch {
+    } catch (err) {
+      console.warn("Supabase upsertTemplate error:", err);
       return false;
     }
   }

@@ -1268,6 +1268,10 @@ export type EditorState = {
   bgImagePosY?: number;
   canvasRadius?: number;
 
+  // post name / design title
+  postName?: string | undefined;
+  thumbnailUrl?: string | undefined;
+
   // export
   exportFormat: ExportFormat;
   exportScale: number;
@@ -1277,6 +1281,7 @@ export type Template = {
   id: string;
   label: string;
   description: string;
+  thumbnailUrl?: string | undefined;
   state: Partial<EditorState>;
 };
 
@@ -1755,6 +1760,7 @@ export const TEMPLATES: Template[] = [...STARTER_TEMPLATES, ...PREMIUM_TEMPLATES
 // app's own default design isn't a special case of the layer model, it's
 // a plain instance of it.
 export const INITIAL_STATE: EditorState = {
+  postName: "Untitled Post",
   quote: "",
   name: "",
   tagline: "",

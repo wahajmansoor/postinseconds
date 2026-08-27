@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { upsertTemplate, saveQuoteDesign } from "@/lib/supabase";
+import { compressImageFile } from "@/lib/imageCompression";
 import { type EditorState, type Template } from "./types";
 import { TemplatePreview } from "./TemplatePreview";
 import {
@@ -24,18 +25,23 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
   const { user, isAdmin, isAuthenticated, openLoginModal } = useAuth();
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
+  const [thumbnailUrl, setThumbnailUrl] = useState("");
   const [saveType, setSaveType] = useState<"premium" | "starter" | "my_saved">("my_saved");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  // Set default save type and auto pre-fill template title from canvas text
+  // Set default save type and auto pre-fill template title from canvas postName or text
   React.useEffect(() => {
     if (open) {
-      const mainText = s.texts && s.texts.length > 0 ? s.texts[0]?.text : "";
-      if (mainText && mainText.trim()) {
-        setLabel(mainText.trim().slice(0, 45));
+      if (s.postName && s.postName.trim() && s.postName !== "Untitled Post") {
+        setLabel(s.postName.trim().slice(0, 45));
       } else {
-        setLabel("My Custom Post");
+        const mainText = s.texts && s.texts.length > 0 ? s.texts[0]?.text : "";
+        if (mainText && mainText.trim()) {
+          setLabel(mainText.trim().slice(0, 45));
+        } else {
+          setLabel(s.postName || "Untitled Post");
+        }
       }
     }
     if (isAdmin) {
@@ -61,6 +67,7 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
           label: label.trim(),
           description:
             description.trim() || (isPremium ? "Custom Premium Pro layout" : "Custom Starter layout"),
+          thumbnailUrl: thumbnailUrl.trim() || undefined,
           state: { ...s },
         };
 
@@ -141,16 +148,22 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
         ) : (
           <form onSubmit={handleSave} className="mt-4 space-y-4">
             {/* Live Preview Card */}
-            <div className="flex items-center justify-center rounded-xl border border-border/80 bg-muted/40 p-3">
+            <div className="flex flex-col items-center justify-center rounded-xl border border-border/80 bg-muted/40 p-3">
               <TemplatePreview
                 template={{
                   id: "preview",
                   label: label || "Template Preview",
                   description: description,
+                  thumbnailUrl: thumbnailUrl.trim() || undefined,
                   state: s,
                 }}
                 width={180}
               />
+              {thumbnailUrl ? (
+                <span className="mt-2 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
+                  ✓ Custom Thumbnail Active
+                </span>
+              ) : null}
             </div>
 
             {/* Role-Based Destination Selector */}
@@ -239,18 +252,73 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
 
             {/* Description (for Admin platform templates) */}
             {isAdmin && saveType !== "my_saved" ? (
-              <div>
-                <label htmlFor="save-template-desc" className="mb-1.5 block text-xs font-semibold text-foreground">Description</label>
-                <input
-                  type="text"
-                  id="save-template-desc"
-                  name="templateDescription"
-                  placeholder="e.g. High-impact dark theme with top badge and custom gradients."
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground focus:border-primary focus:outline-none"
-                />
-              </div>
+              <>
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label htmlFor="save-template-thumbnail" className="text-xs font-semibold text-foreground">
+                      Cover / Thumbnail Image (Optional)
+                    </label>
+                    {thumbnailUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setThumbnailUrl("")}
+                        className="text-[10px] font-medium text-destructive hover:underline"
+                      >
+                        Remove Cover
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      id="save-template-thumbnail"
+                      name="templateThumbnailUrl"
+                      placeholder="Paste image URL (e.g. Unsplash or CDN)"
+                      value={thumbnailUrl}
+                      onChange={(e) => setThumbnailUrl(e.target.value)}
+                      className="flex-1 rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground focus:border-primary focus:outline-none"
+                    />
+                    <label className="flex cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary/60 px-3 py-2 text-[11px] font-semibold text-foreground transition-colors hover:bg-secondary shrink-0">
+                      <span>Upload</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            try {
+                              const compressed = await compressImageFile(file, {
+                                maxDimension: 600,
+                                quality: 0.82,
+                              });
+                              setThumbnailUrl(compressed);
+                            } catch (err) {
+                              console.error("Failed to compress image:", err);
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground leading-relaxed">
+                    Showcases this cover in the template list while keeping placeholder images inside the canvas to protect against copyright issues.
+                  </p>
+                </div>
+
+                <div>
+                  <label htmlFor="save-template-desc" className="mb-1.5 block text-xs font-semibold text-foreground">Description</label>
+                  <input
+                    type="text"
+                    id="save-template-desc"
+                    name="templateDescription"
+                    placeholder="e.g. High-impact dark theme with top badge and custom gradients."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground focus:border-primary focus:outline-none"
+                  />
+                </div>
+              </>
             ) : null}
 
             {/* Actions */}

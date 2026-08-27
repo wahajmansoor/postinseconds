@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { QuoteCanvas } from "./QuoteCanvas";
 import { INITIAL_STATE, migrateLegacyContentToLayers } from "./types";
 import type { EditorState, Template } from "./types";
@@ -10,12 +11,14 @@ type Props = {
 };
 
 /**
- * Template thumbnail — cover+center-crop.
+ * Template thumbnail — cover+center-crop or custom preview image.
  * Uses explicit `width` for both the clip container AND the centering math
  * so the canvas content is always perfectly centred regardless of context
  * (left-panel grid or quick-strip at the bottom).
  */
 export function TemplatePreview({ template, width, onClick, showLabel = true }: Props) {
+  const [imgError, setImgError] = useState(false);
+
   // A template preview should render its own design state independently
   // without leaking or mirroring live canvas modifications
   const baseState: EditorState = {
@@ -45,31 +48,43 @@ export function TemplatePreview({ template, width, onClick, showLabel = true }: 
   const left = 0;
   const top = 0;
 
+  const hasCustomThumbnail = !!template.thumbnailUrl && !imgError;
+
   return (
     <button
       type="button"
       onClick={onClick}
       title={template.description}
       // shrink-0 keeps the card from collapsing in a flex row (quick strip)
-      className="group shrink-0 overflow-hidden rounded-2xl border border-border bg-card transition-all duration-200 hover:border-primary hover:shadow-[var(--shadow-glow)]"
+      className="group shrink-0 overflow-hidden rounded-2xl border border-border bg-card transition-all duration-200 hover:border-primary hover:shadow-[var(--shadow-glow)] text-left"
       style={{ width: validWidth }}
     >
       {/* Clip viewport — exact pixel size so centering math is always correct */}
-      <div className="relative overflow-hidden" style={{ width: validWidth, height: thumbH }}>
-        {/* Full-res canvas, scaled + centered */}
-        <div
-          className="pointer-events-none absolute"
-          style={{
-            width: state.width,
-            height: state.height,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-            top,
-            left,
-          }}
-        >
-          <QuoteCanvas s={state} />
-        </div>
+      <div className="relative overflow-hidden bg-secondary/30" style={{ width: validWidth, height: thumbH }}>
+        {hasCustomThumbnail ? (
+          <img
+            src={template.thumbnailUrl}
+            alt={template.label}
+            loading="lazy"
+            onError={() => setImgError(true)}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        ) : (
+          /* Full-res canvas, scaled + centered */
+          <div
+            className="pointer-events-none absolute"
+            style={{
+              width: state.width,
+              height: state.height,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+              top,
+              left,
+            }}
+          >
+            <QuoteCanvas s={state} />
+          </div>
+        )}
 
         {/* Subtle inner ring — looks clean on both dark and light templates */}
         <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]" />

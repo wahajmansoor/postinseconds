@@ -25,6 +25,8 @@ import {
   DragDropVerticalIcon,
   CheckmarkCircle02Icon,
   Tick02Icon,
+  Search01Icon,
+  Cancel01Icon,
 } from "hugeicons-react";
 import { CaseUpper } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -489,6 +491,51 @@ export function LeftPanel({
     );
   }, [platformTemplates]);
 
+  const [starterSearch, setStarterSearch] = useState("");
+  const [premiumSearch, setPremiumSearch] = useState("");
+  const [savedSearch, setSavedSearch] = useState("");
+
+  const matchesTemplateQuery = (item: { label?: string; description?: string; state?: any }, query: string) => {
+    if (!query.trim()) return true;
+    const q = query.toLowerCase().trim();
+    if (item.label && item.label.toLowerCase().includes(q)) return true;
+    if (item.description && item.description.toLowerCase().includes(q)) return true;
+    if (item.state) {
+      if (typeof item.state.quote === "string" && item.state.quote.toLowerCase().includes(q)) return true;
+      if (typeof item.state.name === "string" && item.state.name.toLowerCase().includes(q)) return true;
+      if (typeof item.state.tagline === "string" && item.state.tagline.toLowerCase().includes(q)) return true;
+      if (Array.isArray(item.state.texts)) {
+        if (
+          item.state.texts.some(
+            (txt: any) =>
+              (typeof txt?.text === "string" && txt.text.toLowerCase().includes(q)) ||
+              (typeof txt?.html === "string" && txt.html.toLowerCase().includes(q)),
+          )
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const filteredStarterTemplates = useMemo(() => {
+    return starterTemplates.filter((t) => matchesTemplateQuery(t, starterSearch));
+  }, [starterTemplates, starterSearch]);
+
+  const filteredPremiumTemplates = useMemo(() => {
+    return premiumTemplates.filter((t) => matchesTemplateQuery(t, premiumSearch));
+  }, [premiumTemplates, premiumSearch]);
+
+  const filteredSavedQuotes = useMemo(() => {
+    return userSavedQuotes.filter((q) =>
+      matchesTemplateQuery(
+        { label: q.title, description: `Saved ${new Date(q.created_at).toLocaleDateString()}`, state: q.state },
+        savedSearch,
+      ),
+    );
+  }, [userSavedQuotes, savedSearch]);
+
   useEffect(() => {
     if (tab === "templates") {
       loadSavedQuotes();
@@ -692,7 +739,7 @@ export function LeftPanel({
           >
             <span>Free</span>
             <span className="rounded-full bg-secondary px-1.5 py-0.2 text-[9px] text-muted-foreground">
-              {starterTemplates.length}
+              {starterSearch ? filteredStarterTemplates.length : starterTemplates.length}
             </span>
           </button>
           <button
@@ -708,7 +755,7 @@ export function LeftPanel({
             <StarCircleIcon size={13} className="text-amber-500" />
             <span>Premium</span>
             <span className="rounded-full bg-amber-500/15 px-1.5 py-0.2 text-[9px] font-bold text-amber-600 dark:text-amber-400">
-              {premiumTemplates.length}
+              {premiumSearch ? filteredPremiumTemplates.length : premiumTemplates.length}
             </span>
           </button>
           <button
@@ -724,7 +771,7 @@ export function LeftPanel({
             <Folder01Icon size={13} />
             <span>Saved</span>
             <span className="rounded-full bg-primary/10 px-1.5 py-0.2 text-[9px] font-bold text-primary">
-              {userSavedQuotes.length}
+              {savedSearch ? filteredSavedQuotes.length : userSavedQuotes.length}
             </span>
           </button>
         </div>
@@ -732,61 +779,144 @@ export function LeftPanel({
         {/* TAB 1: FREE / STARTER TEMPLATES */}
         {activeCategory === "starter" ? (
           <Panel title="Free Templates">
+            {/* Search Bar for Free Templates */}
+            <div className="relative mb-3">
+              <div className="relative flex items-center">
+                <span className="pointer-events-none absolute left-3 text-muted-foreground">
+                  <Search01Icon size={15} />
+                </span>
+                <input
+                  type="text"
+                  value={starterSearch}
+                  onChange={(e) => setStarterSearch(e.target.value)}
+                  placeholder="Search free templates..."
+                  className="h-9 w-full rounded-xl border border-border/80 bg-secondary/30 pl-9 pr-8 text-xs text-foreground placeholder:text-muted-foreground/70 transition-all focus:border-primary focus:bg-background focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
+                />
+                {starterSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setStarterSearch("")}
+                    className="absolute right-2.5 grid h-5 w-5 place-items-center rounded-full text-muted-foreground/80 transition-colors hover:bg-secondary hover:text-foreground"
+                    title="Clear search"
+                  >
+                    <Cancel01Icon size={13} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
             <div className="mb-2.5 flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Select any starter template to edit</span>
               {templatesLoading ? (
                 <span className="h-4 w-16 animate-pulse rounded-full bg-secondary" />
               ) : (
                 <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-foreground">
-                  {starterTemplates.length} templates
+                  {filteredStarterTemplates.length} templates
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              {templatesLoading
-                ? Array.from({ length: 6 }, (_, i) => <TemplateCardSkeleton key={i} />)
-                : starterTemplates.map((t) => (
-                  <TemplatePreview
-                    key={t.id}
-                    template={t}
-                    width={162}
-                    onClick={() => {
-                      applyTemplate(t.state);
-                      onItemSelect?.();
-                    }}
-                  />
-                ))}
-            </div>
+
+            {filteredStarterTemplates.length === 0 && !templatesLoading ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-10 text-center">
+                <Search01Icon size={24} className="text-muted-foreground/40" />
+                <p className="mt-2 text-xs font-semibold text-foreground">No templates found</p>
+                <p className="mt-1 px-4 text-[11px] text-muted-foreground">
+                  No free templates match "{starterSearch}".
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setStarterSearch("")}
+                  className="mt-3 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  Clear Search
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {templatesLoading
+                  ? Array.from({ length: 6 }, (_, i) => <TemplateCardSkeleton key={i} />)
+                  : filteredStarterTemplates.map((t) => (
+                    <TemplatePreview
+                      key={t.id}
+                      template={t}
+                      width={162}
+                      onClick={() => {
+                        applyTemplate({ ...t.state, postName: t.label });
+                        onItemSelect?.();
+                      }}
+                    />
+                  ))}
+              </div>
+            )}
           </Panel>
         ) : null}
 
         {/* TAB 2: PREMIUM PRO TEMPLATES */}
         {activeCategory === "premium" ? (
           <Panel title="Premium Templates">
+            {/* Search Bar for Premium Templates */}
+            <div className="relative mb-3">
+              <div className="relative flex items-center">
+                <span className="pointer-events-none absolute left-3 text-muted-foreground">
+                  <Search01Icon size={15} />
+                </span>
+                <input
+                  type="text"
+                  value={premiumSearch}
+                  onChange={(e) => setPremiumSearch(e.target.value)}
+                  placeholder="Search premium templates..."
+                  className="h-9 w-full rounded-xl border border-border/80 bg-secondary/30 pl-9 pr-8 text-xs text-foreground placeholder:text-muted-foreground/70 transition-all focus:border-primary focus:bg-background focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
+                />
+                {premiumSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setPremiumSearch("")}
+                    className="absolute right-2.5 grid h-5 w-5 place-items-center rounded-full text-muted-foreground/80 transition-colors hover:bg-secondary hover:text-foreground"
+                    title="Clear search"
+                  >
+                    <Cancel01Icon size={13} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
             <div className="mb-2.5 flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Curated high-converting viral layouts</span>
               <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-500">
-                {premiumTemplates.length} templates
+                {filteredPremiumTemplates.length} templates
               </span>
             </div>
 
-            {premiumTemplates.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-12 text-center">
-                <StarCircleIcon size={28} className="text-muted-foreground/40" />
-                <p className="mt-2 text-xs font-semibold text-foreground">No premium templates yet</p>
-                <p className="mt-1 px-4 text-[11px] text-muted-foreground">
-                  Publish one from the Admin dashboard to see it here.
+            {filteredPremiumTemplates.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-10 text-center">
+                <Search01Icon size={24} className="text-muted-foreground/40" />
+                <p className="mt-2 text-xs font-semibold text-foreground">
+                  {premiumSearch ? "No premium templates found" : "No premium templates yet"}
                 </p>
+                <p className="mt-1 px-4 text-[11px] text-muted-foreground">
+                  {premiumSearch
+                    ? `No premium templates match "${premiumSearch}".`
+                    : "Publish one from the Admin dashboard to see it here."}
+                </p>
+                {premiumSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setPremiumSearch("")}
+                    className="mt-3 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors"
+                  >
+                    Clear Search
+                  </button>
+                ) : null}
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                {premiumTemplates.map((t) => (
+                {filteredPremiumTemplates.map((t) => (
                   <TemplatePreview
                     key={t.id}
                     template={t}
                     width={162}
                     onClick={() => {
-                      applyTemplate(t.state);
+                      applyTemplate({ ...t.state, postName: t.label });
                       onItemSelect?.();
                     }}
                   />
@@ -799,11 +929,37 @@ export function LeftPanel({
         {/* TAB 3: MY SAVED TEMPLATES */}
         {activeCategory === ("saved" as any) ? (
           <Panel title="My Saved Templates">
+            {/* Search Bar for Saved Templates */}
+            <div className="relative mb-3">
+              <div className="relative flex items-center">
+                <span className="pointer-events-none absolute left-3 text-muted-foreground">
+                  <Search01Icon size={15} />
+                </span>
+                <input
+                  type="text"
+                  value={savedSearch}
+                  onChange={(e) => setSavedSearch(e.target.value)}
+                  placeholder="Search saved templates..."
+                  className="h-9 w-full rounded-xl border border-border/80 bg-secondary/30 pl-9 pr-8 text-xs text-foreground placeholder:text-muted-foreground/70 transition-all focus:border-primary focus:bg-background focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
+                />
+                {savedSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setSavedSearch("")}
+                    className="absolute right-2.5 grid h-5 w-5 place-items-center rounded-full text-muted-foreground/80 transition-colors hover:bg-secondary hover:text-foreground"
+                    title="Clear search"
+                  >
+                    <Cancel01Icon size={13} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
             <div className="mb-3 space-y-2 border-b border-border/60 pb-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Your personal saved designs</span>
                 <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                  {userSavedQuotes.length} saved
+                  {filteredSavedQuotes.length} saved
                 </span>
               </div>
 
@@ -869,9 +1025,24 @@ export function LeftPanel({
                   Design your quote and click "+ Save Canvas as New Template" above to reuse it anytime!
                 </p>
               </div>
+            ) : filteredSavedQuotes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-10 text-center">
+                <Search01Icon size={24} className="text-muted-foreground/40" />
+                <p className="mt-2 text-xs font-semibold text-foreground">No saved templates found</p>
+                <p className="mt-1 px-4 text-[11px] text-muted-foreground">
+                  No saved templates match "{savedSearch}".
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSavedSearch("")}
+                  className="mt-3 rounded-lg bg-secondary px-3 py-1.5 text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  Clear Search
+                </button>
+              </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                {userSavedQuotes.map((q) => (
+                {filteredSavedQuotes.map((q) => (
                   <div key={q.id} className="group relative">
                     <TemplatePreview
                       template={{
@@ -882,7 +1053,7 @@ export function LeftPanel({
                       }}
                       width={162}
                       onClick={() => {
-                        applyTemplate(q.state);
+                        applyTemplate({ ...q.state, postName: q.title });
                         onSelectSavedQuote?.(q);
                         onItemSelect?.();
                       }}

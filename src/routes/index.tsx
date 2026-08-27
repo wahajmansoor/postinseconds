@@ -45,6 +45,7 @@ import {
   SidebarLeftIcon,
   SidebarRightIcon,
   Layers01Icon as Motion01Icon,
+  Edit02Icon,
 } from "hugeicons-react";
 import {
   Dialog,
@@ -243,6 +244,72 @@ function ZoomInput({
       className="h-7 w-12 rounded-lg border border-border/70 bg-card px-1 text-center font-mono text-[11px] font-bold text-foreground transition-all hover:border-primary/50 focus:border-primary focus:bg-background focus:outline-none"
       title="Type zoom percentage and press Enter"
     />
+  );
+}
+
+function PostNameInput({
+  value,
+  onChange,
+}: {
+  value?: string | undefined;
+  onChange: (newName: string) => void;
+}) {
+  const currentName = value?.trim() || "Untitled Post";
+  const [editing, setEditing] = useState(false);
+  const [localVal, setLocalVal] = useState(currentName);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) {
+      setLocalVal(value?.trim() || "Untitled Post");
+    }
+  }, [value, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const trimmed = localVal.trim();
+    const finalName = trimmed || "Untitled Post";
+    setLocalVal(finalName);
+    onChange(finalName);
+  };
+
+  return (
+    <div className="relative flex items-center group">
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          value={localVal}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => setLocalVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commit();
+            } else if (e.key === "Escape") {
+              setLocalVal(value?.trim() || "Untitled Post");
+              setEditing(false);
+            }
+          }}
+          className="h-7 sm:h-8 max-w-[110px] xs:max-w-[150px] sm:max-w-[200px] md:max-w-[260px] rounded-xl border border-primary bg-background px-2.5 py-1 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary shadow-xs transition-all"
+          placeholder="Untitled Post"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setEditing(true);
+            setTimeout(() => inputRef.current?.select(), 0);
+          }}
+          className="flex h-7 sm:h-8 max-w-[110px] xs:max-w-[150px] sm:max-w-[200px] md:max-w-[260px] items-center gap-1.5 rounded-xl border border-transparent px-2 sm:px-2.5 py-1 text-xs font-semibold text-foreground transition-all hover:border-border/80 hover:bg-secondary/40 active:scale-95 text-left"
+          title="Click to rename post"
+        >
+          <span className="truncate">{currentName}</span>
+          <Edit02Icon size={12} className="shrink-0 text-muted-foreground opacity-60 sm:opacity-0 transition-opacity group-hover:opacity-100" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -2055,7 +2122,12 @@ function Index() {
         finalUrl = previewUrl || (await renderExport(1));
       }
       if (!finalUrl) return;
-      const filename = `quote-canvas.${s.exportFormat}`;
+      const rawPostName = (s.postName && s.postName.trim()) || "Untitled Post";
+      const sanitizedName = rawPostName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "");
+      const filename = `${sanitizedName || "untitled-post"}.${s.exportFormat}`;
 
       // 1. Native Capacitor App (Android/iOS standalone build)
       if (Capacitor.isNativePlatform()) {
@@ -2998,8 +3070,13 @@ function Index() {
           className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 pb-2 sm:gap-4 sm:px-5"
           style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.5rem)" }}
         >
-          <div className="flex items-center gap-2.5 sm:gap-3">
-            <img src="/logo.png" alt="Post In Seconds" className="h-8 w-auto sm:h-9" />
+          <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+            <img src="/logo.png" alt="Post In Seconds" className="h-7 sm:h-8 w-auto shrink-0" />
+            <div className="h-3.5 w-px bg-border/80 shrink-0" />
+            <PostNameInput
+              value={s.postName}
+              onChange={(newName) => set("postName", () => newName)}
+            />
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* 1. + Icon (New Blank Post Action) */}
