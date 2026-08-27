@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ColorPickerContent } from "@/components/ui/color-picker";
 import {
   Eraser01Icon,
   PaintBrush01Icon,
+  PaintBoardIcon,
   CheckmarkCircle02Icon,
   ReloadIcon,
   ArrowTurnBackwardIcon,
@@ -71,13 +74,125 @@ function dabPaint(ctx: CanvasRenderingContext2D, point: Point, radius: number, c
   ctx.fill();
 }
 
+function DraggableColorPanel({
+  open,
+  onClose,
+  brushColor,
+  setBrushColor,
+}: {
+  open: boolean;
+  onClose: () => void;
+  brushColor: string;
+  setBrushColor: (c: string) => void;
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => ({
+    x: typeof window !== "undefined" ? Math.max(16, Math.round(window.innerWidth / 2 - 140)) : 40,
+    y: typeof window !== "undefined" ? Math.max(60, Math.round(window.innerHeight * 0.15)) : 100,
+  }));
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number }>({
+    startX: 0,
+    startY: 0,
+    initX: 0,
+    initY: 0,
+  });
+
+  const handleDragPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    isDraggingRef.current = true;
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initX: pos.x,
+      initY: pos.y,
+    };
+  };
+
+  const handleDragPointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    e.stopPropagation();
+    const dx = e.clientX - dragStartRef.current.startX;
+    const dy = e.clientY - dragStartRef.current.startY;
+    const maxX = Math.max(0, (typeof window !== "undefined" ? window.innerWidth : 400) - 290);
+    const maxY = Math.max(0, (typeof window !== "undefined" ? window.innerHeight : 600) - 350);
+    setPos({
+      x: Math.max(8, Math.min(maxX, dragStartRef.current.initX + dx)),
+      y: Math.max(8, Math.min(maxY, dragStartRef.current.initY + dy)),
+    });
+  };
+
+  const handleDragPointerUp = (e: React.PointerEvent) => {
+    isDraggingRef.current = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      onPointerDown={(e) => e.stopPropagation()}
+      data-nopan=""
+      data-keep-text-editing=""
+      style={{
+        position: "fixed",
+        left: `${pos.x}px`,
+        top: `${pos.y}px`,
+        zIndex: 99999,
+      }}
+      className="w-[280px] max-w-[calc(100vw-24px)] rounded-3xl border border-border/90 bg-popover/98 shadow-2xl backdrop-blur-2xl animate-in fade-in-0 zoom-in-95 duration-150 overflow-hidden ring-1 ring-white/15"
+    >
+      {/* Draggable Header Handle */}
+      <div
+        onPointerDown={handleDragPointerDown}
+        onPointerMove={handleDragPointerMove}
+        onPointerUp={handleDragPointerUp}
+        onPointerCancel={handleDragPointerUp}
+        style={{ touchAction: "none" }}
+        className="flex cursor-grab active:cursor-grabbing items-center justify-between border-b border-border/60 px-3.5 py-2.5 bg-secondary/60 select-none"
+      >
+        <div className="flex items-center gap-2 text-xs font-bold text-foreground pointer-events-none">
+          <PaintBoardIcon size={15} className="text-primary shrink-0" />
+          <span>Custom Color</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground font-medium hidden sm:inline pointer-events-none">Drag to move</span>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded-full bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <div className="p-1">
+        <ColorPickerContent
+          value={brushColor}
+          onChange={setBrushColor}
+          showAlpha={false}
+        />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 /**
  * Manual eraser & painter for an image layer — brush away parts of the picture to
  * transparency, restore original details, or draw with a color brush & color picker.
  */
 export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseImageDialogProps) {
   const [mode, setMode] = useState<"erase" | "restore" | "brush">("erase");
-  const [brushColor, setBrushColor] = useState("#ef4444");
+  const [brushColor, setBrushColor] = useState<string>("#000000");
+  const [customColorOpen, setCustomColorOpen] = useState(false);
   const [brushSize, setBrushSize] = useState(40); // CSS px, at the on-screen display size — see getRadiusInCanvasPx
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasEdits, setHasEdits] = useState(false);
@@ -343,103 +458,115 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
       <DialogContent
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
-        className="sm:max-w-[580px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl"
+        className="w-[95vw] sm:max-w-[580px] max-h-[92vh] flex flex-col overflow-y-auto rounded-2xl border border-border bg-background p-4 sm:p-6 shadow-2xl backdrop-blur-xl"
       >
         <DialogHeader>
           <div className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary shadow-md">
+            <span className="grid h-8 w-8 sm:h-9 sm:w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary shadow-md">
               <Eraser01Icon size={18} />
             </span>
-            <div>
-              <DialogTitle className="text-base font-bold text-foreground">Erase & Paint Image</DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">
-                Erase to transparency, restore original pixels, or paint with custom brush colors.
+            <div className="min-w-0 flex-1">
+              <DialogTitle className="text-sm sm:text-base font-bold text-foreground">Erase & Paint Image</DialogTitle>
+              <DialogDescription className="text-[11px] sm:text-xs text-muted-foreground line-clamp-1">
+                Erase to transparency, restore pixels, or draw with color brush.
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="mt-4 space-y-3.5">
+        <div className="mt-3 sm:mt-4 space-y-2.5 sm:space-y-3.5">
           {/* Erase / Restore / Color Brush mode toggle */}
-          <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-border/80 bg-secondary/40 p-1">
+          <div className="grid grid-cols-3 gap-1 rounded-2xl border border-border/80 bg-secondary/40 p-1">
             <button
               type="button"
               onClick={() => setMode("erase")}
-              className={
-                "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-all " +
-                (mode === "erase"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground")
-              }
+              className={cn(
+                "flex items-center justify-center gap-1 sm:gap-1.5 rounded-xl py-1.5 sm:py-2 px-1 text-[11px] sm:text-xs font-semibold transition-all truncate",
+                mode === "erase"
+                  ? "bg-background text-foreground shadow-sm font-bold"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
             >
-              <Eraser01Icon size={14} />
-              <span>Erase</span>
+              <Eraser01Icon size={14} className="shrink-0" />
+              <span className="truncate">Erase</span>
             </button>
             <button
               type="button"
               onClick={() => setMode("restore")}
-              className={
-                "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-all " +
-                (mode === "restore"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground")
-              }
+              className={cn(
+                "flex items-center justify-center gap-1 sm:gap-1.5 rounded-xl py-1.5 sm:py-2 px-1 text-[11px] sm:text-xs font-semibold transition-all truncate",
+                mode === "restore"
+                  ? "bg-background text-foreground shadow-sm font-bold"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
             >
-              <ReloadIcon size={14} />
-              <span>Restore</span>
+              <ReloadIcon size={14} className="shrink-0" />
+              <span className="truncate">Restore</span>
             </button>
             <button
               type="button"
               onClick={() => setMode("brush")}
-              className={
-                "flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-all " +
-                (mode === "brush"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground")
-              }
+              className={cn(
+                "flex items-center justify-center gap-1 sm:gap-1.5 rounded-xl py-1.5 sm:py-2 px-1 text-[11px] sm:text-xs font-semibold transition-all truncate",
+                mode === "brush"
+                  ? "bg-background text-foreground shadow-sm font-bold"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
             >
-              <PaintBrush01Icon size={14} />
-              <span>Color Brush</span>
+              <PaintBrush01Icon size={14} className="shrink-0" />
+              <span className="truncate">Color Brush</span>
             </button>
           </div>
 
           {/* Brush Color Picker Bar (when Color Brush mode is active) */}
           {mode === "brush" ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card/60 px-3 py-2">
-              <span className="text-xs font-semibold text-foreground">Brush Color</span>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  {BRUSH_PRESET_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setBrushColor(c)}
-                      style={{ backgroundColor: c }}
-                      className={cn(
-                        "h-5 w-5 rounded-full border border-black/20 transition-transform hover:scale-110 active:scale-95",
-                        brushColor.toLowerCase() === c.toLowerCase() &&
-                          "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110",
-                      )}
-                      title={c}
-                    />
-                  ))}
-                </div>
-                <div className="h-4 w-px bg-border mx-0.5" />
-                <ColorInput
-                  value={brushColor}
-                  onChange={setBrushColor}
-                  showHex={true}
-                  align="end"
-                  className="h-7"
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card/60 px-3 py-2">
+              <span className="shrink-0 text-xs font-semibold text-foreground">Color</span>
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar px-2 py-2">
+                {BRUSH_PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setBrushColor(c)}
+                    style={{ backgroundColor: c }}
+                    className={cn(
+                      "h-5 w-5 shrink-0 rounded-full border border-black/20 transition-transform hover:scale-110 active:scale-95",
+                      brushColor.toLowerCase() === c.toLowerCase() &&
+                        "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110",
+                    )}
+                    title={c}
+                  />
+                ))}
+              </div>
+              <div className="h-4 w-px shrink-0 bg-border mx-0.5" />
+              <div className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setCustomColorOpen((o) => !o)}
+                  className={cn(
+                    "group flex h-8 items-center gap-2 rounded-full border border-border/80 bg-secondary/60 pl-2.5 pr-1.5 py-1 text-xs font-semibold text-muted-foreground transition-all hover:bg-secondary hover:text-foreground hover:scale-105 active:scale-95 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary",
+                    customColorOpen && "ring-2 ring-primary ring-offset-2 ring-offset-background bg-secondary text-foreground",
+                  )}
+                  title="Custom color picker / eyedropper"
+                >
+                  <PaintBoardIcon size={16} className="text-foreground shrink-0 transition-transform group-hover:scale-110" />
+                  <span
+                    className="h-5 w-5 shrink-0 rounded-full border border-black/20 dark:border-white/20 shadow-sm ring-1 ring-black/10 dark:ring-white/10"
+                    style={{ backgroundColor: brushColor }}
+                  />
+                </button>
+
+                <DraggableColorPanel
+                  open={customColorOpen}
+                  onClose={() => setCustomColorOpen(false)}
+                  brushColor={brushColor}
+                  setBrushColor={setBrushColor}
                 />
               </div>
             </div>
           ) : null}
 
-          {/* Canvas stage — checkerboard shows through wherever erased.
-              overflow-hidden here is what makes zooming in behave like a
-              viewport onto a bigger canvas instead of the dialog itself
-              growing — anything past the stage's own bounds is just clipped. */}
+          {/* Canvas stage — checkerboard shows through wherever erased */}
           <div
             ref={stageRef}
             onWheel={handleWheel}
@@ -454,7 +581,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
               backgroundColor: "#18181b",
             }}
-            className="relative flex h-84 w-full items-center justify-center overflow-hidden rounded-2xl border border-border"
+            className="relative flex h-56 sm:h-76 w-full items-center justify-center overflow-hidden rounded-2xl border border-border touch-none"
           >
             <canvas
               ref={canvasRef}
@@ -467,22 +594,12 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               style={{
                 touchAction: "none",
                 cursor: panMode ? "grab" : "none",
-                // aspectRatio (not object-fit) is what keeps this pointer-
-                // accurate — sizing the element itself to the image's own
-                // ratio means its bounding rect IS the visible image area,
-                // with no separate letterboxed gap for getCanvasPoint's
-                // scale-factor math to silently ignore. The zoom/pan
-                // transform composes with that cleanly: getBoundingClientRect
-                // already reflects it, so getCanvasPoint needs no extra math.
                 aspectRatio: String(aspectRatio),
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom / 100})`,
               }}
-              className="max-h-84 max-w-full select-none rounded-sm shadow-2xl ring-1 ring-white/20"
+              className="max-h-56 sm:max-h-76 max-w-full select-none rounded-sm shadow-2xl ring-1 ring-white/20"
             />
-            {/* Brush cursor — a live-sized ring following the pointer so
-                the actual erase/brush area is obvious before you commit a stroke.
-                Hidden in Pan mode, where dragging repositions the view
-                instead of brushing, so the ring would be misleading. */}
+            {/* Brush cursor ring */}
             {cursorPos.visible && !panMode ? (
               <div
                 className="pointer-events-none absolute rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]"
@@ -503,13 +620,8 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
             ) : null}
           </div>
 
-          {/* Zoom + Pan — zoom in for precise work on fine detail, then
-              toggle Pan to reposition the (now-clipped, per the stage's
-              overflow-hidden) view before zooming back out or continuing
-              to brush. Erase/Restore both drag-to-draw, so Pan needs to be
-              its own explicit mode rather than a modifier — see panMode's
-              own comment above. */}
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card/60 p-3">
+          {/* Zoom + Pan */}
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/60 p-2.5 sm:p-3">
             <div className="flex-1 space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="font-semibold text-foreground">Zoom</span>
@@ -528,7 +640,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               </div>
             </div>
 
-            <div className="flex items-center border-l border-border pl-3">
+            <div className="flex items-center border-l border-border pl-2.5 sm:pl-3">
               <Chip
                 onClick={() => setPanMode((p) => !p)}
                 active={panMode}
@@ -541,7 +653,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
           </div>
 
           {/* Brush size + Undo/Reset */}
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card/60 p-3">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card/60 p-2.5 sm:p-3">
             <div className="flex-1 space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="font-semibold text-foreground">Brush Size</span>
@@ -550,7 +662,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
               <Range value={brushSize} min={5} max={150} showInput={false} onChange={setBrushSize} />
             </div>
 
-            <div className="flex items-center gap-1.5 border-l border-border pl-3">
+            <div className="flex items-center gap-1.5 border-l border-border pl-2.5 sm:pl-3">
               <Chip
                 onClick={handleUndo}
                 disabled={!canUndo}
@@ -571,7 +683,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
         </div>
 
         {/* Footer Buttons */}
-        <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
+        <div className="mt-4 sm:mt-5 flex items-center justify-end gap-2 border-t border-border pt-3 sm:pt-4">
           <button
             type="button"
             onClick={onClose}

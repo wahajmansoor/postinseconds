@@ -17,6 +17,7 @@ import { compressImageFiles } from "@/lib/imageCompression";
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
+import { toast } from "sonner";
 import {
   Add01Icon,
   Bookmark01Icon,
@@ -468,6 +469,18 @@ function DraggableFloatingLayersButton({
   );
 }
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const parts = dataUrl.split(",");
+  const mimeMatch = parts[0]?.match(/:(.*?);/);
+  const mime: string = (mimeMatch && mimeMatch[1]) ? mimeMatch[1] : "image/png";
+  const binary = atob(parts[1] || "");
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
 // Normalizes an exported image's URL (a `data:` URL for png/jpg/webp from
 // html-to-image, or a `blob:` URL for gif from gifRenderer.ts's own
 // URL.createObjectURL) into a plain base64 payload + mime type, for handing
@@ -505,19 +518,54 @@ async function urlToBase64(url: string): Promise<{ base64: string; mime: string 
 // permission needed for that, unlike the public Pictures/Downloads
 // directories) and hands it to the native OS share sheet, whose "Save
 // image"/"Save to Files" options are what actually persists it to a place
-// the user can find it outside the app.
 async function saveExportedImageNative(url: string, filename: string): Promise<void> {
   const { base64 } = await urlToBase64(url);
-  const written = await Filesystem.writeFile({
-    path: filename,
-    data: base64,
-    directory: Directory.Cache,
-  });
-  await Share.share({
-    title: filename,
-    url: written.uri,
-    dialogTitle: "Save your quote",
-  });
+
+  // 1. Try saving directly into Documents storage (accessible by phone Gallery / File Manager)
+  try {
+    const perm = await Filesystem.checkPermissions();
+    if (perm.publicStorage !== "granted") {
+      await Filesystem.requestPermissions();
+    }
+    await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Documents,
+      recursive: true,
+    });
+    toast.success(`Saved ${filename} to Documents/Gallery!`);
+    return;
+  } catch (docErr) {
+    console.warn("Direct save to Documents failed, attempting external storage:", docErr);
+  }
+
+  // 2. Try External Storage
+  try {
+    await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.ExternalStorage,
+      recursive: true,
+    });
+    toast.success(`Saved ${filename} to Gallery/Downloads!`);
+    return;
+  } catch (extErr) {
+    console.warn("External storage write failed, falling back to cache save:", extErr);
+  }
+
+  // 3. Fallback: save to app cache
+  try {
+    await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Cache,
+      recursive: true,
+    });
+    toast.success(`Downloaded ${filename}!`);
+  } catch (cacheErr) {
+    console.error("Native write failed:", cacheErr);
+    toast.error("Failed to save image to device.");
+  }
 }
 
 function Index() {
@@ -1984,18 +2032,6 @@ function Index() {
     }
   };
 
-function dataUrlToBlob(dataUrl: string): Blob {
-  const parts = dataUrl.split(",");
-  const mimeMatch = parts[0]?.match(/:(.*?);/);
-  const mime: string = (mimeMatch && mimeMatch[1]) ? mimeMatch[1] : "image/png";
-  const binary = atob(parts[1] || "");
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mime });
-}
-
   const confirmDownload = async () => {
     if (isExportingFinal) return;
     setIsExportingFinal(true);
@@ -2015,36 +2051,21 @@ function dataUrlToBlob(dataUrl: string): Blob {
       if (Capacitor.isNativePlatform()) {
         await saveExportedImageNative(finalUrl, filename);
       } else {
+        // Direct browser file download (saved directly into device Downloads / Gallery without opening share dialog)
         const blob = finalUrl.startsWith("blob:")
           ? await fetch(finalUrl).then((r) => r.blob())
           : dataUrlToBlob(finalUrl);
 
-        // 2. Native Web Share Sheet on mobile browsers (iOS Safari, Chrome for Android)
-        const file = new File([blob], filename, { type: blob.type || `image/${s.exportFormat}` });
-        if (typeof navigator !== "undefined" && typeof navigator.share === "function" && navigator.canShare && navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: "Save your quote",
-            });
-            setPreviewOpen(false);
-            return;
-          } catch (shareErr: any) {
-            if (shareErr?.name === "AbortError") {
-              return;
-            }
-          }
-        }
-
-        // 3. Robust Blob URL link download for desktop & mobile fallback
         const blobUrl = finalUrl.startsWith("blob:") ? finalUrl : URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = blobUrl;
         a.download = filename;
-        a.rel = "noopener";
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
         a.style.display = "none";
         document.body.appendChild(a);
         a.click();
+        toast.success(`Downloaded ${filename}!`);
         setTimeout(() => {
           document.body.removeChild(a);
           if (!finalUrl.startsWith("blob:")) {
@@ -2055,6 +2076,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
       setPreviewOpen(false);
     } catch (err) {
       console.error("Download failed:", err);
+      toast.error("Failed to download image.");
     } finally {
       setIsExportingFinal(false);
     }
@@ -2889,6 +2911,8 @@ function dataUrlToBlob(dataUrl: string): Blob {
             // thicker at high zoom instead of a true, constant 3px.
             outline: isBackgroundSelected ? `${3 / (scale || 1)}px solid #0021ff` : "none",
           }}
+          id="quote-canvas-root"
+          data-quote-canvas="true"
           className="shadow-[var(--shadow-panel)] ring-1 ring-border"
         >
           <QuoteCanvas

@@ -1051,14 +1051,17 @@ export function LeftPanel({
         onSelectLayer?.({ kind: "text", id: res.newId });
         const added = res.list.find((t) => t.id === res.newId);
         if (added) void refineTextColorFromCanvas(added.id, added.x, added.y, added.color);
-        // Auto start editing and open virtual keyboard / desktop focus
-        setTimeout(() => {
+        // Auto start editing, highlight entire text and open virtual keyboard / desktop focus
+        const triggerStartEditing = () => {
           const handles = (window as any).__PIX_TEXT_HANDLES__;
           if (handles && typeof handles.get === "function") {
             const h = handles.get(res.newId);
             h?.startEditing?.();
           }
-        }, 120);
+        };
+        setTimeout(triggerStartEditing, 40);
+        setTimeout(triggerStartEditing, 160);
+        setTimeout(triggerStartEditing, 320);
       }
       onItemSelect?.();
     };

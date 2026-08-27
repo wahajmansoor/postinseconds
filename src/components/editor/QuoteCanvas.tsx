@@ -2323,6 +2323,19 @@ function wordRangeFromPoint(x: number, y: number, container: HTMLElement): Range
 
 function getSelectionCharacterOffsets(container: HTMLElement, range: Range): { start: number; end: number } | null {
   try {
+    const preSelectionRange = range.cloneRange();
+    preSelectionRange.selectNodeContents(container);
+    preSelectionRange.setEnd(range.startContainer, range.startOffset);
+    const start = preSelectionRange.toString().length;
+    const end = start + range.toString().length;
+
+    if (start < end) {
+      return { start, end };
+    }
+  } catch {
+  }
+
+  try {
     const treeWalker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
     let charCount = 0;
     let start = -1;
@@ -2332,11 +2345,11 @@ function getSelectionCharacterOffsets(container: HTMLElement, range: Range): { s
       const node = treeWalker.currentNode;
       const nodeLen = node.textContent?.length || 0;
 
-      if (start === -1 && node === range.startContainer) {
-        start = charCount + range.startOffset;
+      if (start === -1 && (node === range.startContainer || range.startContainer.contains(node))) {
+        start = charCount + (node === range.startContainer ? range.startOffset : 0);
       }
-      if (end === -1 && node === range.endContainer) {
-        end = charCount + range.endOffset;
+      if (end === -1 && (node === range.endContainer || range.endContainer.contains(node))) {
+        end = charCount + (node === range.endContainer ? range.endOffset : nodeLen);
       }
       charCount += nodeLen;
     }
@@ -3166,6 +3179,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         newRange.selectNodeContents(wrapper);
         sel?.removeAllRanges();
         sel?.addRange(newRange);
+      } else {
+        const offsets = getSelectionCharacterOffsets(el, range);
+        if (offsets) {
+          selectionSnapshotRef.current = { range: range.cloneRange(), charOffsets: offsets };
+        }
       }
     } catch (err) {
       console.error("Style apply error:", err);
@@ -3230,10 +3248,9 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const setLetterSpacing = (v: number) => update({ letterSpacing: v });
   const setLineHeight = (v: number) => update({ lineHeight: v });
   const setVerticalAlign = (v: "top" | "middle" | "bottom") => update({ verticalAlign: v });
-
   const startEditing = useCallback(() => {
     setIsEditing(true);
-    requestAnimationFrame(() => {
+    const selectAllAndFocus = () => {
       const el = editableRef.current;
       if (el) {
         el.focus();
@@ -3242,8 +3259,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         const sel = window.getSelection();
         sel?.removeAllRanges();
         sel?.addRange(range);
+        snapshotSelection();
       }
-    });
+    };
+    requestAnimationFrame(selectAllAndFocus);
+    setTimeout(selectAllAndFocus, 50);
   }, []);
 
   const handleRef = useRef<TextLayerHandle>({
@@ -3539,6 +3559,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             }
           }}
           onBlur={(e) => {
+            snapshotSelection();
             syncFromLiveDom(e.currentTarget, true);
             setIsEditing(false);
           }}
@@ -3565,6 +3586,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             touchAction: isEditing ? "auto" : "none",
             userSelect: isEditing ? "text" : "none",
             cursor: !canInteract ? "default" : locked ? "pointer" : isEditing ? "text" : "grab",
+            caretColor: t.color || "currentColor",
             display: "block",
             width: "100%",
             ...getTextEffectStyle(t),

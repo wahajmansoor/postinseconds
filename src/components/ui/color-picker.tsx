@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Pipette, Check, ChevronDown, Copy } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -209,7 +210,7 @@ export const HEROUI_PALETTES = [
       "#F31260", // Danger
       "#18181B", // Dark
       "#71717A", // Default/Zinc
-      "#FFFFFF", // Light
+      "#06B6D4", // Cyan
     ],
   },
   {
@@ -524,6 +525,165 @@ export interface ColorPickerProps {
   enableEyeDropper?: boolean | undefined;
 }
 
+function InteractiveCanvasEyedropper({
+  currentColor,
+  onSelect,
+  onClose,
+}: {
+  currentColor: string;
+  onSelect: (hex: string) => void;
+  onClose: () => void;
+}) {
+  const [sampledColor, setSampledColor] = useState(currentColor);
+  const [loupePos, setLoupePos] = useState<{ x: number; y: number; visible: boolean }>({
+    x: typeof window !== "undefined" ? window.innerWidth / 2 : 0,
+    y: typeof window !== "undefined" ? window.innerHeight / 2 : 0,
+    visible: false,
+  });
+  const [isCapturing, setIsCapturing] = useState(true);
+  const sampledCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRectRef = useRef<DOMRect | null>(null);
+
+  useEffect(() => {
+    let unmounted = false;
+    const capture = async () => {
+      try {
+        const target =
+          document.querySelector<HTMLElement>("[data-quote-canvas]") ||
+          document.querySelector<HTMLElement>("#quote-canvas-root") ||
+          document.body;
+
+        canvasRectRef.current = target.getBoundingClientRect();
+        const mod = await import("html-to-image");
+        const canvas = await mod.toCanvas(target, {
+          pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+          cacheBust: false,
+          skipFonts: true,
+        });
+        if (!unmounted) {
+          sampledCanvasRef.current = canvas;
+          setIsCapturing(false);
+        }
+      } catch (err) {
+        console.warn("Eyedropper canvas snapshot failed, using element sampling:", err);
+        if (!unmounted) setIsCapturing(false);
+      }
+    };
+    void capture();
+    return () => {
+      unmounted = true;
+    };
+  }, []);
+
+  const sampleColorAt = useCallback((clientX: number, clientY: number): string => {
+    const canvas = sampledCanvasRef.current;
+    const rect = canvasRectRef.current;
+    if (canvas && rect && rect.width > 0 && rect.height > 0) {
+      const relX = (clientX - rect.left) / rect.width;
+      const relY = (clientY - rect.top) / rect.height;
+      if (relX >= 0 && relX <= 1 && relY >= 0 && relY <= 1) {
+        const px = Math.max(0, Math.min(canvas.width - 1, Math.round(relX * canvas.width)));
+        const py = Math.max(0, Math.min(canvas.height - 1, Math.round(relY * canvas.height)));
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (ctx) {
+          const pixel = ctx.getImageData(px, py, 1, 1).data;
+          const r = (pixel[0] ?? 0).toString(16).padStart(2, "0");
+          const g = (pixel[1] ?? 0).toString(16).padStart(2, "0");
+          const b = (pixel[2] ?? 0).toString(16).padStart(2, "0");
+          return `#${r}${g}${b}`;
+        }
+      }
+    }
+    // Fallback: query element under pointer
+    const el = document.elementFromPoint(clientX, clientY);
+    if (el) {
+      const style = window.getComputedStyle(el);
+      const bg = style.backgroundColor || style.color;
+      if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
+        const rgba = parseColorToRgba(bg);
+        return rgbaToHex(rgba, false);
+      }
+    }
+    return sampledColor;
+  }, [sampledColor]);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const color = sampleColorAt(e.clientX, e.clientY);
+    setSampledColor(color);
+    setLoupePos({ x: e.clientX, y: e.clientY, visible: true });
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const color = sampleColorAt(e.clientX, e.clientY);
+    setSampledColor(color);
+    setLoupePos({ x: e.clientX, y: e.clientY, visible: true });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    const finalColor = sampleColorAt(e.clientX, e.clientY);
+    onSelect(finalColor);
+  };
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={() => setLoupePos((p) => ({ ...p, visible: false }))}
+      style={{ touchAction: "none" }}
+      className="fixed inset-0 z-[99999] cursor-crosshair select-none bg-black/20 backdrop-blur-[1px] animate-in fade-in duration-150"
+    >
+      {/* Top instruction header */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full border border-white/20 bg-background/95 px-4 py-2 shadow-2xl backdrop-blur-xl pointer-events-auto">
+        <span
+          className="h-5 w-5 rounded-full border border-black/20 shadow-sm"
+          style={{ backgroundColor: sampledColor }}
+        />
+        <span className="font-mono text-xs font-bold text-foreground">{sampledColor.toUpperCase()}</span>
+        <span className="text-[11px] text-muted-foreground hidden sm:inline">
+          {isCapturing ? "Preparing eyedropper..." : "Tap or drag across canvas to sample"}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="rounded-full bg-secondary/80 px-2.5 py-1 text-xs font-semibold text-foreground hover:bg-secondary active:scale-95 cursor-pointer"
+        >
+          Cancel
+        </button>
+      </div>
+
+      {/* Floating Magnifier Loupe */}
+      {loupePos.visible ? (
+        <div
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-[120%] flex flex-col items-center gap-1 transition-transform ease-out duration-75"
+          style={{
+            left: loupePos.x,
+            top: Math.max(80, loupePos.y - 20),
+          }}
+        >
+          <div
+            className="relative grid h-16 w-16 place-items-center rounded-full border-4 border-white shadow-[0_4px_20px_rgba(0,0,0,0.5)] ring-2 ring-black/20"
+            style={{ backgroundColor: sampledColor }}
+          >
+            {/* Center crosshair */}
+            <div className="h-2 w-2 rounded-full border border-white bg-black/40 shadow-sm" />
+          </div>
+          <span className="rounded-md bg-black/80 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-md">
+            {sampledColor.toUpperCase()}
+          </span>
+        </div>
+      ) : null}
+    </div>,
+    document.body,
+  );
+}
+
 export function ColorPickerContent({
   value,
   onChange,
@@ -543,6 +703,7 @@ export function ColorPickerContent({
   const [format, setFormat] = useState<"hex" | "rgb" | "hsb" | "hsl">("hex");
   const [hexInput, setHexInput] = useState(() => rgbaToHex(parseColorToRgba(value || "#000000")).replace("#", ""));
   const [copied, setCopied] = useState(false);
+  const [isSamplingScreen, setIsSamplingScreen] = useState(false);
 
   // Sync external changes
   useEffect(() => {
@@ -563,21 +724,25 @@ export function ColorPickerContent({
     [onChange, showAlpha],
   );
 
-  // Native EyeDropper
-  const hasEyeDropper = typeof window !== "undefined" && "EyeDropper" in window;
+  // Screen Eyedropper — tries Chromium native EyeDropper API first;
+  // seamlessly falls back to Interactive in-canvas Touch Eyedropper on mobile & Safari.
   const handleEyeDropper = async () => {
-    if (!hasEyeDropper) return;
-    try {
-      // @ts-expect-error - experimental API
-      const eyeDropper = new window.EyeDropper();
-      const result = await eyeDropper.open();
-      if (result?.sRGBHex) {
-        const rgba = parseColorToRgba(result.sRGBHex);
-        updateHsva(rgbaToHsva(rgba));
+    if (typeof window !== "undefined" && "EyeDropper" in window) {
+      try {
+        // @ts-expect-error - experimental Chromium API
+        const eyeDropper = new window.EyeDropper();
+        const result = await eyeDropper.open();
+        if (result?.sRGBHex) {
+          const rgba = parseColorToRgba(result.sRGBHex);
+          updateHsva(rgbaToHsva(rgba));
+          return;
+        }
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
       }
-    } catch {
-      // User cancelled
     }
+    // Fallback: full-screen touch color sampler for mobile, Android, iOS & WebViews
+    setIsSamplingScreen(true);
   };
 
   const handleCopy = () => {
@@ -625,34 +790,28 @@ export function ColorPickerContent({
         </div>
 
         {enableEyeDropper && (
-          hasEyeDropper ? (
-            <button
-              type="button"
-              onClick={handleEyeDropper}
-              title="Eyedropper (Pick color from screen)"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-black/10 dark:border-white/15 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95"
-            >
-              <Pipette size={14} />
-            </button>
-          ) : (
-            <label
-              title="Color dropper / picker"
-              className="relative flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-black/10 dark:border-white/15 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95"
-            >
-              <Pipette size={14} />
-              <input
-                type="color"
-                value={currentColor.slice(0, 7)}
-                onChange={(e) => {
-                  const rgba = parseColorToRgba(e.target.value);
-                  updateHsva(rgbaToHsva(rgba));
-                }}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              />
-            </label>
-          )
+          <button
+            type="button"
+            onClick={handleEyeDropper}
+            title="Eyedropper (Pick color from screen)"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-black/10 dark:border-white/15 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground active:scale-95 cursor-pointer"
+          >
+            <Pipette size={14} />
+          </button>
         )}
       </div>
+
+      {isSamplingScreen ? (
+        <InteractiveCanvasEyedropper
+          currentColor={currentColor}
+          onSelect={(hex) => {
+            const parsed = parseColorToRgba(hex);
+            updateHsva(rgbaToHsva(parsed));
+            setIsSamplingScreen(false);
+          }}
+          onClose={() => setIsSamplingScreen(false)}
+        />
+      ) : null}
 
       {/* 3. HeroUI ColorField (Format Switcher & Values) */}
       <div className="flex items-center gap-1.5 rounded-xl border border-black/10 dark:border-white/15 bg-secondary/40 p-1">
@@ -809,6 +968,18 @@ export function ColorPickerContent({
   );
 }
 
+export interface ColorPickerProps {
+  value: string;
+  onChange: (value: string) => void;
+  showAlpha?: boolean | undefined;
+  showHex?: boolean | undefined;
+  showIcon?: boolean | undefined;
+  className?: string | undefined;
+  swatchClassName?: string | undefined;
+  align?: "start" | "center" | "end" | undefined;
+  enableEyeDropper?: boolean | undefined;
+}
+
 /**
  * HeroUI ColorPicker with Radix Popover Integration
  */
@@ -817,6 +988,7 @@ export function ColorPicker({
   onChange,
   showAlpha = false,
   showHex = true,
+  showIcon = false,
   className,
   swatchClassName,
   align = "start",
@@ -828,15 +1000,32 @@ export function ColorPicker({
     <div className={cn("inline-flex items-center gap-2", className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "relative h-8 w-8 shrink-0 cursor-pointer overflow-hidden rounded-full border border-border shadow-sm transition-all hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
-              swatchClassName,
-            )}
-            style={{ backgroundColor: value || "#000000" }}
-            title="Open HeroUI color picker"
-          />
+          {showIcon ? (
+            <button
+              type="button"
+              className={cn(
+                "relative flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/80 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground hover:scale-105 active:scale-95 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary",
+                swatchClassName,
+              )}
+              title="Custom color picker / eyedropper"
+            >
+              <Pipette size={14} className="text-foreground" />
+              <span
+                className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background shadow-sm"
+                style={{ backgroundColor: value || "#000000" }}
+              />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={cn(
+                "relative flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 cursor-pointer overflow-hidden rounded-full border border-black/20 dark:border-white/20 shadow-sm transition-all hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                swatchClassName,
+              )}
+              style={{ backgroundColor: value || "#000000" }}
+              title="Custom color picker"
+            />
+          )}
         </PopoverTrigger>
         <PopoverContent
           data-keep-text-editing=""

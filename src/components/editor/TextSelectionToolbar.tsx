@@ -321,15 +321,6 @@ export function TextSelectionToolbar({
     e.stopPropagation();
   };
 
-  const dismissMobileKeyboard = () => {
-    if (typeof document !== "undefined") {
-      const active = document.activeElement as HTMLElement | null;
-      if (active && typeof active.blur === "function") {
-        active.blur();
-      }
-    }
-  };
-
   // Press-and-hold repeat for the Decrease/Increase size buttons below —
   // see useHoldRepeat's own comment in ui.tsx. Composed with
   // preserveSelection (not replacing it) on pointerdown: that call still
@@ -515,15 +506,14 @@ export function TextSelectionToolbar({
             type="button"
             onPointerDown={(e) => {
               handle.snapshotSelection();
-              dismissMobileKeyboard();
+              preserveSelection(e);
             }}
             onMouseDown={(e) => {
               handle.snapshotSelection();
-              dismissMobileKeyboard();
+              preserveSelection(e);
             }}
             onClick={() => {
               handle.snapshotSelection();
-              dismissMobileKeyboard();
               fontDrag.reset();
               setFontSearch("");
               setFontPinned(false);
@@ -596,15 +586,14 @@ export function TextSelectionToolbar({
             type="button"
             onPointerDown={(e) => {
               handle.snapshotSelection();
-              dismissMobileKeyboard();
+              preserveSelection(e);
             }}
             onMouseDown={(e) => {
               handle.snapshotSelection();
-              dismissMobileKeyboard();
+              preserveSelection(e);
             }}
             onClick={() => {
               handle.snapshotSelection();
-              dismissMobileKeyboard();
               textColorDrag.reset();
               setTextColorPinned(false);
               setTextColorOpen(true);

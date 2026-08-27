@@ -158,7 +158,7 @@ export function DragHandle({
       ) : (
         <span />
       )}
-      <div className="pointer-events-none absolute left-1/2 top-1/2 h-1 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border" />
+      <div className="pointer-events-none absolute left-1/2 top-1/2 hidden md:block h-1 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-border" />
       <div className="relative flex shrink-0 items-center gap-0.5">
         {onTogglePin ? (
           <button
@@ -168,7 +168,7 @@ export function DragHandle({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={onTogglePin}
             className={cn(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
+              "hidden md:flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
               pinned
                 ? "bg-destructive/15 text-destructive"
                 : "text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -601,6 +601,7 @@ export function ColorInput({
   onChange,
   showHex = true,
   showAlpha = false,
+  showIcon = false,
   className,
   swatchClassName,
   align = "start",
@@ -609,6 +610,7 @@ export function ColorInput({
   onChange: (v: string) => void;
   showHex?: boolean | undefined;
   showAlpha?: boolean | undefined;
+  showIcon?: boolean | undefined;
   className?: string | undefined;
   swatchClassName?: string | undefined;
   align?: "start" | "center" | "end" | undefined;
@@ -619,6 +621,7 @@ export function ColorInput({
       onChange={onChange}
       showHex={showHex}
       showAlpha={showAlpha}
+      showIcon={showIcon}
       className={className}
       swatchClassName={swatchClassName}
       align={align}
