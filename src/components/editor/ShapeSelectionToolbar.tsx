@@ -590,10 +590,11 @@ export function ShapeSelectionToolbar({
             onClose={() => setShadowOpen(false)}
           />
           <div className="space-y-3.5 p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-foreground">Drop Shadow</span>
-              <Toggle checked={layer.shadow} onChange={(v) => onUpdate({ shadow: v })} />
-            </div>
+            <Toggle
+              checked={layer.shadow}
+              onChange={(v) => onUpdate({ shadow: v })}
+              label="Drop Shadow"
+            />
 
             {layer.shadow ? (
               <div className="space-y-3 border-t border-border/50 pt-3">

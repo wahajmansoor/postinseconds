@@ -556,9 +556,9 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
 
           {/* Brush Color Picker Bar (when Color Brush mode is active) */}
           {mode === "brush" ? (
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-card/60 px-3 py-2">
+            <div className="flex items-center justify-between gap-1.5 sm:gap-2 rounded-xl border border-border bg-card/60 px-2 sm:px-3 py-1.5 sm:py-2">
               <span className="shrink-0 text-xs font-semibold text-foreground">Color</span>
-              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar px-2 py-2">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar px-1.5 sm:px-2 py-1.5">
                 {BRUSH_PRESET_COLORS.map((c) => (
                   <button
                     key={c}
@@ -566,7 +566,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
                     onClick={() => setBrushColor(c)}
                     style={{ backgroundColor: c }}
                     className={cn(
-                      "h-5 w-5 shrink-0 rounded-full border border-black/20 transition-transform hover:scale-110 active:scale-95",
+                      "h-5 w-5 sm:h-5.5 sm:w-5.5 shrink-0 rounded-full border border-black/20 transition-transform hover:scale-110 active:scale-95",
                       brushColor.toLowerCase() === c.toLowerCase() &&
                         "ring-2 ring-primary ring-offset-2 ring-offset-background scale-110",
                     )}
@@ -574,20 +574,20 @@ export function EraseImageDialog({ open, onClose, imageSrc, onErased }: EraseIma
                   />
                 ))}
               </div>
-              <div className="h-4 w-px shrink-0 bg-border mx-0.5" />
+              <div className="h-4 w-px shrink-0 bg-border mx-0.5 sm:mx-1" />
               <div className="shrink-0">
                 <button
                   type="button"
                   onClick={() => setCustomColorOpen((o) => !o)}
                   className={cn(
-                    "group flex h-8 items-center gap-2 rounded-full border border-border/80 bg-secondary/60 pl-2.5 pr-1.5 py-1 text-xs font-semibold text-muted-foreground transition-all hover:bg-secondary hover:text-foreground hover:scale-105 active:scale-95 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary",
+                    "group flex h-7 sm:h-8 items-center gap-1.5 sm:gap-2 rounded-full border border-border/80 bg-secondary/60 pl-2 sm:pl-2.5 pr-1 sm:pr-1.5 py-0.5 sm:py-1 text-xs font-semibold text-muted-foreground transition-all hover:bg-secondary hover:text-foreground hover:scale-105 active:scale-95 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary",
                     customColorOpen && "ring-2 ring-primary ring-offset-2 ring-offset-background bg-secondary text-foreground",
                   )}
                   title="Custom color picker / eyedropper"
                 >
-                  <PaintBoardIcon size={16} className="text-foreground shrink-0 transition-transform group-hover:scale-110" />
+                  <PaintBoardIcon size={15} className="text-foreground shrink-0 transition-transform group-hover:scale-110" />
                   <span
-                    className="h-5 w-5 shrink-0 rounded-full border border-black/20 dark:border-white/20 shadow-sm ring-1 ring-black/10 dark:ring-white/10"
+                    className="h-4 w-4 sm:h-5 sm:w-5 shrink-0 rounded-full border border-black/20 dark:border-white/20 shadow-sm ring-1 ring-black/10 dark:ring-white/10"
                     style={{ backgroundColor: brushColor }}
                   />
                 </button>

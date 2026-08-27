@@ -435,7 +435,7 @@ export function ImageSelectionToolbar({
             <Toggle
               checked={layer.shadow}
               onChange={(v) => onUpdate({ shadow: v })}
-              label="Drop shadow"
+              label="Drop Shadow"
             />
 
             {layer.shadow ? (

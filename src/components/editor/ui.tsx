@@ -530,18 +530,20 @@ export function Toggle({
   checked,
   onChange,
   label,
+  className,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label?: string;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between gap-3"
+      className={cn("flex w-full items-center justify-between gap-3 text-left", className)}
     >
-      {label ? <span className="text-xs font-medium text-foreground">{label}</span> : null}
+      {label ? <span className="text-xs font-semibold text-foreground whitespace-nowrap">{label}</span> : null}
       <span
         className={cn(
           "relative h-5 w-9 shrink-0 rounded-full transition-colors",
