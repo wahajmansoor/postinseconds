@@ -271,7 +271,7 @@ function ShapeGradientControl({
               onClick={() => onChange(g.value)}
               style={{ background: g.value }}
               className={cn(
-                "h-8 w-full rounded-lg border transition-transform hover:scale-105",
+                "h-8 w-full rounded-sm border transition-transform hover:scale-105",
                 gradient === g.value
                   ? "border-primary ring-2 ring-primary/40"
                   : "border-border",
@@ -2748,7 +2748,7 @@ export function LeftPanel({
               }}
               style={{ background: g.value }}
               className={cn(
-                "h-12 w-full rounded-2xl border transition-transform hover:scale-105",
+                "h-12 w-full rounded-sm border transition-transform hover:scale-105",
                 s.background === g.value && !s.bgImage ? "border-primary ring-2 ring-primary/40" : "border-border",
               )}
             />

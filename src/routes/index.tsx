@@ -16,6 +16,7 @@ import {
 import { compressImageFiles } from "@/lib/imageCompression";
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
+import { Haptics, NotificationType } from "@capacitor/haptics";
 import { Share } from "@capacitor/share";
 import { toast } from "sonner";
 import {
@@ -533,7 +534,10 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
       directory: Directory.Documents,
       recursive: true,
     });
-    toast.success(`Saved ${filename} to Documents/Gallery!`);
+    try {
+      await Haptics.notification({ type: NotificationType.Success });
+    } catch {}
+    toast.success(`Image saved successfully to your Gallery / Documents!`);
     return;
   } catch (docErr) {
     console.warn("Direct save to Documents failed, attempting external storage:", docErr);
@@ -547,7 +551,10 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
       directory: Directory.ExternalStorage,
       recursive: true,
     });
-    toast.success(`Saved ${filename} to Gallery/Downloads!`);
+    try {
+      await Haptics.notification({ type: NotificationType.Success });
+    } catch {}
+    toast.success(`Image saved successfully to your Gallery / Downloads!`);
     return;
   } catch (extErr) {
     console.warn("External storage write failed, falling back to cache save:", extErr);
@@ -561,6 +568,9 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
       directory: Directory.Cache,
       recursive: true,
     });
+    try {
+      await Haptics.notification({ type: NotificationType.Success });
+    } catch {}
     toast.success(`Downloaded ${filename}!`);
   } catch (cacheErr) {
     console.error("Native write failed:", cacheErr);

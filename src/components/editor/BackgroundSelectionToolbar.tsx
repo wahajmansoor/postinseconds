@@ -246,10 +246,10 @@ export function BackgroundSelectionToolbar({
                       title={g.label}
                       style={{ background: g.value }}
                       className={cn(
-                        "h-10 w-full rounded-xl border transition-transform hover:scale-105 active:scale-95",
+                        "h-10 w-full rounded-sm border transition-transform hover:scale-105 active:scale-95",
                         isGradientActive && s.background === g.value
                           ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
-                          : "border-border/60",
+                          : "border-border/90",
                       )}
                     />
                   ))}

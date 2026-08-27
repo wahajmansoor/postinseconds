@@ -152,9 +152,20 @@ export function DragHandle({
       style={{ touchAction: "none" }}
     >
       {label ? (
-        <span className="relative truncate text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
+        label.includes(" — ") ? (
+          <div className="relative flex flex-col leading-tight">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+              {label.split(" — ")[0]}
+            </span>
+            <span className="text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+              {label.split(" — ")[1]}
+            </span>
+          </div>
+        ) : (
+          <span className="relative truncate text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            {label}
+          </span>
+        )
       ) : (
         <span />
       )}

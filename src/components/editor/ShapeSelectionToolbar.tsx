@@ -357,7 +357,7 @@ export function ShapeSelectionToolbar({
                       onClick={() => onUpdate({ gradient: g.value })}
                       title={g.label}
                       className={cn(
-                        "h-8 rounded-lg border border-border/80 transition-transform hover:scale-105",
+                        "h-8 rounded-sm border border-border/80 transition-transform hover:scale-105",
                         layer.gradient === g.value && "ring-2 ring-primary",
                       )}
                       style={{ background: g.value }}
