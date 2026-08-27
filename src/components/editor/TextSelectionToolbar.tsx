@@ -558,7 +558,7 @@ export function TextSelectionToolbar({
             <ArrowLeft01Icon size={16} />
           </button>
         </AppTooltip>
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth px-1">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth px-2 py-2">
           {TOP_COLORS.map((c) => {
             const active = (currentColors.length === 1 && currentColors[0]?.toLowerCase() === c.toLowerCase()) || (layer.color?.toLowerCase() === c.toLowerCase());
             return (
