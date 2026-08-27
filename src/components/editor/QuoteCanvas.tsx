@@ -9,6 +9,7 @@ import {
 } from "hugeicons-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { HandGrabIcon } from "@hugeicons/core-free-icons";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { triggerAlignmentHaptic } from "@/lib/haptics";
 import {
@@ -76,6 +77,7 @@ type Props = {
   set?: <K extends keyof EditorState>(
     k: K,
     v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+    opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
   ) => void;
   selection?: { kind: "image" | "text" | "shape"; id: string }[];
   /** Fires whenever the canvas's own selection changes — lets a consumer
@@ -95,6 +97,12 @@ type Props = {
    * at all (browsers suppress the click when the pointerdown→up sequence
    * involved real movement), so this can't misfire during either. */
   onSelectBackground?: () => void;
+  /** Fires when background is tapped to deselect active layers on mobile */
+  onDeselectAll?: () => void;
+  /** Force mobile mode behavior (falls back to useIsMobile hook) */
+  isMobile?: boolean;
+  /** Show Canva-style dashed margins guide inside the canvas */
+  showMargins?: boolean;
   /** True for as long as a second touch is also down (a pinch gesture in
    * progress) — every layer's own drag-to-move checks this and bails out
    * immediately rather than starting/continuing a drag. Without this, one
@@ -118,9 +126,16 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     registerTextLayerHandle,
     suppressDragRef,
     onSelectBackground,
+    onDeselectAll,
+    isMobile,
+    showMargins = false,
   },
   ref,
 ) {
+  const isMobileHook = useIsMobile();
+  const effectiveIsMobile = isMobile !== undefined ? isMobile : isMobileHook;
+  const lastBgTapTimeRef = useRef<number>(0);
+  const lastBgTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   // Always-current `s` without being a captured closure value — `s`
   // necessarily gets a new reference on every keystroke typed into any text
   // layer (that's what typing does), and beginGroupDrag/updateGroupDrag
@@ -411,37 +426,49 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
 
       const imageItems = g.items.filter((it) => it.kind === "image");
       if (imageItems.length) {
-        set("images", (_, prevState) => {
-          let next = getImageLayers(prevState);
-          for (const it of imageItems) {
-            next = next.map((img) =>
-              img.id === it.id ? { ...img, x: it.startX + dxPct, y: it.startY + dyPct } : img,
-            );
-          }
-          return next;
-        });
+        set(
+          "images",
+          (_, prevState) => {
+            let next = getImageLayers(prevState);
+            for (const it of imageItems) {
+              next = next.map((img) =>
+                img.id === it.id ? { ...img, x: it.startX + dxPct, y: it.startY + dyPct } : img,
+              );
+            }
+            return next;
+          },
+          { continuousKey: "group-drag" },
+        );
       }
       const textItems = g.items.filter((it) => it.kind === "text");
       if (textItems.length) {
-        set("texts", (_, prevState) => {
-          let next = getTextLayers(prevState);
-          for (const it of textItems) {
-            next = next.map((t) => (t.id === it.id ? { ...t, x: it.startX + dxPct, y: it.startY + dyPct } : t));
-          }
-          return next;
-        });
+        set(
+          "texts",
+          (_, prevState) => {
+            let next = getTextLayers(prevState);
+            for (const it of textItems) {
+              next = next.map((t) => (t.id === it.id ? { ...t, x: it.startX + dxPct, y: it.startY + dyPct } : t));
+            }
+            return next;
+          },
+          { continuousKey: "group-drag" },
+        );
       }
       const shapeItems = g.items.filter((it) => it.kind === "shape");
       if (shapeItems.length) {
-        set("shapes", (_, prevState) => {
-          let next = getShapeLayers(prevState);
-          for (const it of shapeItems) {
-            next = next.map((sh) =>
-              sh.id === it.id ? { ...sh, x: it.startX + dxPct, y: it.startY + dyPct } : sh,
-            );
-          }
-          return next;
-        });
+        set(
+          "shapes",
+          (_, prevState) => {
+            let next = getShapeLayers(prevState);
+            for (const it of shapeItems) {
+              next = next.map((sh) =>
+                sh.id === it.id ? { ...sh, x: it.startX + dxPct, y: it.startY + dyPct } : sh,
+              );
+            }
+            return next;
+          },
+          { continuousKey: "group-drag" },
+        );
       }
     },
     [set],
@@ -616,7 +643,38 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       <div
         onClick={(e) => {
           if (suppressDragRef?.current) return;
-          if (interactive && e.target === e.currentTarget) onSelectBackground?.();
+          if (!interactive || e.target !== e.currentTarget) return;
+
+          if (effectiveIsMobile) {
+            const now = Date.now();
+            const timeSinceLast = now - lastBgTapTimeRef.current;
+            const dx = Math.abs(e.clientX - lastBgTapPosRef.current.x);
+            const dy = Math.abs(e.clientY - lastBgTapPosRef.current.y);
+
+            // Double click / double tap on mobile triggers background selection
+            if (timeSinceLast < 400 && dx < 30 && dy < 30) {
+              lastBgTapTimeRef.current = 0;
+              onSelectBackground?.();
+            } else {
+              // Single tap on mobile deselects active layers without selecting background
+              lastBgTapTimeRef.current = now;
+              lastBgTapPosRef.current = { x: e.clientX, y: e.clientY };
+              if (onDeselectAll) {
+                onDeselectAll();
+              } else if (onSelectionChange) {
+                onSelectionChange([]);
+              }
+            }
+          } else {
+            // Desktop: single click on background selects background as normal
+            onSelectBackground?.();
+          }
+        }}
+        onDoubleClick={(e) => {
+          if (suppressDragRef?.current) return;
+          if (interactive && e.target === e.currentTarget) {
+            onSelectBackground?.();
+          }
         }}
         style={{
           position: "absolute",
@@ -1238,6 +1296,24 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
             </button>
           </div>
         </div>
+      ) : null}
+
+      {/* Canva-Style Margin Guide Overlay */}
+      {showMargins && interactive ? (
+        <div
+          data-margin-guide="true"
+          className="pointer-events-none absolute z-[50]"
+          style={{
+            position: "absolute",
+            left: "8%",
+            top: "8%",
+            right: "8%",
+            bottom: "8%",
+            border: "1px dashed rgba(120, 130, 150, 0.75)",
+            boxSizing: "border-box",
+            borderRadius: Math.max(0, (s.canvasRadius ?? 0) * 0.8),
+          }}
+        />
       ) : null}
     </div>
   );
@@ -2568,6 +2644,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     | (<K extends keyof EditorState>(
         k: K,
         v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+        opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
       ) => void)
     | undefined;
   selected: boolean;
@@ -2748,8 +2825,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const tRef = useRef(t);
   tRef.current = t;
   const update = useCallback(
-    (patch: Partial<Omit<TextLayer, "id">>) =>
-      set?.("texts", (_, prevState) => withTextUpdated(prevState, t.id, patch)),
+    (
+      patch: Partial<Omit<TextLayer, "id">>,
+      opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
+    ) =>
+      set?.("texts", (_, prevState) => withTextUpdated(prevState, t.id, patch), opts),
     [set, t.id],
   );
   const remove = () => set?.("texts", (_, prevState) => withTextRemoved(prevState, t.id));
@@ -2775,6 +2855,15 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     (el: HTMLElement, immediate: boolean = false) => {
       const text = el.textContent ?? "";
       const html = sanitizeTextHtml(el.innerHTML);
+
+      // Skip redundant update if text and html haven't changed
+      if (
+        text === (t.text ?? "") &&
+        (html === (t.html ?? t.text ?? "") || (!t.html && html === text))
+      ) {
+        return;
+      }
+
       lastEmittedHtmlRef.current = html;
       editSnapshotRef.current = html;
 
@@ -2792,10 +2881,13 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       }
       syncTimeoutRef.current = setTimeout(() => {
         syncTimeoutRef.current = null;
-        update({ text, html, minHeight: undefined });
-      }, 150);
+        update(
+          { text, html, minHeight: undefined },
+          { continuousKey: `typing-${t.id}` },
+        );
+      }, 200);
     },
-    [update],
+    [update, t.id, t.text, t.html],
   );
 
   // Dedicated drag state/handlers for the overlay's Move handle — kept
@@ -2838,7 +2930,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         otherElements,
       });
       onGuides(snapGuides);
-      set?.("texts", (_, prevState) => withTextUpdated(prevState, t.id, { x: nextX, y: nextY }));
+      set?.(
+        "texts",
+        (_, prevState) => withTextUpdated(prevState, t.id, { x: nextX, y: nextY }),
+        { continuousKey: `text-drag-${t.id}` },
+      );
     };
 
     const onUp = () => {
@@ -3007,10 +3103,12 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       underline: !!t.underline,
       strike: !!t.strike,
       uppercase: !!t.uppercase,
+      fontFamily: t.fontFamily,
+      color: t.color,
       bulletList: false,
       numberedList: false,
     };
-  }, [isEditing, t.weight, t.italic, t.underline, t.strike, t.uppercase]);
+  }, [isEditing, t.weight, t.italic, t.underline, t.strike, t.uppercase, t.fontFamily, t.color, t.html, t.size, t.align]);
 
   const activeFormatListenersRef = useRef<Set<(format: LiveTextFormat) => void>>(new Set());
 
@@ -3157,18 +3255,25 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           child.style.removeProperty("color");
           if (!child.getAttribute("style")?.trim()) child.removeAttribute("style");
         });
-        syncFromLiveDom(el);
       }
       if (el && cssProps.fontFamily) {
         el.querySelectorAll<HTMLElement>("[style]").forEach((child) => {
           child.style.removeProperty("font-family");
           if (!child.getAttribute("style")?.trim()) child.removeAttribute("style");
         });
-        syncFromLiveDom(el);
       }
       const cleanHtml = t.html && cssProps.color ? stripInlineStyleProps(t.html, ["color"])
         : t.html && cssProps.fontFamily ? stripInlineStyleProps(t.html, ["font-family"])
         : undefined;
+
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      if (cleanHtml !== undefined) {
+        lastEmittedHtmlRef.current = cleanHtml;
+        editSnapshotRef.current = cleanHtml;
+      }
       update({ ...wholeLayerPatch, ...(cleanHtml !== undefined ? { html: cleanHtml } : {}) });
       return;
     }
@@ -3267,6 +3372,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   };
 
   const setFontFamily = (v: string) => {
+    if (v === t.fontFamily) return;
     loadGoogleFont(v);
     applyStyleSmart({ fontFamily: v }, { fontFamily: v });
   };
@@ -3501,7 +3607,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                 otherElements,
               });
               onGuides(snapGuides);
-              set?.("texts", (_, prevState) => withTextUpdated(prevState, targetId, { x: nextX, y: nextY }));
+              set?.(
+                "texts",
+                (_, prevState) => withTextUpdated(prevState, targetId, { x: nextX, y: nextY }),
+                { continuousKey: `text-drag-${targetId}` },
+              );
             };
 
             const onUp = () => {
@@ -3851,12 +3961,15 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                               return sanitizeTextHtml(tmp.innerHTML);
                             } catch { return t.html; }
                           })() : undefined;
-                          update({
-                            size: nextSize,
-                            ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                            minHeight: undefined,
-                            ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
-                          });
+                          update(
+                            {
+                              size: nextSize,
+                              ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+                              minHeight: undefined,
+                              ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+                            },
+                            { continuousKey: `text-resize-${t.id}` },
+                          );
                           onGuides(
                             calculateAlignmentSnap({
                               currentId: t.id,
@@ -3875,12 +3988,15 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                           const shift = rotateVector(centerShiftX(h.id, appliedDw), 0, rotation);
                           const nextX = r.startPosX + (shift.dx / s.width) * 100;
                           const nextY = r.startPosY + (shift.dy / s.height) * 100;
-                          update({
-                            width: nextWidth,
-                            minHeight: undefined,
-                            x: nextX,
-                            y: nextY,
-                          });
+                          update(
+                            {
+                              width: nextWidth,
+                              minHeight: undefined,
+                              x: nextX,
+                              y: nextY,
+                            },
+                            { continuousKey: `text-resize-${t.id}` },
+                          );
                           onGuides(
                             calculateAlignmentSnap({
                               currentId: t.id,
@@ -3983,6 +4099,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
     | (<K extends keyof EditorState>(
         k: K,
         v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+        opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
       ) => void)
     | undefined;
   selected: boolean;
@@ -4064,8 +4181,11 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   const rotation = img.rotation ?? 0;
   const imgRef = useRef(img);
   imgRef.current = img;
-  const update = (patch: Partial<Omit<ImageLayer, "id">>) =>
-    set?.("images", (_, prevState) => withImageUpdated(prevState, img.id, patch));
+  const update = (
+    patch: Partial<Omit<ImageLayer, "id">>,
+    opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
+  ) =>
+    set?.("images", (_, prevState) => withImageUpdated(prevState, img.id, patch), opts);
   const remove = () => set?.("images", (_, prevState) => withImageRemoved(prevState, img.id));
   const duplicate = () => {
     if (!set) return;
@@ -4167,7 +4287,11 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
           otherElements,
         });
         onGuides(snapGuides);
-        set?.("images", (_, prevState) => withImageUpdated(prevState, targetId, { x: nextX, y: nextY }));
+        set?.(
+          "images",
+          (_, prevState) => withImageUpdated(prevState, targetId, { x: nextX, y: nextY }),
+          { continuousKey: `image-drag-${targetId}` },
+        );
       };
 
       const onUp = () => {
@@ -4387,7 +4511,10 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                           const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
                           const nextX = r.startPosX + (shift.dx / s.width) * 100;
                           const nextY = r.startPosY + (shift.dy / s.height) * 100;
-                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          update(
+                            { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
+                            { continuousKey: `image-resize-${img.id}` },
+                          );
                           showResizeGuides(nextX, nextY, nextWidth, nextHeight);
                         } else {
                           const dw = widthDeltaFor(h.id, dx);
@@ -4399,7 +4526,10 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                           const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
                           const nextX = r.startPosX + (shift.dx / s.width) * 100;
                           const nextY = r.startPosY + (shift.dy / s.height) * 100;
-                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          update(
+                            { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
+                            { continuousKey: `image-resize-${img.id}` },
+                          );
                           showResizeGuides(nextX, nextY, nextWidth, nextHeight);
                         }
                       }}
@@ -4485,6 +4615,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
     | (<K extends keyof EditorState>(
         k: K,
         v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
+        opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
       ) => void)
     | undefined;
   selected: boolean;
@@ -4542,8 +4673,11 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const rotation = shape.rotation ?? 0;
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
-  const update = (patch: Partial<Omit<ShapeLayer, "id" | "kind">>) =>
-    set?.("shapes", (_, prevState) => withShapeUpdated(prevState, shape.id, patch));
+  const update = (
+    patch: Partial<Omit<ShapeLayer, "id" | "kind">>,
+    opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
+  ) =>
+    set?.("shapes", (_, prevState) => withShapeUpdated(prevState, shape.id, patch), opts);
   const remove = () => set?.("shapes", (_, prevState) => withShapeRemoved(prevState, shape.id));
   const duplicate = () => {
     if (!set) return;
@@ -4619,7 +4753,11 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
           otherElements,
         });
         onGuides(snapGuides);
-        set?.("shapes", (_, prevState) => withShapeUpdated(prevState, targetId, { x: nextX, y: nextY }));
+        set?.(
+          "shapes",
+          (_, prevState) => withShapeUpdated(prevState, targetId, { x: nextX, y: nextY }),
+          { continuousKey: `shape-drag-${targetId}` },
+        );
       };
 
       const onUp = () => {
@@ -4814,7 +4952,10 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                           const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
                           const nextX = r.startPosX + (shift.dx / s.width) * 100;
                           const nextY = r.startPosY + (shift.dy / s.height) * 100;
-                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          update(
+                            { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
+                            { continuousKey: `shape-resize-${shape.id}` },
+                          );
                           showResizeGuides(nextX, nextY, nextWidth, nextHeight);
                         } else {
                           const dw = widthDeltaFor(h.id, dx);
@@ -4826,7 +4967,10 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                           const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
                           const nextX = r.startPosX + (shift.dx / s.width) * 100;
                           const nextY = r.startPosY + (shift.dy / s.height) * 100;
-                          update({ size: nextWidth, height: nextHeight, x: nextX, y: nextY });
+                          update(
+                            { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
+                            { continuousKey: `shape-resize-${shape.id}` },
+                          );
                           showResizeGuides(nextX, nextY, nextWidth, nextHeight);
                         }
                       }}

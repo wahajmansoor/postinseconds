@@ -54,6 +54,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { SquareDashed } from "lucide-react";
 import { QuoteCanvas, type TextLayerHandle } from "@/components/editor/QuoteCanvas";
 import { LeftPanel } from "@/components/editor/LeftPanel";
 import { RightPanel } from "@/components/editor/RightPanel";
@@ -1076,6 +1077,7 @@ function Index() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [showRulers, setShowRulers] = useState(false);
+  const [showMargins, setShowMargins] = useState(false);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const stageSizeRef = useRef({ width: 0, height: 0 });
   const isCustomZoomRef = useRef(false);
@@ -1232,10 +1234,28 @@ function Index() {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
-  const history = useRef<EditorState[]>([INITIAL_STATE]);
+  const NON_CANVAS_KEYS: readonly (keyof EditorState)[] = [
+    "postName",
+    "exportFormat",
+    "exportScale",
+    "thumbnailUrl",
+  ] as const;
+
+  const extractCanvasState = (state: EditorState) => {
+    const { postName, exportFormat, exportScale, thumbnailUrl, ...canvasSlice } = state;
+    return canvasSlice;
+  };
+
+  const areCanvasStatesEqual = (a?: EditorState, b?: EditorState): boolean => {
+    if (!a || !b) return a === b;
+    if (a === b) return true;
+    return JSON.stringify(extractCanvasState(a)) === JSON.stringify(extractCanvasState(b));
+  };
+
+  const history = useRef<EditorState[]>([s]);
   const historyIdx = useRef(0);
   const lastCommitTimeRef = useRef<number>(0);
-  const lastCommitKeyRef = useRef<string>("");
+  const lastContinuousKeyRef = useRef<string>("");
 
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -1246,27 +1266,36 @@ function Index() {
   }, []);
 
   const commit = useCallback(
-    (fn: (prev: EditorState) => EditorState, opts?: { replace?: boolean | undefined; key?: string | undefined }) => {
+    (
+      fn: (prev: EditorState) => EditorState,
+      opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
+    ) => {
       setS((prev) => {
         const next = fn(prev);
         if (next === prev) return prev;
 
+        const currentHistory = history.current[historyIdx.current];
+        if (currentHistory && areCanvasStatesEqual(currentHistory, next)) {
+          return next;
+        }
+
         const now = Date.now();
         const timeSinceLast = now - lastCommitTimeRef.current;
-        const sameKey = opts?.key && opts.key === lastCommitKeyRef.current;
+        const isContinuous = Boolean(
+          opts?.continuousKey &&
+            opts.continuousKey === lastContinuousKeyRef.current &&
+            timeSinceLast < 600,
+        );
 
-        // Group rapid continuous updates (e.g. dragging a layer at 60fps, typing, slider scrubbing)
-        // into a single undo frame so 1 press of Ctrl+Z undos the full action immediately.
         const shouldReplace =
-          historyIdx.current > 0 &&
-          (opts?.replace || (sameKey && timeSinceLast < 1000));
+          historyIdx.current > 0 && (opts?.replace || isContinuous);
 
         if (shouldReplace) {
           history.current[historyIdx.current] = next;
         } else {
           history.current = history.current.slice(0, historyIdx.current + 1);
           history.current.push(next);
-          // Keep a healthy, fast history buffer of 50 states
+          // Keep up to 50 states in history
           if (history.current.length > 50) {
             history.current.shift();
           }
@@ -1274,7 +1303,7 @@ function Index() {
         }
 
         lastCommitTimeRef.current = now;
-        if (opts?.key) lastCommitKeyRef.current = opts.key;
+        lastContinuousKeyRef.current = opts?.continuousKey || "";
 
         updateUndoRedoState();
         return next;
@@ -1287,8 +1316,20 @@ function Index() {
     <K extends keyof EditorState>(
       k: K,
       v: EditorState[K] | ((prev: EditorState[K], prevState: EditorState) => EditorState[K]),
-      opts?: { replace?: boolean | undefined },
+      opts?: { replace?: boolean | undefined; continuousKey?: string | undefined },
     ) => {
+      // Non-canvas UI/export properties update directly without affecting canvas undo/redo history
+      if (NON_CANVAS_KEYS.includes(k)) {
+        setS((p) => {
+          const nextVal =
+            typeof v === "function"
+              ? (v as (prev: EditorState[K], state: EditorState) => EditorState[K])(p[k], p)
+              : v;
+          return { ...p, [k]: nextVal };
+        });
+        return;
+      }
+
       commit(
         (p) => {
           const nextVal =
@@ -1297,7 +1338,7 @@ function Index() {
               : v;
           return { ...p, [k]: nextVal };
         },
-        { key: String(k), ...(opts?.replace !== undefined ? { replace: opts.replace } : {}) },
+        opts,
       );
     },
     [commit],
@@ -1308,9 +1349,16 @@ function Index() {
       historyIdx.current -= 1;
       const target = history.current[historyIdx.current];
       if (target) {
-        setS(target);
-        // Reset grouping timer so subsequent changes start a fresh undo frame
+        setS((prev) => ({
+          ...target,
+          postName: prev.postName,
+          exportFormat: prev.exportFormat,
+          exportScale: prev.exportScale,
+          thumbnailUrl: prev.thumbnailUrl,
+        }));
+        // Reset continuous timer so subsequent changes start a fresh undo frame
         lastCommitTimeRef.current = 0;
+        lastContinuousKeyRef.current = "";
       }
       updateUndoRedoState();
     }
@@ -1321,8 +1369,15 @@ function Index() {
       historyIdx.current += 1;
       const target = history.current[historyIdx.current];
       if (target) {
-        setS(target);
+        setS((prev) => ({
+          ...target,
+          postName: prev.postName,
+          exportFormat: prev.exportFormat,
+          exportScale: prev.exportScale,
+          thumbnailUrl: prev.thumbnailUrl,
+        }));
         lastCommitTimeRef.current = 0;
+        lastContinuousKeyRef.current = "";
       }
       updateUndoRedoState();
     }
@@ -2310,13 +2365,10 @@ function Index() {
   const handleShapeArrange = useCallback(
     (direction: ShapeArrangeDirection) => {
       const ids = multiSelectedShapeLayers.map((l) => l.id);
-      commit(
-        (prev) => ({
-          ...prev,
-          layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
-        }),
-        { key: "arrange" },
-      );
+      commit((prev) => ({
+        ...prev,
+        layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
+      }));
     },
     [multiSelectedShapeLayers, commit],
   );
@@ -2380,13 +2432,10 @@ function Index() {
   const handleMixedArrange = useCallback(
     (direction: ShapeArrangeDirection) => {
       const ids = canvasSelection.map((l) => l.id);
-      commit(
-        (prev) => ({
-          ...prev,
-          layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
-        }),
-        { key: "arrange" },
-      );
+      commit((prev) => ({
+        ...prev,
+        layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
+      }));
     },
     [canvasSelection, commit],
   );
@@ -2404,13 +2453,10 @@ function Index() {
   const handleImageArrange = useCallback(
     (direction: ShapeArrangeDirection) => {
       const ids = multiSelectedImageLayers.map((l) => l.id);
-      commit(
-        (prev) => ({
-          ...prev,
-          layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
-        }),
-        { key: "arrange" },
-      );
+      commit((prev) => ({
+        ...prev,
+        layerOrder: withUnifiedLayersReordered(prev, ids, direction).layerOrder,
+      }));
     },
     [multiSelectedImageLayers, commit],
   );
@@ -2433,13 +2479,10 @@ function Index() {
 
   const handleSingleArrange = useCallback(
     (id: string, direction: ShapeArrangeDirection) => {
-      commit(
-        (prev) => ({
-          ...prev,
-          layerOrder: withUnifiedLayersReordered(prev, [id], direction).layerOrder,
-        }),
-        { key: "arrange" },
-      );
+      commit((prev) => ({
+        ...prev,
+        layerOrder: withUnifiedLayersReordered(prev, [id], direction).layerOrder,
+      }));
     },
     [commit],
   );
@@ -2765,8 +2808,11 @@ function Index() {
             shapeDetached ||
             backgroundDetached) ? (
           <div
-            className="pointer-events-none z-40 flex justify-center overflow-visible sticky top-4 h-0 w-full"
-            style={{ margin: "0 auto" }}
+            className="pointer-events-none z-40 flex justify-center overflow-visible sticky h-0 w-full transition-[top] duration-150"
+            style={{
+              margin: "0 auto",
+              top: showRulers ? `${RULER_SIZE + 16}px` : "1rem",
+            }}
           >
             <div
               data-nopan=""
@@ -3005,6 +3051,8 @@ function Index() {
             interactive
             scale={scale}
             set={set}
+            isMobile={isMobile}
+            showMargins={showMargins}
             selection={canvasSelection}
             onSelectionChange={setCanvasSelection}
             registerTextLayerHandle={registerTextLayerHandle}
@@ -3012,6 +3060,10 @@ function Index() {
             onSelectBackground={() => {
               setCanvasSelection([]);
               setIsBackgroundSelected(true);
+            }}
+            onDeselectAll={() => {
+              setCanvasSelection([]);
+              setIsBackgroundSelected(false);
             }}
           />
         </div>
@@ -4082,6 +4134,15 @@ function Index() {
                       className="flex h-7 w-7 items-center justify-center p-0"
                     >
                       <RulerIcon size={13} />
+                    </Chip>
+                  </AppTooltip>
+                  <AppTooltip content={showMargins ? "Hide margins" : "Show margins"}>
+                    <Chip
+                      onClick={() => setShowMargins((m) => !m)}
+                      active={showMargins}
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
+                      <SquareDashed size={13} />
                     </Chip>
                   </AppTooltip>
                   <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
