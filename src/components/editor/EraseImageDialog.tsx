@@ -129,6 +129,38 @@ function DraggableColorPanel({
     } catch {}
   };
 
+  const onTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    const touch = e.touches[0];
+    if (!touch) return;
+    isDraggingRef.current = true;
+    dragStartRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      initX: pos.x,
+      initY: pos.y,
+    };
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (!isDraggingRef.current) return;
+    e.stopPropagation();
+    const touch = e.touches[0];
+    if (!touch) return;
+    const dx = touch.clientX - dragStartRef.current.startX;
+    const dy = touch.clientY - dragStartRef.current.startY;
+    const maxX = Math.max(0, (typeof window !== "undefined" ? window.innerWidth : 400) - 290);
+    const maxY = Math.max(0, (typeof window !== "undefined" ? window.innerHeight : 600) - 350);
+    setPos({
+      x: Math.max(8, Math.min(maxX, dragStartRef.current.initX + dx)),
+      y: Math.max(8, Math.min(maxY, dragStartRef.current.initY + dy)),
+    });
+  };
+
+  const onTouchEnd = () => {
+    isDraggingRef.current = false;
+  };
+
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
@@ -150,6 +182,10 @@ function DraggableColorPanel({
         onPointerMove={handleDragPointerMove}
         onPointerUp={handleDragPointerUp}
         onPointerCancel={handleDragPointerUp}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchEnd}
         style={{ touchAction: "none" }}
         className="flex cursor-grab active:cursor-grabbing items-center justify-between border-b border-border/60 px-3.5 py-2.5 bg-secondary/60 select-none"
       >
