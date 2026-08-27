@@ -63,10 +63,19 @@ export function loadGoogleFont(fontFamilyValue: string) {
   link.id = linkId;
   link.rel = "stylesheet";
   const safeName = fontName.replace(/\s+/g, "+");
-  link.href = `https://fonts.googleapis.com/css2?family=${safeName}:wght@400;600;700;800&display=swap`;
+  // Comprehensive weight range: 100 (Thin) to 900 (Black)
+  link.href = `https://fonts.googleapis.com/css2?family=${safeName}:wght@100;200;300;400;500;600;700;800;900&display=swap`;
+  
+  let fallbackStep = 0;
   link.onerror = () => {
-    // Fallback without specific weights if the font has only default weight
-    link.href = `https://fonts.googleapis.com/css2?family=${safeName}&display=swap`;
+    fallbackStep++;
+    if (fallbackStep === 1) {
+      link.href = `https://fonts.googleapis.com/css2?family=${safeName}:wght@300;400;500;600;700;800&display=swap`;
+    } else if (fallbackStep === 2) {
+      link.href = `https://fonts.googleapis.com/css2?family=${safeName}:wght@400;700&display=swap`;
+    } else {
+      link.href = `https://fonts.googleapis.com/css2?family=${safeName}&display=swap`;
+    }
   };
   document.head.appendChild(link);
 }

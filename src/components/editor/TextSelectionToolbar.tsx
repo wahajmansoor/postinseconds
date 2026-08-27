@@ -257,6 +257,30 @@ export function TextSelectionToolbar({
   // `fontOpen` search+full-list sheet for anything not in quick reach.
   // Desktop is completely unaffected — its Font button still opens
   // `fontOpen` directly, same as before this existed.
+  const FONT_WEIGHT_OPTIONS = [
+    { label: "Thin (100)", value: 100 },
+    { label: "Extra Light (200)", value: 200 },
+    { label: "Light (300)", value: 300 },
+    { label: "Regular (400)", value: 400 },
+    { label: "Medium (500)", value: 500 },
+    { label: "SemiBold (600)", value: 600 },
+    { label: "Bold (700)", value: 700 },
+    { label: "Extra Bold (800)", value: 800 },
+    { label: "Black (900)", value: 900 },
+  ];
+
+  const [weightOpen, setWeightOpen] = useState(false);
+  const [weightPinned, setWeightPinned] = useState(false);
+  const weightDrag = useDraggableOffset();
+  const weightTriggerRef = useRef<HTMLButtonElement>(null);
+  const weightAnchor = useStableAnchor(weightOpen, weightTriggerRef);
+
+  const currentWeightLabel = useMemo(() => {
+    const currentWeight = layer.weight || 400;
+    const match = FONT_WEIGHT_OPTIONS.find((w) => w.value === currentWeight);
+    return match ? match.label.replace(/\s*\(\d+\)/, "") : `${currentWeight}`;
+  }, [layer.weight]);
+
   const [fontStripOpen, setFontStripOpen] = useState(false);
   const [colorStripOpen, setColorStripOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
@@ -275,7 +299,7 @@ export function TextSelectionToolbar({
   // to keep this whole component mounted — and thus keep every popover's
   // own state (search text, drag position, which one is open) intact —
   // even after `layer` stops being the live canvas selection.
-  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen || fontStripOpen || colorStripOpen || arrangeOpen;
+  const anyPopoverOpen = spacingOpen || textColorOpen || fontOpen || fontStripOpen || colorStripOpen || arrangeOpen || weightOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -412,6 +436,54 @@ export function TextSelectionToolbar({
                 No fonts match "{fontSearch}"
               </p>
             )}
+          </div>
+        </div>
+      </div>
+    </FloatingDropdown>
+  );
+
+  const weightFloatingDropdown = (
+    <FloatingDropdown
+      anchor={weightAnchor}
+      offset={weightDrag.offset}
+      align="center"
+      pinned={weightPinned}
+      onRequestClose={() => setWeightOpen(false)}
+      triggerRef={weightTriggerRef}
+    >
+      <div className="overflow-hidden rounded-3xl border border-border bg-background shadow-2xl backdrop-blur-xl max-md:border-none max-md:shadow-none max-md:bg-transparent max-md:rounded-none">
+        <DragHandle
+          label="Font Weight"
+          {...weightDrag.dragHandleProps}
+          pinned={weightPinned}
+          onTogglePin={() => setWeightPinned((p) => !p)}
+          onClose={() => setWeightOpen(false)}
+        />
+        <div className="w-56 p-2">
+          <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto pr-1">
+            {FONT_WEIGHT_OPTIONS.map((w) => {
+              const active = (layer.weight || 400) === w.value;
+              return (
+                <button
+                  key={w.value}
+                  type="button"
+                  onPointerDown={preserveSelection}
+                  onMouseDown={preserveSelection}
+                  onClick={() => {
+                    handle.setWeight(w.value);
+                    setWeightOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs transition-colors",
+                    active ? "bg-primary/15 font-bold text-primary" : "text-foreground hover:bg-secondary",
+                  )}
+                  style={{ fontFamily: layer.fontFamily, fontWeight: w.value }}
+                >
+                  <span className="min-w-0 flex-1 truncate">{w.label}</span>
+                  {active ? <Tick02Icon size={14} className="shrink-0 text-primary" /> : null}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -655,7 +727,7 @@ export function TextSelectionToolbar({
             });
           }}
           className={cn(
-            "flex h-8 w-32 shrink-0 items-center gap-1.5 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary",
+            "flex h-8 w-28 sm:w-32 shrink-0 items-center gap-1.5 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary",
             fontOpen && "border-primary text-primary",
           )}
         >
@@ -669,6 +741,39 @@ export function TextSelectionToolbar({
         </button>
       </AppTooltip>
       {fontFloatingDropdown}
+
+      <AppTooltip content="Font Weight">
+        <button
+          ref={weightTriggerRef}
+          type="button"
+          onPointerDown={(e) => {
+            handle.snapshotSelection();
+            preserveSelection(e);
+          }}
+          onMouseDown={(e) => {
+            handle.snapshotSelection();
+            preserveSelection(e);
+          }}
+          onClick={() => {
+            setWeightOpen((wasOpen) => {
+              if (!wasOpen) {
+                weightDrag.reset();
+                setWeightPinned(false);
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(
+            "flex h-8 w-20 sm:w-24 shrink-0 items-center gap-1 rounded-xl border border-border/60 bg-secondary/40 px-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary",
+            weightOpen && "border-primary text-primary",
+          )}
+          style={{ fontFamily: layer.fontFamily, fontWeight: layer.weight || 400 }}
+        >
+          <span className="min-w-0 flex-1 truncate text-left">{currentWeightLabel}</span>
+          <ArrowDown01Icon size={11} className="shrink-0 text-muted-foreground" />
+        </button>
+      </AppTooltip>
+      {weightFloatingDropdown}
 
       <div className="flex h-8 items-center gap-0.5 rounded-xl bg-secondary/50 p-0.5">
         <AppTooltip content="Decrease size">

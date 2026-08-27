@@ -54,6 +54,7 @@ export type LiveTextFormat = {
 export type TextLayerHandle = {
   applyFormat: (cmd: RichFormatCmd) => void;
   setFontFamily: (v: string) => void;
+  setWeight: (w: number) => void;
   setSize: (v: number) => void;
   setColor: (v: string) => void;
   setAlign: (v: "left" | "center" | "right" | "justify") => void;
@@ -3312,9 +3313,21 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     setTimeout(selectAllAndFocus, 50);
   }, []);
 
+  const setWeight = useCallback(
+    (weight: number) => {
+      if (hasLiveSelection()) {
+        applyStyleSmart({ fontWeight: String(weight) }, { weight });
+      } else {
+        update({ weight });
+      }
+    },
+    [hasLiveSelection, applyStyleSmart, update],
+  );
+
   const handleRef = useRef<TextLayerHandle>({
     applyFormat: applyFormatSmart,
     setFontFamily,
+    setWeight,
     setSize,
     setColor,
     setAlign,
@@ -3329,6 +3342,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   });
   handleRef.current.applyFormat = applyFormatSmart;
   handleRef.current.setFontFamily = setFontFamily;
+  handleRef.current.setWeight = setWeight;
   handleRef.current.setSize = setSize;
   handleRef.current.setColor = setColor;
   handleRef.current.setAlign = setAlign;
@@ -3645,7 +3659,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             width: "100%",
             ...getTextEffectStyle(t),
           }}
-          dangerouslySetInnerHTML={!isEditing ? { __html: content } : undefined}
+          dangerouslySetInnerHTML={{ __html: content }}
         />
       );
     },

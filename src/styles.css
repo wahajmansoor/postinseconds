@@ -315,8 +315,8 @@
 
 /* Rich text tags styling for Canvas text layers */
 b, strong {
-  font-weight: 800 !important;
-  font-synthesis: weight !important;
+  font-weight: 700;
+  font-synthesis: weight;
 }
 i, em {
   font-style: italic !important;

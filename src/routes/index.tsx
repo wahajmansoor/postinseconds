@@ -2213,6 +2213,8 @@ function Index() {
       },
       setFontFamily: (v) =>
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { fontFamily: v })),
+      setWeight: (w) =>
+        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { weight: w })),
       setSize: (v) => {
         set("texts", (_, prevS) => {
           const currentT = getTextLayers(prevS).find((t) => t.id === selectedTextLayer.id);
