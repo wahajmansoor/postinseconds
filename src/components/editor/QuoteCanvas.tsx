@@ -2262,18 +2262,51 @@ function resolveCaretPosition(
   let offset = 0;
   if (typeof doc.caretRangeFromPoint === "function") {
     const r = doc.caretRangeFromPoint(x, y);
-    if (!r) return null;
-    node = r.startContainer;
-    offset = r.startOffset;
+    if (r) {
+      node = r.startContainer;
+      offset = r.startOffset;
+    }
   } else if (typeof doc.caretPositionFromPoint === "function") {
     const pos = doc.caretPositionFromPoint(x, y);
-    if (!pos) return null;
-    node = pos.offsetNode;
-    offset = pos.offset;
-  } else {
+    if (pos) {
+      node = pos.offsetNode;
+      offset = pos.offset;
+    }
+  }
+  if (!node || !container.contains(node)) {
+    // If exact point lookup lands slightly outside bounds due to scaling/padding,
+    // fallback to the closest text node inside container
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+    const lastNode = walker.lastChild();
+    if (lastNode) {
+      return { node: lastNode, offset: lastNode.textContent?.length ?? 0 };
+    }
     return null;
   }
-  if (!node || !container.contains(node)) return null;
+  // If the returned node is an element node (such as container div itself or child block),
+  // map it to the actual text node inside it at that offset
+  if (node.nodeType !== Node.TEXT_NODE) {
+    if (node.childNodes.length > 0) {
+      const childIndex = Math.min(Math.max(0, offset), node.childNodes.length - 1);
+      const child = node.childNodes[childIndex];
+      if (child) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          return { node: child, offset: Math.min(offset, child.textContent?.length ?? 0) };
+        }
+        const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT, null);
+        const textChild = walker.lastChild() || walker.firstChild();
+        if (textChild) {
+          return { node: textChild, offset: textChild.textContent?.length ?? 0 };
+        }
+      }
+    } else {
+      const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+      const textNode = walker.lastChild() || walker.firstChild();
+      if (textNode) {
+        return { node: textNode, offset: textNode.textContent?.length ?? 0 };
+      }
+    }
+  }
   return { node, offset };
 }
 
@@ -2674,6 +2707,13 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         const sel = window.getSelection();
         sel?.removeAllRanges();
         sel?.addRange(range);
+      } else {
+        const rangeEnd = document.createRange();
+        rangeEnd.selectNodeContents(el);
+        rangeEnd.collapse(false);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(rangeEnd);
       }
     } else if (pendingListCommandRef.current) {
       const cmd = pendingListCommandRef.current;
@@ -2685,11 +2725,15 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       sel?.addRange(range);
       applyFormat(cmd);
     } else {
-      const range = document.createRange();
-      range.selectNodeContents(el);
       const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
+      // If a valid selection inside this element already exists (e.g. user tapped into it), preserve it!
+      if (!sel || sel.rangeCount === 0 || !el.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+        const rangeEnd = document.createRange();
+        rangeEnd.selectNodeContents(el);
+        rangeEnd.collapse(false);
+        sel?.removeAllRanges();
+        sel?.addRange(rangeEnd);
+      }
     }
   }, [isEditing]);
 
@@ -2698,6 +2742,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   const rotation = t.rotation ?? 0;
   const sRef = useRef(s);
   sRef.current = s;
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
   const tRef = useRef(t);
   tRef.current = t;
   const update = useCallback(
@@ -3422,8 +3468,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                 hasMoved = true;
               }
 
-              const dx = ((moveEv.clientX - d.x) / scale / sRef.current.width) * 100;
-              const dy = ((moveEv.clientY - d.y) / scale / sRef.current.height) * 100;
+              const currentScale = scaleRef.current || 1;
+              const currentCanvasWidth = sRef.current.width || 1200;
+              const currentCanvasHeight = sRef.current.height || 1200;
+              const dx = ((moveEv.clientX - d.x) / currentScale / currentCanvasWidth) * 100;
+              const dy = ((moveEv.clientY - d.y) / currentScale / currentCanvasHeight) * 100;
               const width = containerRef.current?.offsetWidth ?? (t.width ?? 480);
               const height = containerRef.current?.offsetHeight ?? (t.minHeight ?? t.size * 1.3);
               const otherElements = getAllCanvasElements(sRef.current);
@@ -3524,6 +3573,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onClick={(e) => {
+            if (isEditing) {
+              e.stopPropagation();
+            }
+          }}
           onInput={(e) => {
             syncFromLiveDom(e.currentTarget, false);
             notifyActiveFormat();
@@ -3591,7 +3645,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             width: "100%",
             ...getTextEffectStyle(t),
           }}
-          dangerouslySetInnerHTML={{ __html: content }}
+          dangerouslySetInnerHTML={!isEditing ? { __html: content } : undefined}
         />
       );
     },
@@ -3601,9 +3655,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       isEditing,
       selected,
       selectedCount,
-      scale,
-      s.width,
-      s.height,
       t.id,
       t.x,
       t.y,
@@ -3631,19 +3682,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       t.effectSpread,
       t.shapeType,
       t.curveAmount,
-      // content (editSnapshotRef.current) is deliberately NOT a dependency
-      // here, even though the memo body reads it for dangerouslySetInnerHTML
-      // — it's a ref, read via closure each time this callback actually
-      // runs, same as any other ref. Listing it WOULD recompute this memo
-      // (and thus re-apply dangerouslySetInnerHTML, which always tears down
-      // and rebuilds the DOM regardless of whether the string actually
-      // changed) on every single keystroke, since syncFromLiveDom now keeps
-      // it in sync while typing — resetting the caret to the start on every
-      // character typed. Omitting it relies on isEditing/the style fields
-      // above to trigger recomputation at the right moments (entering/
-      // leaving edit mode, a style change mid-edit) instead, at which point
-      // whatever editSnapshotRef currently holds (kept fresh by
-      // syncFromLiveDom regardless) is what gets read.
       onSelect,
       onGroupDragStart,
       onGroupDragMove,

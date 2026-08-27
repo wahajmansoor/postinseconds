@@ -536,8 +536,8 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch {}
-    toast.success(`Image saved successfully to your Gallery / Documents!`);
+    } catch { }
+    toast.success(`Image saved successfully to your Gallery/Documents!`, { position: "bottom-center" });
     return;
   } catch (docErr) {
     console.warn("Direct save to Documents failed, attempting external storage:", docErr);
@@ -553,8 +553,8 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch {}
-    toast.success(`Image saved successfully to your Gallery / Downloads!`);
+    } catch { }
+    toast.success(`Image saved successfully to your Gallery / Downloads!`, { position: "bottom-center" });
     return;
   } catch (extErr) {
     console.warn("External storage write failed, falling back to cache save:", extErr);
@@ -570,11 +570,11 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch {}
-    toast.success(`Downloaded ${filename}!`);
+    } catch { }
+    toast.success(`Downloaded ${filename}!`, { position: "bottom-center" });
   } catch (cacheErr) {
     console.error("Native write failed:", cacheErr);
-    toast.error("Failed to save image to device.");
+    toast.error("Failed to save image to device.", { position: "bottom-center" });
   }
 }
 
@@ -2075,7 +2075,7 @@ function Index() {
         a.style.display = "none";
         document.body.appendChild(a);
         a.click();
-        toast.success(`Downloaded ${filename}!`);
+        toast.success(`Downloaded ${filename}!`, { position: "bottom-center" });
         setTimeout(() => {
           document.body.removeChild(a);
           if (!finalUrl.startsWith("blob:")) {
@@ -2086,7 +2086,7 @@ function Index() {
       setPreviewOpen(false);
     } catch (err) {
       console.error("Download failed:", err);
-      toast.error("Failed to download image.");
+      toast.error("Failed to download image.", { position: "bottom-center" });
     } finally {
       setIsExportingFinal(false);
     }
@@ -2171,7 +2171,7 @@ function Index() {
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { verticalAlign: v })),
       updateLayer: (patch) =>
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, patch)),
-      snapshotSelection: () => {},
+      snapshotSelection: () => { },
       getActiveFormat: () => ({
         bold: selectedTextLayer.weight >= 700,
         italic: !!selectedTextLayer.italic,
@@ -2287,9 +2287,9 @@ function Index() {
   // Text layers that are part of a mixed multi-selection
   const mixedSelectedTextLayers = isMixedMultiSelection
     ? (canvasSelection
-        .filter((sel) => sel.kind === "text")
-        .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
-        .filter(Boolean) as import("@/components/editor/types").TextLayer[])
+      .filter((sel) => sel.kind === "text")
+      .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
+      .filter(Boolean) as import("@/components/editor/types").TextLayer[])
     : [];
   const mixedAllText = isMixedMultiSelection && canvasSelection.every((sel) => sel.kind === "text");
 
@@ -2862,7 +2862,7 @@ function Index() {
                     const textIds = canvasSelection.filter((l) => l.kind === "text").map((l) => l.id);
                     const imageIds = canvasSelection.filter((l) => l.kind === "image").map((l) => l.id);
                     const shapeIds = canvasSelection.filter((l) => l.kind === "shape").map((l) => l.id);
-                    if (textIds.length)  set("texts",  (_, prev) => withTextsLockSet(prev,  textIds,  !allLocked));
+                    if (textIds.length) set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
                     if (imageIds.length) set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
                     if (shapeIds.length) set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
                   }}
@@ -3193,13 +3193,29 @@ function Index() {
             ) : null}
 
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
-            {(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection) ? (
+            {(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection || isMixedMultiSelection) ? (
               <div
                 className="pointer-events-none fixed right-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
               >
                 {/* Lock Toggle Button */}
-                <AppTooltip content={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked))) ? "Unlock Layer" : "Lock Layer"}>
+                <AppTooltip
+                  content={
+                    (selectedTextLayer?.locked ||
+                      selectedImageLayer?.locked ||
+                      selectedShapeLayer?.locked ||
+                      (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                      (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                      (isMixedMultiSelection &&
+                        canvasSelection.every((sel) => {
+                          if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                          if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                        })))
+                      ? "Unlock Layer"
+                      : "Lock Layer"
+                  }
+                >
                   <button
                     type="button"
                     onClick={() => {
@@ -3221,6 +3237,18 @@ function Index() {
                             !allLocked,
                           ),
                         );
+                      } else if (isMixedMultiSelection) {
+                        const allLocked = canvasSelection.every((sel) => {
+                          if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                          if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                        });
+                        const textIds = canvasSelection.filter((l) => l.kind === "text").map((l) => l.id);
+                        const imageIds = canvasSelection.filter((l) => l.kind === "image").map((l) => l.id);
+                        const shapeIds = canvasSelection.filter((l) => l.kind === "shape").map((l) => l.id);
+                        if (textIds.length) set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
+                        if (imageIds.length) set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
+                        if (shapeIds.length) set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
                       } else if (selectedTextLayer) {
                         set("texts", (_, prev) =>
                           withTextUpdated(prev, selectedTextLayer.id, {
@@ -3243,13 +3271,47 @@ function Index() {
                     }}
                     className={cn(
                       "pointer-events-auto grid h-7 w-7 place-items-center rounded-full transition-all active:scale-95",
-                      (selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)))
+                      (selectedTextLayer?.locked ||
+                        selectedImageLayer?.locked ||
+                        selectedShapeLayer?.locked ||
+                        (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                        (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                        (isMixedMultiSelection &&
+                          canvasSelection.every((sel) => {
+                            if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                            if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                          })))
                         ? "bg-amber-500/20 text-amber-500"
                         : "text-muted-foreground hover:text-foreground"
                     )}
-                    title={(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked))) ? "Unlock Layer" : "Lock Layer"}
+                    title={
+                      (selectedTextLayer?.locked ||
+                        selectedImageLayer?.locked ||
+                        selectedShapeLayer?.locked ||
+                        (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                        (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                        (isMixedMultiSelection &&
+                          canvasSelection.every((sel) => {
+                            if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                            if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                          })))
+                        ? "Unlock Layer"
+                        : "Lock Layer"
+                    }
                   >
-                    {(selectedTextLayer?.locked || selectedImageLayer?.locked || selectedShapeLayer?.locked || (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) || (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked))) ? (
+                    {(selectedTextLayer?.locked ||
+                      selectedImageLayer?.locked ||
+                      selectedShapeLayer?.locked ||
+                      (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                      (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                      (isMixedMultiSelection &&
+                        canvasSelection.every((sel) => {
+                          if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                          if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                        }))) ? (
                       <SquareLock02Icon size={14} />
                     ) : (
                       <SquareUnlock02Icon size={14} />
@@ -3264,7 +3326,7 @@ function Index() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (isMultiShapeSelection || isMultiImageSelection) {
+                      if (isMultiShapeSelection || isMultiImageSelection || isMixedMultiSelection) {
                         commit((prev) => {
                           const result = withMultipleLayersRemoved(prev, canvasSelection);
                           return { ...prev, ...result };
@@ -3328,7 +3390,15 @@ function Index() {
 
             {typeof document !== "undefined"
               ? createPortal(
-                !(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection) ? (
+                !(
+                  selectedTextLayer ||
+                  selectedImageLayer ||
+                  selectedShapeLayer ||
+                  isMultiShapeSelection ||
+                  isMultiImageSelection ||
+                  isMixedMultiSelection ||
+                  isBackgroundSelected
+                ) ? (
                   <MobileBottomTabBar
                     activeTab={tab}
                     isDrawerOpen={mobileToolDrawerOpen}
@@ -3355,6 +3425,7 @@ function Index() {
                       onClick={(e) => {
                         e.currentTarget.blur();
                         setCanvasSelection([]);
+                        setIsBackgroundSelected(false);
                       }}
                       className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
                       title="Done (Deselect)"
@@ -3502,6 +3573,56 @@ function Index() {
                               return { ...prev, ...result };
                             });
                             setCanvasSelection([]);
+                          }}
+                        />
+                      ) : isMixedMultiSelection ? (
+                        <MultiMixedSelectionToolbar
+                          selectedIds={canvasSelection as MixedLayerRef[]}
+                          textLayers={mixedSelectedTextLayers}
+                          allText={mixedAllText}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
+                          onAlign={handleMixedAlign}
+                          onArrange={handleMixedArrange}
+                          canArrange={getArrangeEligibility(unifiedLayers, canvasSelection.map((l) => l.id))}
+                          onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("text", "multi-mixed", open)
+                          }
+                          onToggleLockAll={() => {
+                            const allLocked = canvasSelection.every((sel) => {
+                              if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                              if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                              return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                            });
+                            const textIds = canvasSelection.filter((l) => l.kind === "text").map((l) => l.id);
+                            const imageIds = canvasSelection.filter((l) => l.kind === "image").map((l) => l.id);
+                            const shapeIds = canvasSelection.filter((l) => l.kind === "shape").map((l) => l.id);
+                            if (textIds.length) set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
+                            if (imageIds.length) set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
+                            if (shapeIds.length) set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
+                          }}
+                          allLocked={canvasSelection.every((sel) => {
+                            if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                            if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                          })}
+                          onDeleteAll={() => {
+                            commit((prev) => {
+                              const result = withMultipleLayersRemoved(prev, canvasSelection);
+                              return { ...prev, ...result };
+                            });
+                            setCanvasSelection([]);
+                          }}
+                        />
+                      ) : isBackgroundSelected ? (
+                        <BackgroundSelectionToolbar
+                          s={s}
+                          set={set}
+                          onAnyPopoverOpenChange={(open) => handlePinnedPopoverChange("background", "background", open)}
+                          onOpenBackgroundTab={() => {
+                            setTab("background");
+                            setMobileToolDrawerOpen(true);
                           }}
                         />
                       ) : null}
