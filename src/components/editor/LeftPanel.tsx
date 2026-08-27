@@ -38,6 +38,7 @@ import { TextEffectsPanel } from "./TextEffectsPanel";
 import { VERIFIED_PICKER_ICONS } from "./VerifiedBadges";
 import {
   FONTS,
+  getAvailableFontWeights,
   GRADIENTS,
   PREMIUM_TEMPLATES,
   SHADOW_OVERLAY_PRESETS,
@@ -1495,7 +1496,7 @@ export function LeftPanel({
                         <Select
                           value={String(activeTextLayer.weight)}
                           onChange={(v) => updateActiveLayer({ weight: Number(v) })}
-                          options={FONT_WEIGHTS.map((w) => ({
+                          options={getAvailableFontWeights(activeTextLayer.fontFamily).map((w) => ({
                             label: w.label,
                             value: String(w.value),
                           }))}

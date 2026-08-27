@@ -114,76 +114,95 @@ export type FontOption = {
   label: string;
   value: string;
   category?: "sans" | "serif" | "mono" | "display" | "handwriting";
+  weights?: number[];
 };
+
+export const ALL_FONT_WEIGHTS = [
+  { label: "Thin (100)", value: 100 },
+  { label: "Extra Light (200)", value: 200 },
+  { label: "Light (300)", value: 300 },
+  { label: "Regular (400)", value: 400 },
+  { label: "Medium (500)", value: 500 },
+  { label: "SemiBold (600)", value: 600 },
+  { label: "Bold (700)", value: 700 },
+  { label: "Extra Bold (800)", value: 800 },
+  { label: "Black (900)", value: 900 },
+];
 
 export const FONTS: FontOption[] = [
   // Top Modern Sans-Serif (25)
-  { label: "Outfit", value: '"Outfit", sans-serif', category: "sans" },
-  { label: "Inter", value: '"Inter", sans-serif', category: "sans" },
-  { label: "Plus Jakarta Sans", value: '"Plus Jakarta Sans", sans-serif', category: "sans" },
-  { label: "Poppins", value: '"Poppins", sans-serif', category: "sans" },
-  { label: "Montserrat", value: '"Montserrat", sans-serif', category: "sans" },
-  { label: "Space Grotesk", value: '"Space Grotesk", sans-serif', category: "sans" },
-  { label: "DM Sans", value: '"DM Sans", sans-serif', category: "sans" },
-  { label: "Manrope", value: '"Manrope", sans-serif', category: "sans" },
-  { label: "Urbanist", value: '"Urbanist", sans-serif', category: "sans" },
-  { label: "Work Sans", value: '"Work Sans", sans-serif', category: "sans" },
-  { label: "Raleway", value: '"Raleway", sans-serif', category: "sans" },
-  { label: "Nunito", value: '"Nunito", sans-serif', category: "sans" },
-  { label: "Rubik", value: '"Rubik", sans-serif', category: "sans" },
-  { label: "Sora", value: '"Sora", sans-serif', category: "sans" },
-  { label: "Syne", value: '"Syne", sans-serif', category: "sans" },
-  { label: "Figtree", value: '"Figtree", sans-serif', category: "sans" },
-  { label: "Lexend", value: '"Lexend", sans-serif', category: "sans" },
-  { label: "Bricolage Grotesque", value: '"Bricolage Grotesque", sans-serif', category: "sans" },
-  { label: "Instrument Sans", value: '"Instrument Sans", sans-serif', category: "sans" },
-  { label: "Spline Sans", value: '"Spline Sans", sans-serif', category: "sans" },
-  { label: "Public Sans", value: '"Public Sans", sans-serif', category: "sans" },
-  { label: "Epilogue", value: '"Epilogue", sans-serif', category: "sans" },
-  { label: "Archivo", value: '"Archivo", sans-serif', category: "sans" },
-  { label: "Cabin", value: '"Cabin", sans-serif', category: "sans" },
-  { label: "Red Hat Display", value: '"Red Hat Display", sans-serif', category: "sans" },
+  { label: "Outfit", value: '"Outfit", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Inter", value: '"Inter", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Plus Jakarta Sans", value: '"Plus Jakarta Sans", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800] },
+  { label: "Poppins", value: '"Poppins", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Montserrat", value: '"Montserrat", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Space Grotesk", value: '"Space Grotesk", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700] },
+  { label: "DM Sans", value: '"DM Sans", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Manrope", value: '"Manrope", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800] },
+  { label: "Urbanist", value: '"Urbanist", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Work Sans", value: '"Work Sans", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Raleway", value: '"Raleway", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Nunito", value: '"Nunito", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Rubik", value: '"Rubik", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700, 800, 900] },
+  { label: "Sora", value: '"Sora", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800] },
+  { label: "Syne", value: '"Syne", sans-serif', category: "sans", weights: [400, 500, 600, 700, 800] },
+  { label: "Figtree", value: '"Figtree", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700, 800, 900] },
+  { label: "Lexend", value: '"Lexend", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Bricolage Grotesque", value: '"Bricolage Grotesque", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800] },
+  { label: "Instrument Sans", value: '"Instrument Sans", sans-serif', category: "sans", weights: [400, 500, 600, 700] },
+  { label: "Spline Sans", value: '"Spline Sans", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700] },
+  { label: "Public Sans", value: '"Public Sans", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Epilogue", value: '"Epilogue", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Archivo", value: '"Archivo", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Cabin", value: '"Cabin", sans-serif', category: "sans", weights: [400, 500, 600, 700] },
+  { label: "Red Hat Display", value: '"Red Hat Display", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700, 800, 900] },
 
   // Top Editorial & Luxury Serifs (15)
-  { label: "Playfair Display", value: '"Playfair Display", Georgia, serif', category: "serif" },
-  { label: "Lora", value: '"Lora", Georgia, serif', category: "serif" },
-  { label: "Merriweather", value: '"Merriweather", Georgia, serif', category: "serif" },
-  { label: "Cormorant Garamond", value: '"Cormorant Garamond", Georgia, serif', category: "serif" },
-  { label: "Cinzel", value: '"Cinzel", serif', category: "serif" },
-  { label: "Prata", value: '"Prata", serif', category: "serif" },
-  { label: "Fraunces", value: '"Fraunces", serif', category: "serif" },
-  { label: "Bodoni Moda", value: '"Bodoni Moda", serif', category: "serif" },
-  { label: "DM Serif Display", value: '"DM Serif Display", serif', category: "serif" },
-  { label: "Libre Baskerville", value: '"Libre Baskerville", serif', category: "serif" },
-  { label: "EB Garamond", value: '"EB Garamond", serif', category: "serif" },
-  { label: "Newsreader", value: '"Newsreader", serif', category: "serif" },
-  { label: "Spectral", value: '"Spectral", serif', category: "serif" },
-  { label: "Marcellus", value: '"Marcellus", serif', category: "serif" },
-  { label: "Rozha One", value: '"Rozha One", serif', category: "serif" },
+  { label: "Playfair Display", value: '"Playfair Display", Georgia, serif', category: "serif", weights: [400, 500, 600, 700, 800, 900] },
+  { label: "Lora", value: '"Lora", Georgia, serif', category: "serif", weights: [400, 500, 600, 700] },
+  { label: "Merriweather", value: '"Merriweather", Georgia, serif', category: "serif", weights: [300, 400, 700, 900] },
+  { label: "Cormorant Garamond", value: '"Cormorant Garamond", Georgia, serif', category: "serif", weights: [300, 400, 500, 600, 700] },
+  { label: "Cinzel", value: '"Cinzel", serif', category: "serif", weights: [400, 500, 600, 700, 800, 900] },
+  { label: "Prata", value: '"Prata", serif', category: "serif", weights: [400] },
+  { label: "Fraunces", value: '"Fraunces", serif', category: "serif", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  { label: "Bodoni Moda", value: '"Bodoni Moda", serif', category: "serif", weights: [400, 500, 600, 700, 800, 900] },
+  { label: "DM Serif Display", value: '"DM Serif Display", serif', category: "serif", weights: [400] },
+  { label: "Libre Baskerville", value: '"Libre Baskerville", serif', category: "serif", weights: [400, 700] },
+  { label: "EB Garamond", value: '"EB Garamond", serif', category: "serif", weights: [400, 500, 600, 700, 800] },
+  { label: "Newsreader", value: '"Newsreader", serif', category: "serif", weights: [200, 300, 400, 500, 600, 700, 800] },
+  { label: "Spectral", value: '"Spectral", serif', category: "serif", weights: [200, 300, 400, 500, 600, 700, 800] },
+  { label: "Marcellus", value: '"Marcellus", serif', category: "serif", weights: [400] },
+  { label: "Rozha One", value: '"Rozha One", serif', category: "serif", weights: [400] },
 
   // Top Modern Monospace (5)
-  { label: "JetBrains Mono", value: '"JetBrains Mono", ui-monospace, monospace', category: "mono" },
-  { label: "Space Mono", value: '"Space Mono", monospace', category: "mono" },
-  { label: "Fira Code", value: '"Fira Code", monospace', category: "mono" },
-  { label: "IBM Plex Mono", value: '"IBM Plex Mono", monospace', category: "mono" },
-  { label: "Source Code Pro", value: '"Source Code Pro", monospace', category: "mono" },
+  { label: "JetBrains Mono", value: '"JetBrains Mono", ui-monospace, monospace', category: "mono", weights: [100, 200, 300, 400, 500, 600, 700, 800] },
+  { label: "Space Mono", value: '"Space Mono", monospace', category: "mono", weights: [400, 700] },
+  { label: "Fira Code", value: '"Fira Code", monospace', category: "mono", weights: [300, 400, 500, 600, 700] },
+  { label: "IBM Plex Mono", value: '"IBM Plex Mono", monospace', category: "mono", weights: [100, 200, 300, 400, 500, 600, 700] },
+  { label: "Source Code Pro", value: '"Source Code Pro", monospace', category: "mono", weights: [200, 300, 400, 500, 600, 700, 800, 900] },
 
   // Top Display & Handwriting (5)
-  { label: "Bebas Neue", value: '"Bebas Neue", sans-serif', category: "display" },
-  { label: "Anton", value: '"Anton", sans-serif', category: "display" },
-  { label: "Caveat", value: '"Caveat", cursive', category: "handwriting" },
-  { label: "Dancing Script", value: '"Dancing Script", cursive', category: "handwriting" },
-  { label: "Pacifico", value: '"Pacifico", cursive', category: "handwriting" },
+  { label: "Bebas Neue", value: '"Bebas Neue", sans-serif', category: "display", weights: [400] },
+  { label: "Anton", value: '"Anton", sans-serif', category: "display", weights: [400] },
+  { label: "Caveat", value: '"Caveat", cursive', category: "handwriting", weights: [400, 500, 600, 700] },
+  { label: "Dancing Script", value: '"Dancing Script", cursive', category: "handwriting", weights: [400, 500, 600, 700] },
+  { label: "Pacifico", value: '"Pacifico", cursive', category: "handwriting", weights: [400] },
 ];
 
-export const WEIGHTS = [
-  { label: "Light", value: 300 },
-  { label: "Regular", value: 400 },
-  { label: "Medium", value: 500 },
-  { label: "SemiBold", value: 600 },
-  { label: "Bold", value: 700 },
-  { label: "Black", value: 800 },
-];
+export function getAvailableFontWeights(fontFamily?: string): { label: string; value: number }[] {
+  if (!fontFamily) return ALL_FONT_WEIGHTS;
+  const clean = fontFamily.replace(/['"]/g, "").split(",")[0]?.trim().toLowerCase();
+  const found = FONTS.find((f) => {
+    const fClean = f.value.replace(/['"]/g, "").split(",")[0]?.trim().toLowerCase();
+    return fClean === clean || f.label.toLowerCase() === clean;
+  });
+  if (found && found.weights && found.weights.length > 0) {
+    return ALL_FONT_WEIGHTS.filter((w) => found.weights!.includes(w.value));
+  }
+  return ALL_FONT_WEIGHTS;
+}
+
+export const WEIGHTS = ALL_FONT_WEIGHTS;
 
 export const BOX_COLORS = [
   "#ffffff",
