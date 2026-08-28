@@ -13,9 +13,5 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginRouteComponent() {
-  return (
-    <AuthProvider>
-      <SignupPage />
-    </AuthProvider>
-  );
+  return <SignupPage />;
 }

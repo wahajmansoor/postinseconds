@@ -1,4 +1,4 @@
-# Logs
+# Logs & Temp Dev Files
 logs
 *.log
 npm-debug.log*
@@ -6,6 +6,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+.dev-pid.txt
+.dev-out.log
 
 node_modules
 dist
@@ -14,6 +16,11 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
+.wrangler
+
+# Binaries
+*.apk
+
 # Environment
 .env
 .env.*

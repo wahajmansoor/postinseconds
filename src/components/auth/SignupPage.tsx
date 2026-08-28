@@ -1,11 +1,19 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { PREMIUM_TEMPLATES } from "@/components/editor/types";
 import { ArrowLeft01Icon, CheckmarkCircle02Icon, FlashIcon, StarCircleIcon } from "hugeicons-react";
 
 export function SignupPage() {
+  const navigate = useNavigate();
   const { loginWithGoogle, isLoading, isAuthenticated, user, googleButtonContainerRef, isGoogleButtonReady } =
     useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      navigate({ to: "/" });
+    }
+  }, [isAuthenticated, user, navigate]);
 
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
@@ -34,16 +42,23 @@ export function SignupPage() {
                 <div className="flex items-center gap-1.5">
                   <h4 className="text-sm font-bold text-white">Jasmin (Jay) Alić</h4>
                   {/* LinkedIn Verified Badge */}
-                  <svg className="h-3.5 w-3.5 text-[#0077B5]" viewBox="0 0 16 16" fill="currentColor">
+                  <svg
+                    className="h-3.5 w-3.5 text-[#0077B5]"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                  >
                     <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM6.5 11.5l6-6-1-1-5 5-2-2-1 1 3 3z" />
                   </svg>
                 </div>
-                <p className="text-[11px] font-medium text-white/70">#1 LinkedIn Growth Strategist</p>
+                <p className="text-[11px] font-medium text-white/70">
+                  #1 LinkedIn Growth Strategist
+                </p>
               </div>
             </div>
 
             <p className="mt-3.5 text-sm font-medium leading-relaxed text-white/90">
-              "Post In Seconds is the highest-leverage design studio for text-based creators. Clean, ultra-fast, and drives 10x more reach."
+              "Post In Seconds is the highest-leverage design studio for text-based creators. Clean,
+              ultra-fast, and drives 10x more reach."
             </p>
 
             <div className="mt-4 flex items-center gap-4 border-t border-white/10 pt-3 text-[11px] font-semibold text-white/70">
@@ -81,8 +96,8 @@ export function SignupPage() {
               Sign in to Post In Seconds
             </h1>
             <p className="mt-2 text-xs sm:text-sm text-muted-foreground leading-relaxed">
-              Design viral quote cards, customize your author branding, and save them to your personal
-              library in seconds.
+              Design viral quote cards, customize your author branding, and save them to your
+              personal library in seconds.
             </p>
           </div>
 
@@ -90,7 +105,11 @@ export function SignupPage() {
           {isAuthenticated && user ? (
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center">
               <div className="flex items-center justify-center gap-2.5">
-                <img src={user.avatar} alt="" className="h-9 w-9 rounded-full object-cover ring-2 ring-emerald-500" />
+                <img
+                  src={user.avatar}
+                  alt=""
+                  className="h-9 w-9 rounded-full object-cover ring-2 ring-emerald-500"
+                />
                 <div className="text-left">
                   <p className="text-xs font-bold text-foreground">Signed in as {user.name}</p>
                   <p className="text-[10px] text-muted-foreground">{user.email}</p>
@@ -152,7 +171,9 @@ export function SignupPage() {
               <div className="rounded-2xl border border-border/80 bg-muted/30 p-4 text-xs space-y-2.5">
                 <div className="flex items-center gap-2.5 text-foreground font-medium">
                   <CheckmarkCircle02Icon size={16} className="text-emerald-500 shrink-0" />
-                  <span>Save designs to the cloud and pick up where you left off, on any device</span>
+                  <span>
+                    Save designs to the cloud and pick up where you left off, on any device
+                  </span>
                 </div>
                 <div className="flex items-center gap-2.5 text-foreground font-medium">
                   <CheckmarkCircle02Icon size={16} className="text-emerald-500 shrink-0" />
@@ -165,11 +186,10 @@ export function SignupPage() {
               </div>
             </div>
           )}
-
         </div>
 
         {/* Footer info */}
-        <div className="border-t border-border/60 pt-4 text-center text-[14px] text-muted-foreground">
+        <div className="border-t border-border/60 pt-4 text-center text-[12px] text-muted-foreground">
           <p>© {new Date().getFullYear()} Post In Seconds Studio. All rights reserved.</p>
         </div>
       </div>

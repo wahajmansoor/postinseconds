@@ -12,8 +12,8 @@ import { Capacitor } from "@capacitor/core";
 import { StatusBar } from "@capacitor/status-bar";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "../components/ui/sonner";
+import { AuthProvider } from "@/lib/auth";
 
 function NotFoundComponent() {
   return (
@@ -40,9 +40,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -79,15 +76,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" },
+      {
+        name: "viewport",
+        content:
+          "width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no, viewport-fit=cover",
+      },
       { title: "Quote Canvas Studio" },
       { name: "description", content: "Modern canvas editor for shareable quote images." },
-      { name: "author", content: "Lovable" },
+      { name: "author", content: "Post In Seconds" },
       { property: "og:title", content: "Quote Canvas Studio" },
       { property: "og:description", content: "Modern canvas editor for shareable quote images." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       {
@@ -126,14 +126,6 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
-  // Native Android only: by default the WebView draws edge-to-edge behind
-  // the status bar, and CSS env(safe-area-inset-top) isn't reliably fed by
-  // Android's WebView the way it is on iOS Safari — so a sticky top-0
-  // header ends up rendered underneath the status bar with no way to avoid
-  // it from CSS alone. Telling the native layer not to overlay the WebView
-  // makes Android reserve real space for the status bar instead, so page
-  // content simply starts below it. No-op on web (and harmless if it fails
-  // before the native bridge is ready).
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
@@ -141,9 +133,10 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
-      <Toaster position="top-center" richColors />
+      <AuthProvider>
+        <Outlet />
+        <Toaster position="top-center" richColors />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

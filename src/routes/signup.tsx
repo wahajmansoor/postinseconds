@@ -6,16 +6,15 @@ export const Route = createFileRoute("/signup")({
   head: () => ({
     meta: [
       { title: "Sign in with Google — Post In Seconds" },
-      { name: "description", content: "Join Post In Seconds to design viral quote cards and publish templates." },
+      {
+        name: "description",
+        content: "Join Post In Seconds to design viral quote cards and publish templates.",
+      },
     ],
   }),
   component: SignupRouteComponent,
 });
 
 function SignupRouteComponent() {
-  return (
-    <AuthProvider>
-      <SignupPage />
-    </AuthProvider>
-  );
+  return <SignupPage />;
 }

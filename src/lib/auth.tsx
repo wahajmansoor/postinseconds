@@ -63,6 +63,29 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Guards every sign-in network/plugin call below against hanging forever.
+// A regular error (bad nonce, wrong client id, etc.) already rejects fast
+// and is handled fine by the existing try/catch — this only protects
+// against the call never settling at all (a stalled request, a native
+// plugin callback that never fires), which previously left isLoading
+// stuck true and the whole app pinned on "Connecting to Studio Editor..."
+// with no way out.
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -75,15 +98,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return null;
     }
   });
+
   // Starts true: until the initial getSession() check resolves, we don't yet
-  // know if there's a live session, so gates (AdminGate/StudioGate) must show
-  // a loading state rather than flashing the signed-out view.
+  // know if there's a live session, so gates (AdminGate) must show a loading
+  // state rather than flashing the signed-out view. The safety timeout below
+  // still guarantees this resolves even if the network hangs.
   const [isLoading, setIsLoading] = useState(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
   // Sync Supabase Auth session on mount and state changes
   useEffect(() => {
     let mounted = true;
+
+    // Safety timeout: Ensure isLoading is resolved even if network/session resolution is delayed
+    const timeoutId = setTimeout(() => {
+      if (mounted) setIsLoading(false);
+    }, 1500);
 
     // 1. Fetch current active session
     supabase.auth
@@ -100,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error("Supabase getSession error:", err);
       })
       .finally(() => {
+        clearTimeout(timeoutId);
         if (mounted) setIsLoading(false);
       });
 
@@ -123,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);
@@ -169,12 +201,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!response.credential) return;
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithIdToken({
-        provider: "google",
-        token: response.credential,
-        ...(gisNonceRef.current ? { nonce: gisNonceRef.current } : {}),
-      });
+      const { data, error } = await withTimeout(
+        supabase.auth.signInWithIdToken({
+          provider: "google",
+          token: response.credential,
+          ...(gisNonceRef.current ? { nonce: gisNonceRef.current } : {}),
+        }),
+        15000,
+        "Sign-in timed out. Please try again.",
+      );
       if (error) throw error;
+      if (data?.session?.user) {
+        await syncUserFromSession(data.session.user);
+      }
       setIsLoginModalOpen(false);
     } catch (e: any) {
       console.error("Google Auth Error:", e);
@@ -268,15 +307,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Helper to fetch user profile and role from Supabase
   const syncUserFromSession = async (sbUser: any) => {
     let role: "user" | "admin" = "user";
-    let profile: { role?: string; full_name?: string | null; avatar_url?: string | null } | null = null;
+    let profile: { role?: string; full_name?: string | null; avatar_url?: string | null } | null =
+      null;
     try {
-      const { data } = await supabase
+      const profilePromise = supabase
         .from("profiles")
         .select("role, full_name, avatar_url")
         .eq("id", sbUser.id)
         .single();
 
-      profile = data;
+      const timeoutPromise = new Promise<{ data: null }>((resolve) =>
+        setTimeout(() => resolve({ data: null }), 2000),
+      );
+
+      const res = (await Promise.race([profilePromise, timeoutPromise])) as any;
+      profile = res?.data;
       if (profile?.role === "admin" || profile?.role === "user") {
         role = profile.role;
       }
@@ -285,10 +330,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const meta = sbUser.user_metadata || {};
     const authUser: AuthUser = {
       id: sbUser.id,
-      // profiles.full_name/avatar_url win once set — they're the record of
-      // any edit made through Edit Profile; Google's own metadata is only
-      // the fallback for a user who has never customized either field.
-      name: profile?.full_name || meta.full_name || meta.name || sbUser.email?.split("@")[0] || "User",
+      name:
+        profile?.full_name || meta.full_name || meta.name || sbUser.email?.split("@")[0] || "User",
       email: sbUser.email || "",
       avatar: profile?.avatar_url || meta.avatar_url || meta.picture || "/defult-img.jpg",
       role,
@@ -311,61 +354,77 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       if (Capacitor.isNativePlatform()) {
-        // Native Android sign-in: opens the OS-level Credential Manager
-        // account picker (no browser, no deep link) and returns a Google ID
-        // token directly. Handing that to signInWithIdToken makes Supabase
-        // verify it and create the exact same kind of session
-        // signInWithOAuth used to — syncUserFromSession above and the
-        // onAuthStateChange listener pick it up identically either way.
-        //
-        // No explicit `scopes` here deliberately: the plugin already
-        // requests email/profile/openid by default, and passing a `scopes`
-        // array at all — even ones already covered by the default — makes
-        // it require MainActivity to implement
-        // ModifiedMainActivityForSocialLoginPlugin (an extra native step,
-        // only actually needed for scopes beyond the default three).
-        const login = await SocialLogin.login({
-          provider: "google",
-          options: {},
-        });
+        const login = await withTimeout(
+          SocialLogin.login({ provider: "google", options: {} }),
+          20000,
+          "Sign-in timed out. Please try again.",
+        );
         const idToken =
           login.provider === "google" && login.result?.responseType === "online"
             ? login.result.idToken
             : null;
         if (!idToken) throw new Error("Google sign-in did not return an ID token");
-        const { error } = await supabase.auth.signInWithIdToken({ provider: "google", token: idToken });
+        const { data, error } = await withTimeout(
+          supabase.auth.signInWithIdToken({ provider: "google", token: idToken }),
+          15000,
+          "Sign-in timed out. Please try again.",
+        );
         if (error) throw error;
+        if (data?.session?.user) {
+          await syncUserFromSession(data.session.user);
+        }
+        setIsLoading(false);
       } else {
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: { redirectTo: window.location.origin },
-        });
+        const { data, error } = await withTimeout(
+          supabase.auth.signInWithOAuth({
+            provider: "google",
+            options: {
+              redirectTo: window.location.origin,
+            },
+          }),
+          15000,
+          "Sign-in timed out. Please try again.",
+        );
         if (error) throw error;
+        if (data?.url) {
+          // Leaving the page for Google's OAuth screen — deliberately don't
+          // clear isLoading here, so there's no flash of the button back to
+          // its idle state in the moment before the browser navigates away.
+          window.location.href = data.url;
+        } else {
+          setIsLoading(false);
+        }
       }
       setIsLoginModalOpen(false);
     } catch (e: any) {
       console.error("Google Auth Error:", e);
       alert(e.message || "Failed to sign in with Google");
-    } finally {
       setIsLoading(false);
     }
   };
 
   const logout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch {}
-    if (Capacitor.isNativePlatform()) {
-      // Clears Credential Manager's own cached account-selection state too
-      // — without this, signing out in-app and signing back in could
-      // silently reuse the same cached credential instead of showing the
-      // account picker again.
-      try {
-        await SocialLogin.logout({ provider: "google" });
-      } catch {}
-    }
+    setIsLoading(true);
+    // Clear local session state up front rather than after the remote call
+    // succeeds — the user should never be stuck looking signed-in just
+    // because Supabase is slow/unreachable (e.g. a platform outage). The
+    // remote signOut below is still attempted (best-effort, to actually
+    // revoke the refresh token server-side) but can't block getting out.
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);
+    setIsLoginModalOpen(false);
+    try {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          await withTimeout(SocialLogin.logout({ provider: "google" }), 8000, "timed out");
+        } catch {}
+      }
+      await withTimeout(supabase.auth.signOut(), 8000, "timed out");
+    } catch (e) {
+      console.error("Logout Error (local session was still cleared):", e);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const openLoginModal = () => setIsLoginModalOpen(true);

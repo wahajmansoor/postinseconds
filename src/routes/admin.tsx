@@ -15,11 +15,7 @@ export const Route = createFileRoute("/admin")({
 });
 
 function AdminPage() {
-  return (
-    <AuthProvider>
-      <AdminGate />
-    </AuthProvider>
-  );
+  return <AdminGate />;
 }
 
 function AdminGate() {

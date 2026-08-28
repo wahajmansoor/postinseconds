@@ -131,7 +131,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ExportPreviewDialog } from "@/components/editor/ExportPreviewDialog";
 import { Rulers, RULER_SIZE } from "@/components/editor/Rulers";
-import { AuthProvider, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { GoogleLoginDialog } from "@/components/auth/GoogleLoginDialog";
 import { SaveTemplateDialog } from "@/components/editor/SaveTemplateDialog";
@@ -140,11 +140,7 @@ import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileBottomTabBar } from "@/components/editor/MobileBottomTabBar";
 import { RAIL, type Tab } from "@/components/editor/rail";
-import {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-} from "@/components/ui/drawer";
+import { Drawer, DrawerClose, DrawerContent } from "@/components/ui/drawer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -165,16 +161,8 @@ export const Route = createFileRoute("/")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: StudioRoot,
+  component: StudioGate,
 });
-
-function StudioRoot() {
-  return (
-    <AuthProvider>
-      <StudioGate />
-    </AuthProvider>
-  );
-}
 
 function StudioGate() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -199,13 +187,7 @@ function StudioGate() {
   return <Index />;
 }
 
-function ZoomInput({
-  scale,
-  onChange,
-}: {
-  scale: number;
-  onChange: (valPercent: number) => void;
-}) {
+function ZoomInput({ scale, onChange }: { scale: number; onChange: (valPercent: number) => void }) {
   const currentPercent = Math.round(scale * 100);
   const [localVal, setLocalVal] = useState(String(currentPercent));
   const [isFocused, setIsFocused] = useState(false);
@@ -315,7 +297,10 @@ function PostNameInput({
           title="Click to rename post"
         >
           <span className="truncate">{currentName}</span>
-          <Edit02Icon size={12} className="shrink-0 text-muted-foreground opacity-60 sm:opacity-0 transition-opacity group-hover:opacity-100" />
+          <Edit02Icon
+            size={12}
+            className="shrink-0 text-muted-foreground opacity-60 sm:opacity-0 transition-opacity group-hover:opacity-100"
+          />
         </button>
       )}
     </div>
@@ -514,12 +499,13 @@ function DraggableFloatingLayersButton({
           ref={btnRef}
           type="button"
           onPointerDown={startDrag}
-          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${isDragging
-            ? "scale-110 border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)]"
-            : active
-              ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)] hover:scale-105"
-              : "border-border/80 bg-card/95 text-foreground shadow-xl hover:border-primary/60 hover:bg-card hover:shadow-2xl hover:scale-105"
-            }`}
+          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${
+            isDragging
+              ? "scale-110 border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)]"
+              : active
+                ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)] hover:scale-105"
+                : "border-border/80 bg-card/95 text-foreground shadow-xl hover:border-primary/60 hover:bg-card hover:shadow-2xl hover:scale-105"
+          }`}
           style={{ cursor: isDragging ? "grabbing" : "grab" }}
         >
           <Motion01Icon
@@ -532,10 +518,11 @@ function DraggableFloatingLayersButton({
           />
           {layerCount > 0 ? (
             <span
-              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${active || isDragging
-                ? "bg-background text-foreground border border-border"
-                : "bg-primary text-primary-foreground"
-                }`}
+              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${
+                active || isDragging
+                  ? "bg-background text-foreground border border-border"
+                  : "bg-primary text-primary-foreground"
+              }`}
             >
               {layerCount}
             </span>
@@ -549,7 +536,7 @@ function DraggableFloatingLayersButton({
 function dataUrlToBlob(dataUrl: string): Blob {
   const parts = dataUrl.split(",");
   const mimeMatch = parts[0]?.match(/:(.*?);/);
-  const mime: string = (mimeMatch && mimeMatch[1]) ? mimeMatch[1] : "image/png";
+  const mime: string = mimeMatch && mimeMatch[1] ? mimeMatch[1] : "image/png";
   const binary = atob(parts[1] || "");
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
@@ -612,8 +599,10 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch { }
-    toast.success(`Image saved successfully to your Gallery/Documents!`, { position: "bottom-center" });
+    } catch {}
+    toast.success(`Image saved successfully to your Gallery/Documents!`, {
+      position: "bottom-center",
+    });
     return;
   } catch (docErr) {
     console.warn("Direct save to Documents failed, attempting external storage:", docErr);
@@ -629,8 +618,10 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch { }
-    toast.success(`Image saved successfully to your Gallery / Downloads!`, { position: "bottom-center" });
+    } catch {}
+    toast.success(`Image saved successfully to your Gallery / Downloads!`, {
+      position: "bottom-center",
+    });
     return;
   } catch (extErr) {
     console.warn("External storage write failed, falling back to cache save:", extErr);
@@ -646,7 +637,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch { }
+    } catch {}
     toast.success(`Downloaded ${filename}!`, { position: "bottom-center" });
   } catch (cacheErr) {
     console.error("Native write failed:", cacheErr);
@@ -665,7 +656,9 @@ function Index() {
   });
   const [tab, setTab] = useState<Tab>("templates");
   const [textSubTab, setTextSubTab] = useState<"add" | "effects">("add");
-  const [templateCategory, setTemplateCategory] = useState<"starter" | "premium" | "saved">("starter");
+  const [templateCategory, setTemplateCategory] = useState<"starter" | "premium" | "saved">(
+    "starter",
+  );
   const [scale, setScale] = useState(0.49);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [busy, setBusy] = useState(false);
@@ -698,8 +691,14 @@ function Index() {
   const [newPostConfirmOpen, setNewPostConfirmOpen] = useState(false);
   const [resetCanvasConfirmOpen, setResetCanvasConfirmOpen] = useState(false);
   const [saveAndNewPending, setSaveAndNewPending] = useState(false);
-  const [newPostCanvasSize, setNewPostCanvasSize] = useState<{ width: number; height: number }>({ width: 1200, height: 1500 });
-  const [pendingNewPostSize, setPendingNewPostSize] = useState<{ width: number; height: number } | null>(null);
+  const [newPostCanvasSize, setNewPostCanvasSize] = useState<{ width: number; height: number }>({
+    width: 1200,
+    height: 1500,
+  });
+  const [pendingNewPostSize, setPendingNewPostSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const [isExportingFinal, setIsExportingFinal] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -741,7 +740,8 @@ function Index() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const isInput = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
+      const isInput =
+        target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (e.code === "Space" && !isInput && !spaceRef.current) {
         spaceRef.current = true;
         setSpaceHeld(true);
@@ -941,7 +941,8 @@ function Index() {
             const cy = canvasRect.top + (sh.y / 100) * (s.height * scale);
             const isLn = isLineShape(sh.kind);
             const rawW = typeof sh.size === "number" && sh.size > 0 ? sh.size : 200;
-            const rawH = typeof sh.height === "number" && sh.height > 0 ? sh.height : (isLn ? 24 : rawW);
+            const rawH =
+              typeof sh.height === "number" && sh.height > 0 ? sh.height : isLn ? 24 : rawW;
             const rad = ((sh.rotation || 0) * Math.PI) / 180;
             const cos = Math.abs(Math.cos(rad));
             const sin = Math.abs(Math.sin(rad));
@@ -953,7 +954,12 @@ function Index() {
             bottom = cy + boundH / 2;
           }
 
-          if (!(left > marqueeClientRight || right < marqueeClientLeft || top > marqueeClientBottom || bottom < marqueeClientTop)) {
+          if (!(
+            left > marqueeClientRight ||
+            right < marqueeClientLeft ||
+            top > marqueeClientBottom ||
+            bottom < marqueeClientTop
+          )) {
             if (!matched.some((m) => m.kind === "shape" && m.id === sh.id)) {
               matched.push({ kind: "shape", id: sh.id });
             }
@@ -986,7 +992,12 @@ function Index() {
             bottom = cy + boundH / 2;
           }
 
-          if (!(left > marqueeClientRight || right < marqueeClientLeft || top > marqueeClientBottom || bottom < marqueeClientTop)) {
+          if (!(
+            left > marqueeClientRight ||
+            right < marqueeClientLeft ||
+            top > marqueeClientBottom ||
+            bottom < marqueeClientTop
+          )) {
             if (!matched.some((m) => m.kind === "image" && m.id === img.id)) {
               matched.push({ kind: "image", id: img.id });
             }
@@ -1006,7 +1017,10 @@ function Index() {
           } else {
             const cx = canvasRect.left + (txt.x / 100) * (s.width * scale);
             const cy = canvasRect.top + (txt.y / 100) * (s.height * scale);
-            const baseW = txt.width && txt.width > 0 ? txt.width : Math.max(120, (txt.text?.length || 10) * (txt.size * 0.55));
+            const baseW =
+              txt.width && txt.width > 0
+                ? txt.width
+                : Math.max(120, (txt.text?.length || 10) * (txt.size * 0.55));
             const baseH = txt.minHeight && txt.minHeight > 0 ? txt.minHeight : txt.size * 1.5;
             const rad = ((txt.rotation || 0) * Math.PI) / 180;
             const cos = Math.abs(Math.cos(rad));
@@ -1019,7 +1033,12 @@ function Index() {
             bottom = cy + boundH / 2;
           }
 
-          if (!(left > marqueeClientRight || right < marqueeClientLeft || top > marqueeClientBottom || bottom < marqueeClientTop)) {
+          if (!(
+            left > marqueeClientRight ||
+            right < marqueeClientLeft ||
+            top > marqueeClientBottom ||
+            bottom < marqueeClientTop
+          )) {
             if (!matched.some((m) => m.kind === "text" && m.id === txt.id)) {
               matched.push({ kind: "text", id: txt.id });
             }
@@ -1075,7 +1094,7 @@ function Index() {
       if (list && list.length > 0) {
         setPlatformTemplates(list);
       }
-    } catch { }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -1169,8 +1188,16 @@ function Index() {
 
   const calculateFitScale = useCallback(
     (stageW?: number, stageH?: number) => {
-      const stW = stageW ?? (stageSizeRef.current.width > 0 ? stageSizeRef.current.width : stageRef.current?.clientWidth ?? 800);
-      const stH = stageH ?? (stageSizeRef.current.height > 0 ? stageSizeRef.current.height : stageRef.current?.clientHeight ?? 600);
+      const stW =
+        stageW ??
+        (stageSizeRef.current.width > 0
+          ? stageSizeRef.current.width
+          : (stageRef.current?.clientWidth ?? 800));
+      const stH =
+        stageH ??
+        (stageSizeRef.current.height > 0
+          ? stageSizeRef.current.height
+          : (stageRef.current?.clientHeight ?? 600));
 
       const rulerOffset = showRulers ? RULER_SIZE : 0;
       // Exact padding matching stage padding (16px on mobile, 64px on desktop).
@@ -1347,8 +1374,7 @@ function Index() {
           timeSinceLast < 600,
         );
 
-        const shouldReplace =
-          historyIdx.current > 0 && (opts?.replace || isContinuous);
+        const shouldReplace = historyIdx.current > 0 && (opts?.replace || isContinuous);
 
         if (shouldReplace) {
           history.current[historyIdx.current] = next;
@@ -1390,16 +1416,13 @@ function Index() {
         return;
       }
 
-      commit(
-        (p) => {
-          const nextVal =
-            typeof v === "function"
-              ? (v as (prev: EditorState[K], state: EditorState) => EditorState[K])(p[k], p)
-              : v;
-          return { ...p, [k]: nextVal };
-        },
-        opts,
-      );
+      commit((p) => {
+        const nextVal =
+          typeof v === "function"
+            ? (v as (prev: EditorState[K], state: EditorState) => EditorState[K])(p[k], p)
+            : v;
+        return { ...p, [k]: nextVal };
+      }, opts);
     },
     [commit],
   );
@@ -1456,25 +1479,28 @@ function Index() {
     setPan({ x: 0, y: 0 });
   }, [calculateFitScale]);
 
-  const handleStartNewPost = useCallback((customSize?: { width: number; height: number }) => {
-    clearActiveDraft();
-    setEditingSavedQuoteTarget(null);
-    setEditingTemplateTarget(null);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("postinseconds:reset-canvas"));
-    }
-    const targetW = customSize?.width || 1200;
-    const targetH = customSize?.height || 1500;
-    commit((prev) => ({
-      ...INITIAL_STATE,
-      width: targetW,
-      height: targetH,
-      exportFormat: prev.exportFormat,
-      exportScale: prev.exportScale,
-    }));
-    fit();
-    toast.success(`Started a new blank post (${targetW}×${targetH}px)!`);
-  }, [commit, fit]);
+  const handleStartNewPost = useCallback(
+    (customSize?: { width: number; height: number }) => {
+      clearActiveDraft();
+      setEditingSavedQuoteTarget(null);
+      setEditingTemplateTarget(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("postinseconds:reset-canvas"));
+      }
+      const targetW = customSize?.width || 1200;
+      const targetH = customSize?.height || 1500;
+      commit((prev) => ({
+        ...INITIAL_STATE,
+        width: targetW,
+        height: targetH,
+        exportFormat: prev.exportFormat,
+        exportScale: prev.exportScale,
+      }));
+      fit();
+      toast.success(`Started a new blank post (${targetW}×${targetH}px)!`);
+    },
+    [commit, fit],
+  );
 
   const handleFullReset = useCallback(() => {
     clearActiveDraft();
@@ -1553,7 +1579,10 @@ function Index() {
           e.preventDefault();
           redo();
         }
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === "0" || e.code === "Digit0" || e.code === "Numpad0")) {
+      } else if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === "0" || e.code === "Digit0" || e.code === "Numpad0")
+      ) {
         e.preventDefault();
         fit();
       }
@@ -1669,7 +1698,8 @@ function Index() {
       const stageRect = stageEl.getBoundingClientRect();
       const margin = 24;
       const safeTop = stageRect.top + margin;
-      const safeBottom = Math.min(stageRect.bottom, opts?.maxSafeViewportY ?? stageRect.bottom) - margin;
+      const safeBottom =
+        Math.min(stageRect.bottom, opts?.maxSafeViewportY ?? stageRect.bottom) - margin;
       const safeLeft = stageRect.left + margin;
       const safeRight = stageRect.right - margin;
       if (safeBottom <= safeTop || safeRight <= safeLeft) return;
@@ -1690,7 +1720,12 @@ function Index() {
       if (!deltaX && !deltaY) return;
 
       setPan((p) =>
-        clampPan({ x: p.x + deltaX, y: p.y + deltaY }, scaleRef.current, stageRect.width, stageRect.height),
+        clampPan(
+          { x: p.x + deltaX, y: p.y + deltaY },
+          scaleRef.current,
+          stageRect.width,
+          stageRect.height,
+        ),
       );
     },
     [clampPan],
@@ -1717,7 +1752,10 @@ function Index() {
       const el = toolDrawerContentRef.current;
       if (el) {
         const rect = el.getBoundingClientRect();
-        const visible = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+        const visible = Math.max(
+          0,
+          Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0),
+        );
         setMobileToolDrawerVisiblePx((prev) => (Math.abs(prev - visible) > 1 ? visible : prev));
       }
       rafId = requestAnimationFrame(measure);
@@ -1763,7 +1801,11 @@ function Index() {
   useEffect(() => {
     let t: number | undefined;
     if (isMobile) {
-      if (prevSelectionLenRef.current > 0 && canvasSelection.length === 0 && !isCustomZoomRef.current) {
+      if (
+        prevSelectionLenRef.current > 0 &&
+        canvasSelection.length === 0 &&
+        !isCustomZoomRef.current
+      ) {
         fit();
         t = window.setTimeout(fit, 320);
       }
@@ -1941,7 +1983,8 @@ function Index() {
     let pendingPanDy = 0;
     let hasPendingPan = false;
 
-    const getTouchDist = (t1: Touch, t2: Touch) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    const getTouchDist = (t1: Touch, t2: Touch) =>
+      Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
     const getTouchMidpoint = (t1: Touch, t2: Touch) => ({
       x: (t1.clientX + t2.clientX) / 2,
       y: (t1.clientY + t2.clientY) / 2,
@@ -1981,7 +2024,14 @@ function Index() {
         } else if (hasPendingPan) {
           isCustomZoomRef.current = true;
           const { width: stageW, height: stageH } = stageSizeRef.current;
-          setPan((p) => clampPan({ x: p.x + pendingPanDx, y: p.y + pendingPanDy }, scaleRef.current, stageW, stageH));
+          setPan((p) =>
+            clampPan(
+              { x: p.x + pendingPanDx, y: p.y + pendingPanDy },
+              scaleRef.current,
+              stageW,
+              stageH,
+            ),
+          );
           pendingPanDx = 0;
           pendingPanDy = 0;
           hasPendingPan = false;
@@ -2021,7 +2071,12 @@ function Index() {
         initialMidY = midpoint.y;
         const centerX = initialStageRect.width / 2;
         const centerY = initialStageRect.height / 2;
-        const origin = canvasOrigin(initialScale, panRef.current, initialStageRect.width, initialStageRect.height);
+        const origin = canvasOrigin(
+          initialScale,
+          panRef.current,
+          initialStageRect.width,
+          initialStageRect.height,
+        );
         initialContentX = (centerX - origin.x) / initialScale;
         initialContentY = (centerY - origin.y) / initialScale;
         return;
@@ -2156,31 +2211,34 @@ function Index() {
   // `boxColor`/... fields, no shapes/texts) into the layer model —
   // migrateLegacyContentToLayers() is a no-op for anything already in the
   // new format (every STARTER_TEMPLATE, and INITIAL_STATE itself).
-  const applyTemplate = useCallback((templateState: Partial<EditorState>) => {
-    setEditingSavedQuoteTarget(null);
-    setCanvasSelection([]);
-    setIsBackgroundSelected(false);
-    commit((prev) => {
-      const hasLayers =
-        (templateState.shapes && templateState.shapes.length > 0) ||
-        (templateState.texts && templateState.texts.length > 0) ||
-        (templateState.images && templateState.images.length > 0);
+  const applyTemplate = useCallback(
+    (templateState: Partial<EditorState>) => {
+      setEditingSavedQuoteTarget(null);
+      setCanvasSelection([]);
+      setIsBackgroundSelected(false);
+      commit((prev) => {
+        const hasLayers =
+          (templateState.shapes && templateState.shapes.length > 0) ||
+          (templateState.texts && templateState.texts.length > 0) ||
+          (templateState.images && templateState.images.length > 0);
 
-      const merged: EditorState = {
-        ...INITIAL_STATE,
-        width: prev.width || 1200,
-        height: prev.height || 1500,
-        exportFormat: prev.exportFormat,
-        exportScale: prev.exportScale,
-        ...templateState,
-        shapes: templateState.shapes ? JSON.parse(JSON.stringify(templateState.shapes)) : [],
-        texts: templateState.texts ? JSON.parse(JSON.stringify(templateState.texts)) : [],
-        images: templateState.images ? JSON.parse(JSON.stringify(templateState.images)) : [],
-        layersInitialized: Boolean(templateState.layersInitialized || hasLayers),
-      };
-      return migrateLegacyContentToLayers(merged);
-    });
-  }, [commit]);
+        const merged: EditorState = {
+          ...INITIAL_STATE,
+          width: prev.width || 1200,
+          height: prev.height || 1500,
+          exportFormat: prev.exportFormat,
+          exportScale: prev.exportScale,
+          ...templateState,
+          shapes: templateState.shapes ? JSON.parse(JSON.stringify(templateState.shapes)) : [],
+          texts: templateState.texts ? JSON.parse(JSON.stringify(templateState.texts)) : [],
+          images: templateState.images ? JSON.parse(JSON.stringify(templateState.images)) : [],
+          layersInitialized: Boolean(templateState.layersInitialized || hasLayers),
+        };
+        return migrateLegacyContentToLayers(merged);
+      });
+    },
+    [commit],
+  );
 
   // If a template was selected for editing from the Admin Control Center, load it on mount
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -2211,7 +2269,7 @@ function Index() {
           });
         }
       }
-    } catch { }
+    } catch {}
   }, [applyTemplate]);
 
   const handleQuickSaveTemplate = async () => {
@@ -2399,7 +2457,9 @@ function Index() {
           );
         else if (cmd === "underline")
           set("texts", (_, prevS) =>
-            withTextUpdated(prevS, selectedTextLayer.id, { underline: !selectedTextLayer.underline }),
+            withTextUpdated(prevS, selectedTextLayer.id, {
+              underline: !selectedTextLayer.underline,
+            }),
           );
         else if (cmd === "strike")
           set("texts", (_, prevS) =>
@@ -2433,14 +2493,18 @@ function Index() {
       setAlign: (v) =>
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { align: v })),
       setLetterSpacing: (v) =>
-        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { letterSpacing: v })),
+        set("texts", (_, prevS) =>
+          withTextUpdated(prevS, selectedTextLayer.id, { letterSpacing: v }),
+        ),
       setLineHeight: (v) =>
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { lineHeight: v })),
       setVerticalAlign: (v) =>
-        set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, { verticalAlign: v })),
+        set("texts", (_, prevS) =>
+          withTextUpdated(prevS, selectedTextLayer.id, { verticalAlign: v }),
+        ),
       updateLayer: (patch) =>
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, patch)),
-      snapshotSelection: () => { },
+      snapshotSelection: () => {},
       getActiveFormat: () => ({
         bold: selectedTextLayer.weight >= 700,
         italic: !!selectedTextLayer.italic,
@@ -2460,9 +2524,9 @@ function Index() {
           bulletList: false,
           numberedList: false,
         });
-        return () => { };
+        return () => {};
       },
-      startEditing: () => { },
+      startEditing: () => {},
     };
   }, [selectedTextLayer, s, set]);
 
@@ -2485,8 +2549,8 @@ function Index() {
   const multiSelectedShapeLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "shape")
       ? (canvasSelection
-        .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
-        .filter(Boolean) as ShapeLayer[])
+          .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
+          .filter(Boolean) as ShapeLayer[])
       : [];
   const isMultiShapeSelection = multiSelectedShapeLayers.length > 1;
 
@@ -2515,7 +2579,11 @@ function Index() {
   const handleShapeAlign = useCallback(
     (edge: ShapeAlignEdge) => {
       set("shapes", (_, prev) =>
-        withShapesAligned(prev, multiSelectedShapeLayers.map((l) => l.id), edge),
+        withShapesAligned(
+          prev,
+          multiSelectedShapeLayers.map((l) => l.id),
+          edge,
+        ),
       );
     },
     [multiSelectedShapeLayers, set],
@@ -2523,7 +2591,11 @@ function Index() {
   const handleShapeSpaceEvenly = useCallback(
     (direction: SpaceEvenlyDirection) => {
       set("shapes", (_, prev) =>
-        withShapesSpacedEvenly(prev, multiSelectedShapeLayers.map((l) => l.id), direction),
+        withShapesSpacedEvenly(
+          prev,
+          multiSelectedShapeLayers.map((l) => l.id),
+          direction,
+        ),
       );
     },
     [multiSelectedShapeLayers, set],
@@ -2531,7 +2603,12 @@ function Index() {
   const handleShapeShiftGroup = useCallback(
     (dxPercent: number, dyPercent: number) => {
       set("shapes", (_, prev) =>
-        withShapesShifted(prev, multiSelectedShapeLayers.map((l) => l.id), dxPercent, dyPercent),
+        withShapesShifted(
+          prev,
+          multiSelectedShapeLayers.map((l) => l.id),
+          dxPercent,
+          dyPercent,
+        ),
       );
     },
     [multiSelectedShapeLayers, set],
@@ -2545,8 +2622,8 @@ function Index() {
   const multiSelectedImageLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "image")
       ? (canvasSelection
-        .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
-        .filter(Boolean) as ImageLayer[])
+          .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
+          .filter(Boolean) as ImageLayer[])
       : [];
   const isMultiImageSelection = multiSelectedImageLayers.length > 1;
 
@@ -2561,9 +2638,9 @@ function Index() {
   // Text layers that are part of a mixed multi-selection
   const mixedSelectedTextLayers = isMixedMultiSelection
     ? (canvasSelection
-      .filter((sel) => sel.kind === "text")
-      .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
-      .filter(Boolean) as import("@/components/editor/types").TextLayer[])
+        .filter((sel) => sel.kind === "text")
+        .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
+        .filter(Boolean) as import("@/components/editor/types").TextLayer[])
     : [];
   const mixedAllText = isMixedMultiSelection && canvasSelection.every((sel) => sel.kind === "text");
 
@@ -2612,7 +2689,11 @@ function Index() {
     (patch: Partial<Omit<import("@/components/editor/types").TextLayer, "id">>) => {
       if (!mixedAllText) return;
       set("texts", (_, prev) =>
-        withTextsUpdated(prev, mixedSelectedTextLayers.map((t) => t.id), patch),
+        withTextsUpdated(
+          prev,
+          mixedSelectedTextLayers.map((t) => t.id),
+          patch,
+        ),
       );
     },
     [mixedAllText, mixedSelectedTextLayers, set],
@@ -2631,7 +2712,11 @@ function Index() {
   const handleImageAlign = useCallback(
     (edge: ShapeAlignEdge) => {
       set("images", (_, prev) =>
-        withImagesAligned(prev, multiSelectedImageLayers.map((l) => l.id), edge),
+        withImagesAligned(
+          prev,
+          multiSelectedImageLayers.map((l) => l.id),
+          edge,
+        ),
       );
     },
     [multiSelectedImageLayers, set],
@@ -2639,7 +2724,11 @@ function Index() {
   const handleImageSpaceEvenly = useCallback(
     (direction: SpaceEvenlyDirection) => {
       set("images", (_, prev) =>
-        withImagesSpacedEvenly(prev, multiSelectedImageLayers.map((l) => l.id), direction),
+        withImagesSpacedEvenly(
+          prev,
+          multiSelectedImageLayers.map((l) => l.id),
+          direction,
+        ),
       );
     },
     [multiSelectedImageLayers, set],
@@ -2647,7 +2736,12 @@ function Index() {
   const handleImageShiftGroup = useCallback(
     (dxPercent: number, dyPercent: number) => {
       set("images", (_, prev) =>
-        withImagesShifted(prev, multiSelectedImageLayers.map((l) => l.id), dxPercent, dyPercent),
+        withImagesShifted(
+          prev,
+          multiSelectedImageLayers.map((l) => l.id),
+          dxPercent,
+          dyPercent,
+        ),
       );
     },
     [multiSelectedImageLayers, set],
@@ -2706,7 +2800,12 @@ function Index() {
   // `pinnedOwners` slot going non-null already means exactly that (see the
   // long comment above it), reused here as trigger 3's signal instead of
   // adding new callback plumbing through every toolbar component.
-  const anyPopoverOpen = !!(pinnedOwners.text || pinnedOwners.image || pinnedOwners.shape || pinnedOwners.background);
+  const anyPopoverOpen = !!(
+    pinnedOwners.text ||
+    pinnedOwners.image ||
+    pinnedOwners.shape ||
+    pinnedOwners.background
+  );
 
   const [floatingDrawerHeightPx, setFloatingDrawerHeightPx] = useState(0);
 
@@ -2723,7 +2822,10 @@ function Index() {
       const el = document.querySelector<HTMLElement>("[data-floating-dropdown]");
       if (el) {
         const rect = el.getBoundingClientRect();
-        const visible = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+        const visible = Math.max(
+          0,
+          Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0),
+        );
         if (visible > 0) {
           setFloatingDrawerHeightPx((prev) => (Math.abs(prev - visible) > 1 ? visible : prev));
         }
@@ -2771,7 +2873,12 @@ function Index() {
   useEffect(() => {
     let t: number | undefined;
     if (isMobile) {
-      if (prevAnyPopoverOpenRef.current && !anyPopoverOpen && !mobileToolDrawerOpen && !isCustomZoomRef.current) {
+      if (
+        prevAnyPopoverOpenRef.current &&
+        !anyPopoverOpen &&
+        !mobileToolDrawerOpen &&
+        !isCustomZoomRef.current
+      ) {
         fit();
         t = window.setTimeout(fit, 320);
       }
@@ -2941,7 +3048,11 @@ function Index() {
         className="relative h-full w-full overflow-hidden"
       >
         {/* Marquee Selection Rectangle (Canva style) */}
-        {stageMarquee && Math.hypot(stageMarquee.currentX - stageMarquee.startX, stageMarquee.currentY - stageMarquee.startY) > 4 ? (
+        {stageMarquee &&
+        Math.hypot(
+          stageMarquee.currentX - stageMarquee.startX,
+          stageMarquee.currentY - stageMarquee.startY,
+        ) > 4 ? (
           <div
             style={{
               position: "absolute",
@@ -2973,16 +3084,16 @@ function Index() {
             what lets that popover's own state survive the transition
             instead of resetting. */}
         {!isMobile &&
-          !stageMarquee &&
-          (canvasSelection.length === 1 ||
-            isMultiShapeSelection ||
-            isMultiImageSelection ||
-            isMixedMultiSelection ||
-            isBackgroundSelected ||
-            textDetached ||
-            imageDetached ||
-            shapeDetached ||
-            backgroundDetached) ? (
+        !stageMarquee &&
+        (canvasSelection.length === 1 ||
+          isMultiShapeSelection ||
+          isMultiImageSelection ||
+          isMixedMultiSelection ||
+          isBackgroundSelected ||
+          textDetached ||
+          imageDetached ||
+          shapeDetached ||
+          backgroundDetached) ? (
           <div
             className="pointer-events-none z-40 flex justify-center overflow-visible sticky h-0 w-full transition-[top] duration-150"
             style={{
@@ -2996,15 +3107,25 @@ function Index() {
               style={{ maxWidth: "calc(100% - 24px)", width: "fit-content" }}
               className="pointer-events-auto relative"
             >
-              {(selectedTextLayer && selectedTextLayerHandle) || (textDetached && pinnedTextLayer && pinnedTextLayerHandle) ? (
+              {(selectedTextLayer && selectedTextLayerHandle) ||
+              (textDetached && pinnedTextLayer && pinnedTextLayerHandle) ? (
                 <TextSelectionToolbar
                   layer={(selectedTextLayer ?? pinnedTextLayer)!}
                   handle={(selectedTextLayerHandle ?? pinnedTextLayerHandle)!}
                   detached={textDetached}
-                  onArrange={(dir) => handleSingleArrange((selectedTextLayer ?? pinnedTextLayer)!.id, dir)}
-                  canArrange={getArrangeEligibility(unifiedLayers, (selectedTextLayer ?? pinnedTextLayer)!.id)}
+                  onArrange={(dir) =>
+                    handleSingleArrange((selectedTextLayer ?? pinnedTextLayer)!.id, dir)
+                  }
+                  canArrange={getArrangeEligibility(
+                    unifiedLayers,
+                    (selectedTextLayer ?? pinnedTextLayer)!.id,
+                  )}
                   onAnyPopoverOpenChange={(open) =>
-                    handlePinnedPopoverChange("text", (selectedTextLayer ?? pinnedTextLayer)!.id, open)
+                    handlePinnedPopoverChange(
+                      "text",
+                      (selectedTextLayer ?? pinnedTextLayer)!.id,
+                      open,
+                    )
                   }
                   onOpenEffectsTab={() => {
                     setTab("text");
@@ -3017,28 +3138,50 @@ function Index() {
                 <ImageSelectionToolbar
                   layer={(selectedImageLayer ?? pinnedImageLayer)!}
                   detached={imageDetached}
-                  onArrange={(dir) => handleSingleArrange((selectedImageLayer ?? pinnedImageLayer)!.id, dir)}
-                  canArrange={getArrangeEligibility(unifiedLayers, (selectedImageLayer ?? pinnedImageLayer)!.id)}
+                  onArrange={(dir) =>
+                    handleSingleArrange((selectedImageLayer ?? pinnedImageLayer)!.id, dir)
+                  }
+                  canArrange={getArrangeEligibility(
+                    unifiedLayers,
+                    (selectedImageLayer ?? pinnedImageLayer)!.id,
+                  )}
                   onAnyPopoverOpenChange={(open) =>
-                    handlePinnedPopoverChange("image", (selectedImageLayer ?? pinnedImageLayer)!.id, open)
+                    handlePinnedPopoverChange(
+                      "image",
+                      (selectedImageLayer ?? pinnedImageLayer)!.id,
+                      open,
+                    )
                   }
                   onUpdate={(patch) =>
                     set("images", (_, prevS) =>
                       withImageUpdated(prevS, (selectedImageLayer ?? pinnedImageLayer)!.id, patch),
                     )
                   }
-                  onOpenCrop={() => setCroppingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)}
-                  onOpenErase={() => setErasingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)}
+                  onOpenCrop={() =>
+                    setCroppingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)
+                  }
+                  onOpenErase={() =>
+                    setErasingImageLayer((selectedImageLayer ?? pinnedImageLayer)!)
+                  }
                 />
               ) : null}
               {selectedShapeLayer || (shapeDetached && pinnedShapeLayer) ? (
                 <ShapeSelectionToolbar
                   layer={(selectedShapeLayer ?? pinnedShapeLayer)!}
                   detached={shapeDetached}
-                  onArrange={(dir) => handleSingleArrange((selectedShapeLayer ?? pinnedShapeLayer)!.id, dir)}
-                  canArrange={getArrangeEligibility(unifiedLayers, (selectedShapeLayer ?? pinnedShapeLayer)!.id)}
+                  onArrange={(dir) =>
+                    handleSingleArrange((selectedShapeLayer ?? pinnedShapeLayer)!.id, dir)
+                  }
+                  canArrange={getArrangeEligibility(
+                    unifiedLayers,
+                    (selectedShapeLayer ?? pinnedShapeLayer)!.id,
+                  )}
                   onAnyPopoverOpenChange={(open) =>
-                    handlePinnedPopoverChange("shape", (selectedShapeLayer ?? pinnedShapeLayer)!.id, open)
+                    handlePinnedPopoverChange(
+                      "shape",
+                      (selectedShapeLayer ?? pinnedShapeLayer)!.id,
+                      open,
+                    )
                   }
                   onUpdate={(patch) =>
                     set("shapes", (_, prevS) =>
@@ -3046,12 +3189,18 @@ function Index() {
                     )
                   }
                   onDuplicate={() => {
-                    const dup = withShapeDuplicated(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id);
+                    const dup = withShapeDuplicated(
+                      s,
+                      (selectedShapeLayer ?? pinnedShapeLayer)!.id,
+                    );
                     set("shapes", dup.list);
                     setCanvasSelection([{ kind: "shape", id: dup.newId }]);
                   }}
                   onDelete={() => {
-                    set("shapes", withShapeRemoved(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id));
+                    set(
+                      "shapes",
+                      withShapeRemoved(s, (selectedShapeLayer ?? pinnedShapeLayer)!.id),
+                    );
                     setCanvasSelection([]);
                   }}
                   onToggleLock={() =>
@@ -3070,7 +3219,10 @@ function Index() {
                   canvasWidth={s.width}
                   canvasHeight={s.height}
                   onArrange={handleShapeArrange}
-                  canArrange={getArrangeEligibility(unifiedLayers, multiSelectedShapeLayers.map((l) => l.id))}
+                  canArrange={getArrangeEligibility(
+                    unifiedLayers,
+                    multiSelectedShapeLayers.map((l) => l.id),
+                  )}
                   onAlign={handleShapeAlign}
                   onSpaceEvenly={handleShapeSpaceEvenly}
                   onShiftGroup={handleShapeShiftGroup}
@@ -3095,8 +3247,13 @@ function Index() {
                   }}
                   onDuplicateAll={() => {
                     commit((prev) => {
-                      const result = withMultipleLayersDuplicated(prev, canvasSelection, { x: 3, y: 3 });
-                      setCanvasSelection(result.newSelection.map((item) => ({ kind: item.kind, id: item.id })));
+                      const result = withMultipleLayersDuplicated(prev, canvasSelection, {
+                        x: 3,
+                        y: 3,
+                      });
+                      setCanvasSelection(
+                        result.newSelection.map((item) => ({ kind: item.kind, id: item.id })),
+                      );
                       return {
                         ...prev,
                         texts: result.texts,
@@ -3121,7 +3278,10 @@ function Index() {
                   canvasWidth={s.width}
                   canvasHeight={s.height}
                   onArrange={handleImageArrange}
-                  canArrange={getArrangeEligibility(unifiedLayers, multiSelectedImageLayers.map((l) => l.id))}
+                  canArrange={getArrangeEligibility(
+                    unifiedLayers,
+                    multiSelectedImageLayers.map((l) => l.id),
+                  )}
                   onAlign={handleImageAlign}
                   onSpaceEvenly={handleImageSpaceEvenly}
                   onShiftGroup={handleImageShiftGroup}
@@ -3146,8 +3306,13 @@ function Index() {
                   }}
                   onDuplicateAll={() => {
                     commit((prev) => {
-                      const result = withMultipleLayersDuplicated(prev, canvasSelection, { x: 3, y: 3 });
-                      setCanvasSelection(result.newSelection.map((item) => ({ kind: item.kind, id: item.id })));
+                      const result = withMultipleLayersDuplicated(prev, canvasSelection, {
+                        x: 3,
+                        y: 3,
+                      });
+                      setCanvasSelection(
+                        result.newSelection.map((item) => ({ kind: item.kind, id: item.id })),
+                      );
                       return {
                         ...prev,
                         texts: result.texts,
@@ -3177,30 +3342,51 @@ function Index() {
                   onSpaceEvenly={handleMixedSpaceEvenly}
                   onRotate={handleMixedRotate}
                   onArrange={handleMixedArrange}
-                  canArrange={getArrangeEligibility(unifiedLayers, canvasSelection.map((l) => l.id))}
+                  canArrange={getArrangeEligibility(
+                    unifiedLayers,
+                    canvasSelection.map((l) => l.id),
+                  )}
                   onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
                   onToggleLockAll={() => {
                     const allLocked = canvasSelection.every((sel) => {
-                      if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                      if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                      if (sel.kind === "text")
+                        return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                      if (sel.kind === "image")
+                        return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                       return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
                     });
-                    const textIds = canvasSelection.filter((l) => l.kind === "text").map((l) => l.id);
-                    const imageIds = canvasSelection.filter((l) => l.kind === "image").map((l) => l.id);
-                    const shapeIds = canvasSelection.filter((l) => l.kind === "shape").map((l) => l.id);
-                    if (textIds.length) set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
-                    if (imageIds.length) set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
-                    if (shapeIds.length) set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
+                    const textIds = canvasSelection
+                      .filter((l) => l.kind === "text")
+                      .map((l) => l.id);
+                    const imageIds = canvasSelection
+                      .filter((l) => l.kind === "image")
+                      .map((l) => l.id);
+                    const shapeIds = canvasSelection
+                      .filter((l) => l.kind === "shape")
+                      .map((l) => l.id);
+                    if (textIds.length)
+                      set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
+                    if (imageIds.length)
+                      set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
+                    if (shapeIds.length)
+                      set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
                   }}
                   allLocked={canvasSelection.every((sel) => {
-                    if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                    if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                    if (sel.kind === "text")
+                      return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                    if (sel.kind === "image")
+                      return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                     return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
                   })}
                   onDuplicateAll={() => {
                     commit((prev) => {
-                      const result = withMultipleLayersDuplicated(prev, canvasSelection, { x: 3, y: 3 });
-                      setCanvasSelection(result.newSelection.map((item) => ({ kind: item.kind, id: item.id })));
+                      const result = withMultipleLayersDuplicated(prev, canvasSelection, {
+                        x: 3,
+                        y: 3,
+                      });
+                      setCanvasSelection(
+                        result.newSelection.map((item) => ({ kind: item.kind, id: item.id })),
+                      );
                       return {
                         ...prev,
                         texts: result.texts,
@@ -3224,7 +3410,9 @@ function Index() {
                   s={s}
                   set={set}
                   detached={backgroundDetached}
-                  onAnyPopoverOpenChange={(open) => handlePinnedPopoverChange("background", "background", open)}
+                  onAnyPopoverOpenChange={(open) =>
+                    handlePinnedPopoverChange("background", "background", open)
+                  }
                   onOpenBackgroundTab={() => {
                     setTab("background");
                     setLeftPanelCollapsed(false);
@@ -3318,7 +3506,9 @@ function Index() {
               contentLength={s.width * scale}
               origin={canvasWrapperOrigin.x}
               onPanDelta={(delta) =>
-                setPan((p) => clampPan({ ...p, x: p.x + delta }, scale, stageSize.width, stageSize.height))
+                setPan((p) =>
+                  clampPan({ ...p, x: p.x + delta }, scale, stageSize.width, stageSize.height),
+                )
               }
             />
             <CanvasScrollbar
@@ -3327,7 +3517,9 @@ function Index() {
               contentLength={s.height * scale}
               origin={canvasWrapperOrigin.y}
               onPanDelta={(delta) =>
-                setPan((p) => clampPan({ ...p, y: p.y + delta }, scale, stageSize.width, stageSize.height))
+                setPan((p) =>
+                  clampPan({ ...p, y: p.y + delta }, scale, stageSize.width, stageSize.height),
+                )
               }
             />
           </>
@@ -3371,7 +3563,8 @@ function Index() {
             {editingTemplateTarget ? (
               <div className="flex items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 shadow-sm">
                 <span className="text-xs font-semibold text-foreground">
-                  Editing: <span className="font-bold text-primary">{editingTemplateTarget.label}</span>
+                  Editing:{" "}
+                  <span className="font-bold text-primary">{editingTemplateTarget.label}</span>
                 </span>
                 <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-bold text-primary">
                   {editingTemplateTarget.category === "premium" ? "Premium" : "Starter"}
@@ -3380,10 +3573,11 @@ function Index() {
                   type="button"
                   onClick={handleQuickSaveTemplate}
                   disabled={isSavingTemplate}
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${saveSuccess
-                    ? "bg-emerald-500 text-white"
-                    : "bg-primary text-primary-foreground hover:bg-primary/90"
-                    }`}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${
+                    saveSuccess
+                      ? "bg-emerald-500 text-white"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  }`}
                   title="Save changes to template"
                 >
                   <Bookmark01Icon size={13} />
@@ -3454,8 +3648,9 @@ function Index() {
                         : "linear-gradient(#ffffff,#ffffff) padding-box, linear-gradient(180deg, #ffffff 50%, rgba(255,255,255,0.6) 80%, rgba(255,255,255,0)) border-box, linear-gradient(90deg, hsl(0,100%,63%), hsl(90,100%,63%), hsl(210,100%,63%), hsl(195,100%,63%), hsl(270,100%,63%)) border-box",
                       border: "1.5px solid transparent",
                     }}
-                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${dark ? "text-white" : "text-zinc-900"
-                      }`}
+                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${
+                      dark ? "text-white" : "text-zinc-900"
+                    }`}
                   >
                     <span className="tracking-tight">Premium Templates</span>
                     <div className="flex items-center gap-1">
@@ -3514,7 +3709,7 @@ function Index() {
         {isMobile ? (
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when changes exist */}
-            {(canUndo || canRedo) ? (
+            {canUndo || canRedo ? (
               <div
                 className="pointer-events-none fixed left-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
@@ -3546,7 +3741,12 @@ function Index() {
             ) : null}
 
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
-            {(selectedTextLayer || selectedImageLayer || selectedShapeLayer || isMultiShapeSelection || isMultiImageSelection || isMixedMultiSelection) ? (
+            {selectedTextLayer ||
+            selectedImageLayer ||
+            selectedShapeLayer ||
+            isMultiShapeSelection ||
+            isMultiImageSelection ||
+            isMixedMultiSelection ? (
               <div
                 className="pointer-events-none fixed right-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
@@ -3554,17 +3754,19 @@ function Index() {
                 {/* Lock Toggle Button */}
                 <AppTooltip
                   content={
-                    (selectedTextLayer?.locked ||
-                      selectedImageLayer?.locked ||
-                      selectedShapeLayer?.locked ||
-                      (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                      (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
-                      (isMixedMultiSelection &&
-                        canvasSelection.every((sel) => {
-                          if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                          if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                        })))
+                    selectedTextLayer?.locked ||
+                    selectedImageLayer?.locked ||
+                    selectedShapeLayer?.locked ||
+                    (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                    (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                    (isMixedMultiSelection &&
+                      canvasSelection.every((sel) => {
+                        if (sel.kind === "text")
+                          return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                        if (sel.kind === "image")
+                          return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                        return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                      }))
                       ? "Unlock Layer"
                       : "Lock Layer"
                   }
@@ -3592,16 +3794,27 @@ function Index() {
                         );
                       } else if (isMixedMultiSelection) {
                         const allLocked = canvasSelection.every((sel) => {
-                          if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                          if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                          if (sel.kind === "text")
+                            return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                          if (sel.kind === "image")
+                            return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                           return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
                         });
-                        const textIds = canvasSelection.filter((l) => l.kind === "text").map((l) => l.id);
-                        const imageIds = canvasSelection.filter((l) => l.kind === "image").map((l) => l.id);
-                        const shapeIds = canvasSelection.filter((l) => l.kind === "shape").map((l) => l.id);
-                        if (textIds.length) set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
-                        if (imageIds.length) set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
-                        if (shapeIds.length) set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
+                        const textIds = canvasSelection
+                          .filter((l) => l.kind === "text")
+                          .map((l) => l.id);
+                        const imageIds = canvasSelection
+                          .filter((l) => l.kind === "image")
+                          .map((l) => l.id);
+                        const shapeIds = canvasSelection
+                          .filter((l) => l.kind === "shape")
+                          .map((l) => l.id);
+                        if (textIds.length)
+                          set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
+                        if (imageIds.length)
+                          set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
+                        if (shapeIds.length)
+                          set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
                       } else if (selectedTextLayer) {
                         set("texts", (_, prev) =>
                           withTextUpdated(prev, selectedTextLayer.id, {
@@ -3624,47 +3837,55 @@ function Index() {
                     }}
                     className={cn(
                       "pointer-events-auto grid h-7 w-7 place-items-center rounded-full transition-all active:scale-95",
-                      (selectedTextLayer?.locked ||
+                      selectedTextLayer?.locked ||
                         selectedImageLayer?.locked ||
                         selectedShapeLayer?.locked ||
-                        (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                        (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                        (isMultiShapeSelection &&
+                          multiSelectedShapeLayers.every((l) => l.locked)) ||
+                        (isMultiImageSelection &&
+                          multiSelectedImageLayers.every((l) => l.locked)) ||
                         (isMixedMultiSelection &&
                           canvasSelection.every((sel) => {
-                            if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                            if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                            if (sel.kind === "text")
+                              return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                            if (sel.kind === "image")
+                              return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                             return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                          })))
+                          }))
                         ? "bg-amber-500/20 text-amber-500"
-                        : "text-muted-foreground hover:text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                     title={
-                      (selectedTextLayer?.locked ||
-                        selectedImageLayer?.locked ||
-                        selectedShapeLayer?.locked ||
-                        (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                        (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
-                        (isMixedMultiSelection &&
-                          canvasSelection.every((sel) => {
-                            if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                            if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                          })))
-                        ? "Unlock Layer"
-                        : "Lock Layer"
-                    }
-                  >
-                    {(selectedTextLayer?.locked ||
+                      selectedTextLayer?.locked ||
                       selectedImageLayer?.locked ||
                       selectedShapeLayer?.locked ||
                       (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
                       (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
                       (isMixedMultiSelection &&
                         canvasSelection.every((sel) => {
-                          if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                          if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                          if (sel.kind === "text")
+                            return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                          if (sel.kind === "image")
+                            return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                           return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                        }))) ? (
+                        }))
+                        ? "Unlock Layer"
+                        : "Lock Layer"
+                    }
+                  >
+                    {selectedTextLayer?.locked ||
+                    selectedImageLayer?.locked ||
+                    selectedShapeLayer?.locked ||
+                    (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                    (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                    (isMixedMultiSelection &&
+                      canvasSelection.every((sel) => {
+                        if (sel.kind === "text")
+                          return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                        if (sel.kind === "image")
+                          return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                        return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                      })) ? (
                       <SquareLock02Icon size={14} />
                     ) : (
                       <SquareUnlock02Icon size={14} />
@@ -3735,7 +3956,8 @@ function Index() {
                   : mobileToolDrawerNearPeek
                     ? `${mobileToolDrawerVisiblePx}px`
                     : "calc(60px + env(safe-area-inset-bottom) + 12px)",
-                transition: "padding-bottom 0.5s cubic-bezier(0.32, 0.72, 0, 1)", marginBottom: "20px",
+                transition: "padding-bottom 0.5s cubic-bezier(0.32, 0.72, 0, 1)",
+                marginBottom: "20px",
               }}
             >
               {canvasStage}
@@ -3743,250 +3965,284 @@ function Index() {
 
             {typeof document !== "undefined"
               ? createPortal(
-                !(
-                  selectedTextLayer ||
-                  selectedImageLayer ||
-                  selectedShapeLayer ||
-                  isMultiShapeSelection ||
-                  isMultiImageSelection ||
-                  isMixedMultiSelection ||
-                  isBackgroundSelected
-                ) ? (
-                  <MobileBottomTabBar
-                    activeTab={tab}
-                    isDrawerOpen={mobileToolDrawerOpen}
-                    onTabChange={(id) => {
-                      if (id === tab && mobileToolDrawerOpen) {
-                        setMobileToolDrawerOpen(false);
-                      } else {
-                        setTab(id);
-                        setMobileToolDrawerOpen(true);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div
-                    data-nopan=""
-                    data-keep-text-editing=""
-                    className="fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl pointer-events-auto"
-                    style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-                  >
-                    {/* Absolute solid Tick02Icon button on far left */}
-                    <button
-                      type="button"
-                      onPointerDown={(e) => e.preventDefault()}
-                      onClick={(e) => {
-                        e.currentTarget.blur();
-                        setCanvasSelection([]);
-                        setIsBackgroundSelected(false);
+                  !(
+                    selectedTextLayer ||
+                    selectedImageLayer ||
+                    selectedShapeLayer ||
+                    isMultiShapeSelection ||
+                    isMultiImageSelection ||
+                    isMixedMultiSelection ||
+                    isBackgroundSelected
+                  ) ? (
+                    <MobileBottomTabBar
+                      activeTab={tab}
+                      isDrawerOpen={mobileToolDrawerOpen}
+                      onTabChange={(id) => {
+                        if (id === tab && mobileToolDrawerOpen) {
+                          setMobileToolDrawerOpen(false);
+                        } else {
+                          setTab(id);
+                          setMobileToolDrawerOpen(true);
+                        }
                       }}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
-                      title="Done (Deselect)"
+                    />
+                  ) : (
+                    <div
+                      data-nopan=""
+                      data-keep-text-editing=""
+                      className="fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl pointer-events-auto"
+                      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
                     >
-                      <Tick02Icon size={16} />
-                    </button>
+                      {/* Absolute solid Tick02Icon button on far left */}
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.currentTarget.blur();
+                          setCanvasSelection([]);
+                          setIsBackgroundSelected(false);
+                        }}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
+                        title="Done (Deselect)"
+                      >
+                        <Tick02Icon size={16} />
+                      </button>
 
-                    {/* Left & Right gradient edge fades */}
-                    <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
-                    <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
+                      {/* Left & Right gradient edge fades */}
+                      <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
+                      <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
 
-                    {/* Scrollable toolbar items with pl-14 pr-3 */}
-                    <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
-                      {selectedTextLayer && selectedTextLayerHandle ? (
-                        <TextSelectionToolbar
-                          layer={selectedTextLayer}
-                          handle={selectedTextLayerHandle}
-                          onArrange={(dir) => handleSingleArrange(selectedTextLayer.id, dir)}
-                          canArrange={getArrangeEligibility(unifiedLayers, selectedTextLayer.id)}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("text", selectedTextLayer.id, open)
-                          }
-                          onOpenEffectsTab={() => {
-                            setTab("text");
-                            setTextSubTab("effects");
-                            setMobileToolDrawerOpen(true);
-                          }}
-                        />
-                      ) : selectedImageLayer ? (
-                        <ImageSelectionToolbar
-                          layer={selectedImageLayer}
-                          onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
-                          canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("image", selectedImageLayer.id, open)
-                          }
-                          onUpdate={(patch) =>
-                            set("images", (_, prevS) => withImageUpdated(prevS, selectedImageLayer.id, patch))
-                          }
-                          onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
-                          onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
-                        />
-                      ) : selectedShapeLayer ? (
-                        <ShapeSelectionToolbar
-                          layer={selectedShapeLayer}
-                          onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
-                          canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
-                          }
-                          onUpdate={(patch) =>
-                            set("shapes", (_, prevS) => withShapeUpdated(prevS, selectedShapeLayer.id, patch))
-                          }
-                          onDuplicate={() => {
-                            const dup = withShapeDuplicated(s, selectedShapeLayer.id);
-                            set("shapes", dup.list);
-                            setCanvasSelection([{ kind: "shape", id: dup.newId }]);
-                          }}
-                          onDelete={() => {
-                            set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
-                            setCanvasSelection([]);
-                          }}
-                          onToggleLock={() =>
-                            set(
-                              "shapes",
-                              withShapeUpdated(s, selectedShapeLayer.id, {
-                                locked: !selectedShapeLayer.locked,
-                              }),
-                            )
-                          }
-                        />
-                      ) : isMultiShapeSelection ? (
-                        <MultiShapeSelectionToolbar
-                          layers={multiSelectedShapeLayers}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("shape", "multi-shape", open)
-                          }
-                          onArrange={handleShapeArrange}
-                          canArrange={getArrangeEligibility(unifiedLayers, multiSelectedShapeLayers.map((l) => l.id))}
-                          onAlign={handleShapeAlign}
-                          onSpaceEvenly={handleShapeSpaceEvenly}
-                          onShiftGroup={handleShapeShiftGroup}
-                          onUpdateAll={(patch) =>
-                            set("shapes", (_, prev) =>
-                              withShapesUpdated(
-                                prev,
-                                multiSelectedShapeLayers.map((l) => l.id),
-                                patch,
-                              ),
-                            )
-                          }
-                          onToggleLockAll={() => {
-                            const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                            set("shapes", (_, prev) =>
-                              withShapesLockSet(
-                                prev,
-                                multiSelectedShapeLayers.map((l) => l.id),
-                                !allLocked,
-                              ),
-                            );
-                          }}
-                          onDeleteAll={() => {
-                            commit((prev) => {
-                              const result = withMultipleLayersRemoved(prev, canvasSelection);
-                              return { ...prev, ...result };
-                            });
-                            setCanvasSelection([]);
-                          }}
-                        />
-                      ) : isMultiImageSelection ? (
-                        <MultiImageSelectionToolbar
-                          layers={multiSelectedImageLayers}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("image", "multi-image", open)
-                          }
-                          onArrange={handleImageArrange}
-                          canArrange={getArrangeEligibility(unifiedLayers, multiSelectedImageLayers.map((l) => l.id))}
-                          onAlign={handleImageAlign}
-                          onSpaceEvenly={handleImageSpaceEvenly}
-                          onShiftGroup={handleImageShiftGroup}
-                          onUpdateAll={(patch) =>
-                            set("images", (_, prev) =>
-                              withImagesUpdated(
-                                prev,
-                                multiSelectedImageLayers.map((l) => l.id),
-                                patch,
-                              ),
-                            )
-                          }
-                          onToggleLockAll={() => {
-                            const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                            set("images", (_, prev) =>
-                              withImagesLockSet(
-                                prev,
-                                multiSelectedImageLayers.map((l) => l.id),
-                                !allLocked,
-                              ),
-                            );
-                          }}
-                          onDeleteAll={() => {
-                            commit((prev) => {
-                              const result = withMultipleLayersRemoved(prev, canvasSelection);
-                              return { ...prev, ...result };
-                            });
-                            setCanvasSelection([]);
-                          }}
-                        />
-                      ) : isMixedMultiSelection ? (
-                        <MultiMixedSelectionToolbar
-                          selectedIds={canvasSelection as MixedLayerRef[]}
-                          textLayers={mixedSelectedTextLayers}
-                          allText={mixedAllText}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onAlign={handleMixedAlign}
-                          onSpaceEvenly={handleMixedSpaceEvenly}
-                          onArrange={handleMixedArrange}
-                          canArrange={getArrangeEligibility(unifiedLayers, canvasSelection.map((l) => l.id))}
-                          onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("text", "multi-mixed", open)
-                          }
-                          onToggleLockAll={() => {
-                            const allLocked = canvasSelection.every((sel) => {
-                              if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                              if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                      {/* Scrollable toolbar items with pl-14 pr-3 */}
+                      <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
+                        {selectedTextLayer && selectedTextLayerHandle ? (
+                          <TextSelectionToolbar
+                            layer={selectedTextLayer}
+                            handle={selectedTextLayerHandle}
+                            onArrange={(dir) => handleSingleArrange(selectedTextLayer.id, dir)}
+                            canArrange={getArrangeEligibility(unifiedLayers, selectedTextLayer.id)}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("text", selectedTextLayer.id, open)
+                            }
+                            onOpenEffectsTab={() => {
+                              setTab("text");
+                              setTextSubTab("effects");
+                              setMobileToolDrawerOpen(true);
+                            }}
+                          />
+                        ) : selectedImageLayer ? (
+                          <ImageSelectionToolbar
+                            layer={selectedImageLayer}
+                            onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
+                            canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("image", selectedImageLayer.id, open)
+                            }
+                            onUpdate={(patch) =>
+                              set("images", (_, prevS) =>
+                                withImageUpdated(prevS, selectedImageLayer.id, patch),
+                              )
+                            }
+                            onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
+                            onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
+                          />
+                        ) : selectedShapeLayer ? (
+                          <ShapeSelectionToolbar
+                            layer={selectedShapeLayer}
+                            onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
+                            canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
+                            }
+                            onUpdate={(patch) =>
+                              set("shapes", (_, prevS) =>
+                                withShapeUpdated(prevS, selectedShapeLayer.id, patch),
+                              )
+                            }
+                            onDuplicate={() => {
+                              const dup = withShapeDuplicated(s, selectedShapeLayer.id);
+                              set("shapes", dup.list);
+                              setCanvasSelection([{ kind: "shape", id: dup.newId }]);
+                            }}
+                            onDelete={() => {
+                              set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                              setCanvasSelection([]);
+                            }}
+                            onToggleLock={() =>
+                              set(
+                                "shapes",
+                                withShapeUpdated(s, selectedShapeLayer.id, {
+                                  locked: !selectedShapeLayer.locked,
+                                }),
+                              )
+                            }
+                          />
+                        ) : isMultiShapeSelection ? (
+                          <MultiShapeSelectionToolbar
+                            layers={multiSelectedShapeLayers}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("shape", "multi-shape", open)
+                            }
+                            onArrange={handleShapeArrange}
+                            canArrange={getArrangeEligibility(
+                              unifiedLayers,
+                              multiSelectedShapeLayers.map((l) => l.id),
+                            )}
+                            onAlign={handleShapeAlign}
+                            onSpaceEvenly={handleShapeSpaceEvenly}
+                            onShiftGroup={handleShapeShiftGroup}
+                            onUpdateAll={(patch) =>
+                              set("shapes", (_, prev) =>
+                                withShapesUpdated(
+                                  prev,
+                                  multiSelectedShapeLayers.map((l) => l.id),
+                                  patch,
+                                ),
+                              )
+                            }
+                            onToggleLockAll={() => {
+                              const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
+                              set("shapes", (_, prev) =>
+                                withShapesLockSet(
+                                  prev,
+                                  multiSelectedShapeLayers.map((l) => l.id),
+                                  !allLocked,
+                                ),
+                              );
+                            }}
+                            onDeleteAll={() => {
+                              commit((prev) => {
+                                const result = withMultipleLayersRemoved(prev, canvasSelection);
+                                return { ...prev, ...result };
+                              });
+                              setCanvasSelection([]);
+                            }}
+                          />
+                        ) : isMultiImageSelection ? (
+                          <MultiImageSelectionToolbar
+                            layers={multiSelectedImageLayers}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("image", "multi-image", open)
+                            }
+                            onArrange={handleImageArrange}
+                            canArrange={getArrangeEligibility(
+                              unifiedLayers,
+                              multiSelectedImageLayers.map((l) => l.id),
+                            )}
+                            onAlign={handleImageAlign}
+                            onSpaceEvenly={handleImageSpaceEvenly}
+                            onShiftGroup={handleImageShiftGroup}
+                            onUpdateAll={(patch) =>
+                              set("images", (_, prev) =>
+                                withImagesUpdated(
+                                  prev,
+                                  multiSelectedImageLayers.map((l) => l.id),
+                                  patch,
+                                ),
+                              )
+                            }
+                            onToggleLockAll={() => {
+                              const allLocked = multiSelectedImageLayers.every((l) => l.locked);
+                              set("images", (_, prev) =>
+                                withImagesLockSet(
+                                  prev,
+                                  multiSelectedImageLayers.map((l) => l.id),
+                                  !allLocked,
+                                ),
+                              );
+                            }}
+                            onDeleteAll={() => {
+                              commit((prev) => {
+                                const result = withMultipleLayersRemoved(prev, canvasSelection);
+                                return { ...prev, ...result };
+                              });
+                              setCanvasSelection([]);
+                            }}
+                          />
+                        ) : isMixedMultiSelection ? (
+                          <MultiMixedSelectionToolbar
+                            selectedIds={canvasSelection as MixedLayerRef[]}
+                            textLayers={mixedSelectedTextLayers}
+                            allText={mixedAllText}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onAlign={handleMixedAlign}
+                            onSpaceEvenly={handleMixedSpaceEvenly}
+                            onArrange={handleMixedArrange}
+                            canArrange={getArrangeEligibility(
+                              unifiedLayers,
+                              canvasSelection.map((l) => l.id),
+                            )}
+                            onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("text", "multi-mixed", open)
+                            }
+                            onToggleLockAll={() => {
+                              const allLocked = canvasSelection.every((sel) => {
+                                if (sel.kind === "text")
+                                  return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                                if (sel.kind === "image")
+                                  return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                                return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                              });
+                              const textIds = canvasSelection
+                                .filter((l) => l.kind === "text")
+                                .map((l) => l.id);
+                              const imageIds = canvasSelection
+                                .filter((l) => l.kind === "image")
+                                .map((l) => l.id);
+                              const shapeIds = canvasSelection
+                                .filter((l) => l.kind === "shape")
+                                .map((l) => l.id);
+                              if (textIds.length)
+                                set("texts", (_, prev) =>
+                                  withTextsLockSet(prev, textIds, !allLocked),
+                                );
+                              if (imageIds.length)
+                                set("images", (_, prev) =>
+                                  withImagesLockSet(prev, imageIds, !allLocked),
+                                );
+                              if (shapeIds.length)
+                                set("shapes", (_, prev) =>
+                                  withShapesLockSet(prev, shapeIds, !allLocked),
+                                );
+                            }}
+                            allLocked={canvasSelection.every((sel) => {
+                              if (sel.kind === "text")
+                                return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                              if (sel.kind === "image")
+                                return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                               return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                            });
-                            const textIds = canvasSelection.filter((l) => l.kind === "text").map((l) => l.id);
-                            const imageIds = canvasSelection.filter((l) => l.kind === "image").map((l) => l.id);
-                            const shapeIds = canvasSelection.filter((l) => l.kind === "shape").map((l) => l.id);
-                            if (textIds.length) set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
-                            if (imageIds.length) set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
-                            if (shapeIds.length) set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
-                          }}
-                          allLocked={canvasSelection.every((sel) => {
-                            if (sel.kind === "text") return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                            if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                          })}
-                          onDeleteAll={() => {
-                            commit((prev) => {
-                              const result = withMultipleLayersRemoved(prev, canvasSelection);
-                              return { ...prev, ...result };
-                            });
-                            setCanvasSelection([]);
-                          }}
-                        />
-                      ) : isBackgroundSelected ? (
-                        <BackgroundSelectionToolbar
-                          s={s}
-                          set={set}
-                          onAnyPopoverOpenChange={(open) => handlePinnedPopoverChange("background", "background", open)}
-                          onOpenBackgroundTab={() => {
-                            setTab("background");
-                            setMobileToolDrawerOpen(true);
-                          }}
-                        />
-                      ) : null}
+                            })}
+                            onDeleteAll={() => {
+                              commit((prev) => {
+                                const result = withMultipleLayersRemoved(prev, canvasSelection);
+                                return { ...prev, ...result };
+                              });
+                              setCanvasSelection([]);
+                            }}
+                          />
+                        ) : isBackgroundSelected ? (
+                          <BackgroundSelectionToolbar
+                            s={s}
+                            set={set}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("background", "background", open)
+                            }
+                            onOpenBackgroundTab={() => {
+                              setTab("background");
+                              setMobileToolDrawerOpen(true);
+                            }}
+                          />
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ),
-                document.body,
-              )
+                  ),
+                  document.body,
+                )
               : null}
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
@@ -4173,13 +4429,17 @@ function Index() {
                     }}
                     className={cn(
                       "group flex w-14 flex-col items-center gap-1.5 py-1 text-[9px] font-medium",
-                      tab === r.id && !leftPanelCollapsed ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                      tab === r.id && !leftPanelCollapsed
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     <span
                       className={cn(
                         "flex h-10 w-10 items-center justify-center rounded-xl transition-colors",
-                        tab === r.id && !leftPanelCollapsed ? "bg-[#1d1f26] text-white" : "group-hover:bg-secondary",
+                        tab === r.id && !leftPanelCollapsed
+                          ? "bg-[#1d1f26] text-white"
+                          : "group-hover:bg-secondary",
                       )}
                     >
                       <r.icon size={20} />
@@ -4209,7 +4469,9 @@ function Index() {
                 onTextSubTabChange={setTextSubTab}
                 templateCategory={templateCategory}
                 onTemplateCategoryChange={setTemplateCategory}
-                onSelectSavedQuote={(quote) => setEditingSavedQuoteTarget({ id: quote.id, title: quote.title })}
+                onSelectSavedQuote={(quote) =>
+                  setEditingSavedQuoteTarget({ id: quote.id, title: quote.title })
+                }
                 activeSavedQuote={editingSavedQuoteTarget}
                 onCloseSavedQuoteEdit={() => setEditingSavedQuoteTarget(null)}
                 canvasRef={canvasRef}
@@ -4219,7 +4481,9 @@ function Index() {
             <main className="flex min-w-0 flex-1 flex-col gap-3 p-4">
               <div className="flex shrink-0 items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
-                  <AppTooltip content={leftPanelCollapsed ? "Expand Left Panel" : "Collapse Left Panel"}>
+                  <AppTooltip
+                    content={leftPanelCollapsed ? "Expand Left Panel" : "Collapse Left Panel"}
+                  >
                     <Chip
                       onClick={() => setLeftPanelCollapsed((c) => !c)}
                       active={!leftPanelCollapsed}
@@ -4321,7 +4585,10 @@ function Index() {
                     </button>
                   </AppTooltip>
                   <AppTooltip content="Zoom out 10%" shortcut="-">
-                    <Chip onClick={() => zoomBy(-10)} className="flex h-7 w-7 items-center justify-center p-0">
+                    <Chip
+                      onClick={() => zoomBy(-10)}
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
                       <MinusSignIcon size={13} />
                     </Chip>
                   </AppTooltip>
@@ -4336,14 +4603,14 @@ function Index() {
                           onChange={(v) => zoomToScale(v / 100)}
                         />
                       </div>
-                      <ZoomInput
-                        scale={scale}
-                        onChange={(pct) => zoomToScale(pct / 100)}
-                      />
+                      <ZoomInput scale={scale} onChange={(pct) => zoomToScale(pct / 100)} />
                     </div>
                   </AppTooltip>
                   <AppTooltip content="Zoom in 10%" shortcut="+">
-                    <Chip onClick={() => zoomBy(10)} className="flex h-7 w-7 items-center justify-center p-0">
+                    <Chip
+                      onClick={() => zoomBy(10)}
+                      className="flex h-7 w-7 items-center justify-center p-0"
+                    >
                       <Add01Icon size={13} />
                     </Chip>
                   </AppTooltip>
@@ -4374,7 +4641,13 @@ function Index() {
                     {s.width} × {s.height}px
                   </span>
                   <div className="h-4 w-px bg-border/60 mx-0.5" />
-                  <AppTooltip content={rightPanelCollapsed ? "Expand Right Panel (Export & Canvas Size)" : "Collapse Right Panel"}>
+                  <AppTooltip
+                    content={
+                      rightPanelCollapsed
+                        ? "Expand Right Panel (Export & Canvas Size)"
+                        : "Collapse Right Panel"
+                    }
+                  >
                     <Chip
                       onClick={() => setRightPanelCollapsed((c) => !c)}
                       active={!rightPanelCollapsed}
@@ -4397,12 +4670,7 @@ function Index() {
                   : "w-[400px] p-4 opacity-100",
               )}
             >
-              <RightPanel
-                s={s}
-                set={set}
-                onDownload={openExportPreview}
-                busy={busy}
-              />
+              <RightPanel s={s} set={set} onDownload={openExportPreview} busy={busy} />
             </aside>
 
             {/* Sibling of the right aside, not a child of it — position:fixed
@@ -4411,7 +4679,9 @@ function Index() {
               layout, not the CSS cascade. */}
             <DraggableFloatingLayersButton
               active={tab === "layers"}
-              layerCount={getTextLayers(s).length + getImageLayers(s).length + getShapeLayers(s).length}
+              layerCount={
+                getTextLayers(s).length + getImageLayers(s).length + getShapeLayers(s).length
+              }
               onClick={() => {
                 setTab("layers");
                 setLeftPanelCollapsed(false);
@@ -4489,7 +4759,8 @@ function Index() {
                     Create a New Post
                   </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    Choose your new canvas size. You can save your current design as a template or start fresh with a blank canvas.
+                    Choose your new canvas size. You can save your current design as a template or
+                    start fresh with a blank canvas.
                   </DialogDescription>
                 </div>
               </div>
@@ -4538,13 +4809,13 @@ function Index() {
                   <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                     Custom Dimensions
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    Min 200px • Max 6000px
-                  </span>
+                  <span className="text-[10px] text-muted-foreground">Min 200px • Max 6000px</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="relative flex items-center">
-                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">W:</span>
+                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">
+                      W:
+                    </span>
                     <input
                       type="number"
                       min={200}
@@ -4557,10 +4828,14 @@ function Index() {
                       className="h-8 w-full rounded-lg border border-border/80 bg-background pl-8 pr-7 text-xs font-mono font-medium text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
                       placeholder="1200"
                     />
-                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">px</span>
+                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">
+                      px
+                    </span>
                   </div>
                   <div className="relative flex items-center">
-                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">H:</span>
+                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">
+                      H:
+                    </span>
                     <input
                       type="number"
                       min={200}
@@ -4573,7 +4848,9 @@ function Index() {
                       className="h-8 w-full rounded-lg border border-border/80 bg-background pl-8 pr-7 text-xs font-mono font-medium text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
                       placeholder="1500"
                     />
-                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">px</span>
+                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">
+                      px
+                    </span>
                   </div>
                 </div>
               </div>
@@ -4637,7 +4914,8 @@ function Index() {
             </DialogHeader>
 
             <div className="mt-2 text-xs text-muted-foreground leading-relaxed">
-              This will clear all layers and restore all canvas properties, styles, dimensions, and settings back to default, just like a fresh page refresh.
+              This will clear all layers and restore all canvas properties, styles, dimensions, and
+              settings back to default, just like a fresh page refresh.
             </div>
 
             <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
