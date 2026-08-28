@@ -80,6 +80,32 @@ export function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
+export function getHexLuminance(hex: string): number {
+  if (!hex || typeof hex !== "string") return 255;
+  const h = hex.replace("#", "").trim();
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  if (Number.isNaN(n)) return 255;
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+export function isCanvasBackgroundDark(bg?: string): boolean {
+  if (!bg) return false;
+  if (bg.includes("gradient")) {
+    const matches = bg.match(/#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}/g);
+    if (matches && matches.length > 0) {
+      let total = 0;
+      for (const m of matches) total += getHexLuminance(m);
+      return total / matches.length < 140;
+    }
+    return true;
+  }
+  return getHexLuminance(bg) < 140;
+}
+
 export type CanvasPreset = { label: string; w: number; h: number };
 
 export const CANVAS_PRESETS: CanvasPreset[] = [
@@ -368,6 +394,23 @@ export type TextLayer = {
 // need real SVG paths to render correctly, and a rough CSS approximation
 // would just look wrong. Everything here renders with plain border-radius
 // or clip-path, so it's exact.
+export type LineKind =
+  | "line-solid"
+  | "line-dashed"
+  | "line-dotted"
+  | "line-arrow-right"
+  | "line-arrow-open-right"
+  | "line-arrow-dotted-right"
+  | "line-tbar"
+  | "line-double-arrow"
+  | "line-double-arrow-dotted"
+  | "line-square-ends"
+  | "line-circle-ends"
+  | "line-diamond-ends"
+  | "line-square-hollow-ends"
+  | "line-circle-hollow-ends"
+  | "line-diamond-hollow-ends";
+
 export type ShapeKind =
   | "rect" // square / rounded square / circle, via radius
   | "triangle"
@@ -382,7 +425,30 @@ export type ShapeKind =
   | "arch"
   | "u-shape"
   | "right-triangle"
-  | "quarter-circle";
+  | "quarter-circle"
+  | LineKind;
+
+export function isLineShape(kind: ShapeKind | string): boolean {
+  return typeof kind === "string" && kind.startsWith("line-");
+}
+
+export const LINE_PRESETS: { id: string; label: string; kind: LineKind }[] = [
+  { id: "line-solid", label: "Solid Line", kind: "line-solid" },
+  { id: "line-dashed", label: "Dashed Line", kind: "line-dashed" },
+  { id: "line-dotted", label: "Dotted Line", kind: "line-dotted" },
+  { id: "line-arrow-right", label: "Solid Arrow Right", kind: "line-arrow-right" },
+  { id: "line-arrow-open-right", label: "Open Arrow Right", kind: "line-arrow-open-right" },
+  { id: "line-arrow-dotted-right", label: "Dotted Arrow Right", kind: "line-arrow-dotted-right" },
+  { id: "line-tbar", label: "T-Bar Line", kind: "line-tbar" },
+  { id: "line-double-arrow", label: "Double Arrow", kind: "line-double-arrow" },
+  { id: "line-double-arrow-dotted", label: "Dotted Double Arrow", kind: "line-double-arrow-dotted" },
+  { id: "line-square-ends", label: "Square Ends", kind: "line-square-ends" },
+  { id: "line-circle-ends", label: "Circle Ends", kind: "line-circle-ends" },
+  { id: "line-diamond-ends", label: "Diamond Ends", kind: "line-diamond-ends" },
+  { id: "line-square-hollow-ends", label: "Hollow Square Ends", kind: "line-square-hollow-ends" },
+  { id: "line-circle-hollow-ends", label: "Hollow Circle Ends", kind: "line-circle-hollow-ends" },
+  { id: "line-diamond-hollow-ends", label: "Hollow Diamond Ends", kind: "line-diamond-hollow-ends" },
+];
 
 // Picker entries — several share a `kind` (square/rounded/circle are all
 // "rect") and differ only in the radius they start with.
@@ -985,6 +1051,10 @@ export function shapeSupportsRadius(kind: ShapeKind): boolean {
 }
 
 export function getShapeLabel(shape: ShapeLayer): string {
+  if (isLineShape(shape.kind)) {
+    const linePreset = LINE_PRESETS.find((p) => p.kind === shape.kind);
+    return linePreset ? linePreset.label : "Line";
+  }
   if (shape.kind === "rect") {
     if (shape.radius >= 80) return "Circle";
     if (shape.radius > 0) return "Rounded Square";
@@ -995,6 +1065,9 @@ export function getShapeLabel(shape: ShapeLayer): string {
 }
 
 export function getMatchingShapePresetId(shape: ShapeLayer): string {
+  if (isLineShape(shape.kind)) {
+    return shape.kind;
+  }
   if (shape.kind === "rect") {
     if (shape.radius >= 80) return "circle";
     if (shape.radius > 0) return "rounded";
@@ -1056,6 +1129,15 @@ export function shapeFillStyle(shape: ShapeLayer): {
   backdropFilter: string | undefined;
   opacity?: number | undefined;
 } {
+  if (isLineShape(shape.kind)) {
+    return {
+      background: "transparent",
+      border: "none",
+      boxShadow: "none",
+      backdropFilter: undefined,
+      opacity: (shape.opacity ?? 100) / 100,
+    };
+  }
   const style = shape.style ?? "solid";
   const background =
     style === "gradient"
@@ -1876,6 +1958,7 @@ export const INITIAL_STATE: EditorState = {
   bgImageZoom: 100,
   bgImagePosX: 50,
   bgImagePosY: 50,
+  canvasRadius: 0,
 
   exportFormat: "png",
   exportScale: 2,
@@ -2226,15 +2309,19 @@ export function getShapeLayers(s: EditorState): ShapeLayer[] {
   return s.shapes ?? [];
 }
 
-function makeShapeLayer(position: number, kind: ShapeKind, radius: number): ShapeLayer {
+function makeShapeLayer(position: number, kind: ShapeKind, radius: number, isDarkBg = false): ShapeLayer {
   const offset = (position % 6) * 6;
+  const isLine = isLineShape(kind);
+  const defaultLineColor = isDarkBg ? "#ffffff" : "#000000";
   return {
     id: newLayerId(),
     kind,
-    x: 50 + offset,
+    x: 50 + (isLine ? 0 : offset),
     y: 50 + offset,
-    size: 200,
-    color: "#0021ff",
+    size: isLine ? 500 : 200,
+    height: isLine ? 24 : undefined,
+    color: isLine ? defaultLineColor : "#0021ff",
+    strokeWidth: isLine ? 4 : undefined,
     opacity: 100,
     radius,
     shadow: false,
@@ -2249,7 +2336,8 @@ export function withShapeAdded(
   radius: number,
 ): { list: ShapeLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
   const list = getShapeLayers(s);
-  const newShape = makeShapeLayer(list.length, kind, radius);
+  const isDark = isCanvasBackgroundDark(s.background);
+  const newShape = makeShapeLayer(list.length, kind, radius, isDark);
   const newShapes = [...list, newShape];
   const layerOrder = [...getUnifiedLayers(s), { kind: "shape" as const, id: newShape.id }];
   return { list: newShapes, layerOrder, newId: newShape.id };
@@ -2589,6 +2677,7 @@ export function withMultipleLayersRemoved(
 export function withMultipleLayersDuplicated(
   s: EditorState,
   selected: { kind: "text" | "image" | "shape"; id: string }[],
+  offset?: { x?: number; y?: number } | undefined,
 ): {
   texts: TextLayer[];
   images: ImageLayer[];
@@ -2596,6 +2685,8 @@ export function withMultipleLayersDuplicated(
   layerOrder: UnifiedLayerRef[];
   newSelection: { kind: "text" | "image" | "shape"; id: string; startX: number; startY: number }[];
 } {
+  const dx = offset?.x ?? 0;
+  const dy = offset?.y ?? 0;
   const textIds = new Set(selected.filter((item) => item.kind === "text").map((item) => item.id));
   const imageIds = new Set(selected.filter((item) => item.kind === "image").map((item) => item.id));
   const shapeIds = new Set(selected.filter((item) => item.kind === "shape").map((item) => item.id));
@@ -2605,21 +2696,21 @@ export function withMultipleLayersDuplicated(
 
   const texts = getTextLayers(s).flatMap((t) => {
     if (!textIds.has(t.id) || t.locked) return [t];
-    const copy: TextLayer = { ...t, id: newLayerId() };
+    const copy: TextLayer = { ...t, id: newLayerId(), x: t.x + dx, y: t.y + dy };
     newSelection.push({ kind: "text", id: copy.id, startX: copy.x, startY: copy.y });
     newRefs.push({ kind: "text", id: copy.id });
     return [t, copy];
   });
   const images = getImageLayers(s).flatMap((img) => {
     if (!imageIds.has(img.id) || img.locked) return [img];
-    const copy: ImageLayer = { ...img, id: newLayerId() };
+    const copy: ImageLayer = { ...img, id: newLayerId(), x: img.x + dx, y: img.y + dy };
     newSelection.push({ kind: "image", id: copy.id, startX: copy.x, startY: copy.y });
     newRefs.push({ kind: "image", id: copy.id });
     return [img, copy];
   });
   const shapes = getShapeLayers(s).flatMap((sh) => {
     if (!shapeIds.has(sh.id) || sh.locked) return [sh];
-    const copy: ShapeLayer = { ...sh, id: newLayerId() };
+    const copy: ShapeLayer = { ...sh, id: newLayerId(), x: sh.x + dx, y: sh.y + dy };
     newSelection.push({ kind: "shape", id: copy.id, startX: copy.x, startY: copy.y });
     newRefs.push({ kind: "shape", id: copy.id });
     return [sh, copy];
@@ -2628,6 +2719,211 @@ export function withMultipleLayersDuplicated(
   const layerOrder = [...getUnifiedLayers(s), ...newRefs];
 
   return { texts, images, shapes, layerOrder, newSelection };
+}
+
+/**
+ * Rotates multiple selected layers by a given degree delta.
+ * If mode is "group", rotates their positions around the collective center as well.
+ */
+export function withMultipleLayersRotated(
+  s: EditorState,
+  selected: { kind: "text" | "image" | "shape"; id: string }[],
+  rotationDeltaDeg: number,
+  mode: "individual" | "group" = "group",
+): {
+  texts: TextLayer[];
+  images: ImageLayer[];
+  shapes: ShapeLayer[];
+} {
+  const textIds = new Set(selected.filter((item) => item.kind === "text").map((item) => item.id));
+  const imageIds = new Set(selected.filter((item) => item.kind === "image").map((item) => item.id));
+  const shapeIds = new Set(selected.filter((item) => item.kind === "shape").map((item) => item.id));
+
+  if (mode === "group" && rotationDeltaDeg !== 0) {
+    const rad = (rotationDeltaDeg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+
+    const allSelectedItems: { x: number; y: number }[] = [
+      ...getTextLayers(s).filter((t) => textIds.has(t.id) && !t.locked),
+      ...getImageLayers(s).filter((img) => imageIds.has(img.id) && !img.locked),
+      ...getShapeLayers(s).filter((sh) => shapeIds.has(sh.id) && !sh.locked),
+    ];
+
+    if (allSelectedItems.length > 0) {
+      const centerX = allSelectedItems.reduce((acc, item) => acc + item.x, 0) / allSelectedItems.length;
+      const centerY = allSelectedItems.reduce((acc, item) => acc + item.y, 0) / allSelectedItems.length;
+      const aspect = s.width / s.height;
+
+      const rotatePoint = (px: number, py: number) => {
+        const dx = (px - centerX) * aspect;
+        const dy = py - centerY;
+        const rx = dx * cos - dy * sin;
+        const ry = dx * sin + dy * cos;
+        return {
+          x: centerX + rx / aspect,
+          y: centerY + ry,
+        };
+      };
+
+      const texts = getTextLayers(s).map((t) => {
+        if (!textIds.has(t.id) || t.locked) return t;
+        const pt = rotatePoint(t.x, t.y);
+        const nextRotation = (((t.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+        return { ...t, x: pt.x, y: pt.y, rotation: Math.round(nextRotation) };
+      });
+
+      const images = getImageLayers(s).map((img) => {
+        if (!imageIds.has(img.id) || img.locked) return img;
+        const pt = rotatePoint(img.x, img.y);
+        const nextRotation = (((img.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+        return { ...img, x: pt.x, y: pt.y, rotation: Math.round(nextRotation) };
+      });
+
+      const shapes = getShapeLayers(s).map((sh) => {
+        if (!shapeIds.has(sh.id) || sh.locked) return sh;
+        const pt = rotatePoint(sh.x, sh.y);
+        const nextRotation = (((sh.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+        return { ...sh, x: pt.x, y: pt.y, rotation: Math.round(nextRotation) };
+      });
+
+      return { texts, images, shapes };
+    }
+  }
+
+  const texts = getTextLayers(s).map((t) => {
+    if (!textIds.has(t.id) || t.locked) return t;
+    const nextRotation = (((t.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+    return { ...t, rotation: Math.round(nextRotation) };
+  });
+
+  const images = getImageLayers(s).map((img) => {
+    if (!imageIds.has(img.id) || img.locked) return img;
+    const nextRotation = (((img.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+    return { ...img, rotation: Math.round(nextRotation) };
+  });
+
+  const shapes = getShapeLayers(s).map((sh) => {
+    if (!shapeIds.has(sh.id) || sh.locked) return sh;
+    const nextRotation = (((sh.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+    return { ...sh, rotation: Math.round(nextRotation) };
+  });
+
+  return { texts, images, shapes };
+}
+
+/**
+ * Scales multiple selected layers relative to the group's bounding box.
+ * Takes the original bounding box and new bounding box, and maps all item
+ * positions, dimensions, font sizes, stroke widths proportionally.
+ */
+export function withMultipleLayersScaled(
+  s: EditorState,
+  selected: { kind: "text" | "image" | "shape"; id: string }[],
+  initialItems: {
+    kind: "text" | "image" | "shape";
+    id: string;
+    x: number; // canvas %
+    y: number; // canvas %
+    size: number;
+    width?: number | undefined;
+    height?: number | undefined;
+    strokeWidth?: number | undefined;
+  }[],
+  origBounds: { left: number; top: number; width: number; height: number },
+  newBounds: { left: number; top: number; width: number; height: number },
+): {
+  texts: TextLayer[];
+  images: ImageLayer[];
+  shapes: ShapeLayer[];
+} {
+  const scaleX = origBounds.width > 0 ? newBounds.width / origBounds.width : 1;
+  const scaleY = origBounds.height > 0 ? newBounds.height / origBounds.height : 1;
+  const uniformScale = (scaleX + scaleY) / 2;
+
+  const itemMap = new Map(initialItems.map((item) => [`${item.kind}:${item.id}`, item]));
+
+  const texts = getTextLayers(s).map((t) => {
+    const orig = itemMap.get(`text:${t.id}`);
+    if (!orig || t.locked) return t;
+
+    const origPxX = (orig.x / 100) * s.width;
+    const origPxY = (orig.y / 100) * s.height;
+
+    const relX = origPxX - origBounds.left;
+    const relY = origPxY - origBounds.top;
+
+    const newPxX = newBounds.left + relX * scaleX;
+    const newPxY = newBounds.top + relY * scaleY;
+
+    const nextSize = Math.max(8, Math.round(orig.size * uniformScale));
+    const nextWidth = orig.width !== undefined ? Math.max(40, Math.round(orig.width * scaleX)) : undefined;
+    const nextMinHeight = orig.height !== undefined ? Math.max(20, Math.round(orig.height * scaleY)) : undefined;
+
+    return {
+      ...t,
+      x: (newPxX / s.width) * 100,
+      y: (newPxY / s.height) * 100,
+      size: nextSize,
+      ...(nextWidth !== undefined ? { width: nextWidth } : {}),
+      ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+    };
+  });
+
+  const images = getImageLayers(s).map((img) => {
+    const orig = itemMap.get(`image:${img.id}`);
+    if (!orig || img.locked) return img;
+
+    const origPxX = (orig.x / 100) * s.width;
+    const origPxY = (orig.y / 100) * s.height;
+
+    const relX = origPxX - origBounds.left;
+    const relY = origPxY - origBounds.top;
+
+    const newPxX = newBounds.left + relX * scaleX;
+    const newPxY = newBounds.top + relY * scaleY;
+
+    const nextSize = Math.max(10, Math.round(orig.size * scaleX));
+    const nextHeight = orig.height !== undefined ? Math.max(10, Math.round(orig.height * scaleY)) : undefined;
+
+    return {
+      ...img,
+      x: (newPxX / s.width) * 100,
+      y: (newPxY / s.height) * 100,
+      size: nextSize,
+      ...(nextHeight !== undefined ? { height: nextHeight } : {}),
+    };
+  });
+
+  const shapes = getShapeLayers(s).map((sh) => {
+    const orig = itemMap.get(`shape:${sh.id}`);
+    if (!orig || sh.locked) return sh;
+
+    const origPxX = (orig.x / 100) * s.width;
+    const origPxY = (orig.y / 100) * s.height;
+
+    const relX = origPxX - origBounds.left;
+    const relY = origPxY - origBounds.top;
+
+    const newPxX = newBounds.left + relX * scaleX;
+    const newPxY = newBounds.top + relY * scaleY;
+
+    const isLine = isLineShape(sh.kind);
+    const nextSize = Math.max(10, Math.round(orig.size * (isLine ? uniformScale : scaleX)));
+    const nextHeight = orig.height !== undefined ? Math.max(4, Math.round(orig.height * scaleY)) : undefined;
+    const nextStrokeWidth = orig.strokeWidth !== undefined ? Math.max(1, Math.min(24, Math.round(orig.strokeWidth * uniformScale))) : undefined;
+
+    return {
+      ...sh,
+      x: (newPxX / s.width) * 100,
+      y: (newPxY / s.height) * 100,
+      size: nextSize,
+      ...(nextHeight !== undefined ? { height: nextHeight } : {}),
+      ...(nextStrokeWidth !== undefined ? { strokeWidth: nextStrokeWidth } : {}),
+    };
+  });
+
+  return { texts, images, shapes };
 }
 
 // Batch text utilities — mirrors withShapesAligned / withShapesShifted /
@@ -2714,3 +3010,205 @@ export function withMixedLayersShifted(
     shapes: shapeIds.length ? withShapesShifted(s, shapeIds, dxPercent, dyPercent) : getShapeLayers(s),
   };
 }
+
+export type SpaceEvenlyDirection = "vertical" | "horizontal" | "tidy";
+
+export function withMixedLayersSpacedEvenly(
+  s: EditorState,
+  selected: MixedLayerRef[],
+  direction: SpaceEvenlyDirection,
+): { texts: TextLayer[]; images: ImageLayer[]; shapes: ShapeLayer[] } {
+  if (selected.length < 2) {
+    return {
+      texts: getTextLayers(s),
+      images: getImageLayers(s),
+      shapes: getShapeLayers(s),
+    };
+  }
+
+  const items = selected.map((ref) => {
+    if (ref.kind === "text") {
+      const t = getTextLayers(s).find((item) => item.id === ref.id);
+      const el = typeof document !== "undefined"
+        ? (document.querySelector(`[data-layer-id="${ref.id}"]`) as HTMLElement | null)
+        : null;
+      const w = el ? el.offsetWidth : (t?.width ?? 300);
+      const h = el ? el.offsetHeight : (t?.minHeight ?? (t ? t.size * 1.3 : 40));
+      return {
+        id: ref.id,
+        kind: ref.kind,
+        x: t?.x ?? 50,
+        y: t?.y ?? 50,
+        w,
+        h,
+        locked: t?.locked ?? false,
+      };
+    } else if (ref.kind === "image") {
+      const img = getImageLayers(s).find((item) => item.id === ref.id);
+      return {
+        id: ref.id,
+        kind: ref.kind,
+        x: img?.x ?? 50,
+        y: img?.y ?? 50,
+        w: img?.size ?? 200,
+        h: img?.height ?? img?.size ?? 200,
+        locked: img?.locked ?? false,
+      };
+    } else {
+      const sh = getShapeLayers(s).find((item) => item.id === ref.id);
+      return {
+        id: ref.id,
+        kind: ref.kind,
+        x: sh?.x ?? 50,
+        y: sh?.y ?? 50,
+        w: sh?.size ?? 200,
+        h: sh?.height ?? sh?.size ?? 200,
+        locked: sh?.locked ?? false,
+      };
+    }
+  });
+
+  const unlocked = items.filter((item) => !item.locked);
+  if (unlocked.length < 2) {
+    return {
+      texts: getTextLayers(s),
+      images: getImageLayers(s),
+      shapes: getShapeLayers(s),
+    };
+  }
+
+  const newPositions = new Map<string, { x?: number; y?: number }>();
+
+  const distributeVertical = () => {
+    const sorted = [...unlocked].sort((a, b) => a.y - b.y);
+    const top0 = (sorted[0]!.y / 100) * s.height - sorted[0]!.h / 2;
+    const last = sorted[sorted.length - 1]!;
+    const bottomLast = (last.y / 100) * s.height + last.h / 2;
+
+    const totalSpan = bottomLast - top0;
+    const sumHeights = sorted.reduce((acc, it) => acc + it.h, 0);
+    const gap = (totalSpan - sumHeights) / (sorted.length - 1);
+
+    let currentTop = top0;
+    for (let i = 0; i < sorted.length; i++) {
+      const it = sorted[i]!;
+      const centerYPx = currentTop + it.h / 2;
+      const nextY = Math.round((centerYPx / s.height) * 10000) / 100;
+      const prevPos = newPositions.get(it.id) || {};
+      newPositions.set(it.id, { ...prevPos, y: nextY });
+      currentTop += it.h + gap;
+    }
+  };
+
+  const distributeHorizontal = () => {
+    const sorted = [...unlocked].sort((a, b) => a.x - b.x);
+    const left0 = (sorted[0]!.x / 100) * s.width - sorted[0]!.w / 2;
+    const last = sorted[sorted.length - 1]!;
+    const rightLast = (last.x / 100) * s.width + last.w / 2;
+
+    const totalSpan = rightLast - left0;
+    const sumWidths = sorted.reduce((acc, it) => acc + it.w, 0);
+    const gap = (totalSpan - sumWidths) / (sorted.length - 1);
+
+    let currentLeft = left0;
+    for (let i = 0; i < sorted.length; i++) {
+      const it = sorted[i]!;
+      const centerXPx = currentLeft + it.w / 2;
+      const nextX = Math.round((centerXPx / s.width) * 10000) / 100;
+      const prevPos = newPositions.get(it.id) || {};
+      newPositions.set(it.id, { ...prevPos, x: nextX });
+      currentLeft += it.w + gap;
+    }
+  };
+
+  if (direction === "vertical") {
+    distributeVertical();
+  } else if (direction === "horizontal") {
+    distributeHorizontal();
+  } else if (direction === "tidy") {
+    const minX = Math.min(...unlocked.map((it) => it.x));
+    const maxX = Math.max(...unlocked.map((it) => it.x));
+    const minY = Math.min(...unlocked.map((it) => it.y));
+    const maxY = Math.max(...unlocked.map((it) => it.y));
+
+    const spanX = (maxX - minX) * s.width;
+    const spanY = (maxY - minY) * s.height;
+
+    if (spanY > spanX * 1.3) {
+      const avgX = unlocked.reduce((acc, it) => acc + it.x, 0) / unlocked.length;
+      for (const it of unlocked) {
+        newPositions.set(it.id, { x: Math.round(avgX * 100) / 100 });
+      }
+      distributeVertical();
+    } else if (spanX > spanY * 1.3) {
+      const avgY = unlocked.reduce((acc, it) => acc + it.y, 0) / unlocked.length;
+      for (const it of unlocked) {
+        newPositions.set(it.id, { y: Math.round(avgY * 100) / 100 });
+      }
+      distributeHorizontal();
+    } else {
+      distributeHorizontal();
+      distributeVertical();
+    }
+  }
+
+  const texts = getTextLayers(s).map((t) => {
+    const p = newPositions.get(t.id);
+    if (!p) return t;
+    return {
+      ...t,
+      ...(p.x !== undefined ? { x: p.x } : {}),
+      ...(p.y !== undefined ? { y: p.y } : {}),
+    };
+  });
+
+  const images = getImageLayers(s).map((img) => {
+    const p = newPositions.get(img.id);
+    if (!p) return img;
+    return {
+      ...img,
+      ...(p.x !== undefined ? { x: p.x } : {}),
+      ...(p.y !== undefined ? { y: p.y } : {}),
+    };
+  });
+
+  const shapes = getShapeLayers(s).map((sh) => {
+    const p = newPositions.get(sh.id);
+    if (!p) return sh;
+    return {
+      ...sh,
+      ...(p.x !== undefined ? { x: p.x } : {}),
+      ...(p.y !== undefined ? { y: p.y } : {}),
+    };
+  });
+
+  return { texts, images, shapes };
+}
+
+export function withShapesSpacedEvenly(
+  s: EditorState,
+  ids: string[],
+  direction: SpaceEvenlyDirection,
+): ShapeLayer[] {
+  const refs: MixedLayerRef[] = ids.map((id) => ({ kind: "shape", id }));
+  return withMixedLayersSpacedEvenly(s, refs, direction).shapes;
+}
+
+export function withImagesSpacedEvenly(
+  s: EditorState,
+  ids: string[],
+  direction: SpaceEvenlyDirection,
+): ImageLayer[] {
+  const refs: MixedLayerRef[] = ids.map((id) => ({ kind: "image", id }));
+  return withMixedLayersSpacedEvenly(s, refs, direction).images;
+}
+
+export function withTextsSpacedEvenly(
+  s: EditorState,
+  ids: string[],
+  direction: SpaceEvenlyDirection,
+): TextLayer[] {
+  const refs: MixedLayerRef[] = ids.map((id) => ({ kind: "text", id }));
+  return withMixedLayersSpacedEvenly(s, refs, direction).texts;
+}
+

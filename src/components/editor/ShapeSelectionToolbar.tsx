@@ -16,6 +16,8 @@ import { AppTooltip } from "@/components/ui/tooltip";
 import {
   GRADIENTS,
   SHAPE_PRESETS,
+  LINE_PRESETS,
+  isLineShape,
   getMatchingShapePresetId,
   getShapeLabel,
   shapeCss,
@@ -23,6 +25,7 @@ import {
   type BoxStyle,
   type ShapeLayer,
 } from "./types";
+import { LineShapeSvg } from "./LineShapeSvg";
 import {
   Chip,
   ColorPickerContent,
@@ -63,25 +66,23 @@ export function ShapeSelectionToolbar({
   const [shapePickerOpen, setShapePickerOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
   const [radiusOpen, setRadiusOpen] = useState(false);
+  const [strokeWidthOpen, setStrokeWidthOpen] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
 
-  // Each dropdown opens unpinned by default — see DragHandle's own comment
-  // on `onTogglePin` for what that means.
   const [shapePickerPinned, setShapePickerPinned] = useState(false);
   const [stylePinned, setStylePinned] = useState(false);
   const [radiusPinned, setRadiusPinned] = useState(false);
+  const [strokeWidthPinned, setStrokeWidthPinned] = useState(false);
   const [opacityPinned, setOpacityPinned] = useState(false);
   const [shadowPinned, setShadowPinned] = useState(false);
   const [arrangePinned, setArrangePinned] = useState(false);
 
-  // Every popover below can be dragged to wherever the user wants — see
-  // useDraggableOffset's own comment in ui.tsx for why the offset applies
-  // to an inner wrapper rather than PopoverContent itself.
   const shapeDrag = useDraggableOffset();
   const styleDrag = useDraggableOffset();
   const radiusDrag = useDraggableOffset();
+  const strokeWidthDrag = useDraggableOffset();
   const opacityDrag = useDraggableOffset();
   const shadowDrag = useDraggableOffset();
   const arrangeDrag = useDraggableOffset();
@@ -89,12 +90,14 @@ export function ShapeSelectionToolbar({
   const shapeTriggerRef = useRef<HTMLButtonElement>(null);
   const styleTriggerRef = useRef<HTMLButtonElement>(null);
   const radiusTriggerRef = useRef<HTMLButtonElement>(null);
+  const strokeWidthTriggerRef = useRef<HTMLButtonElement>(null);
   const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
   const shapeAnchor = useStableAnchor(shapePickerOpen, shapeTriggerRef);
   const styleAnchor = useStableAnchor(styleOpen, styleTriggerRef);
   const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
+  const strokeWidthAnchor = useStableAnchor(strokeWidthOpen, strokeWidthTriggerRef);
   const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
   const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
@@ -152,8 +155,8 @@ export function ShapeSelectionToolbar({
       }
       className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
     >
-      {/* 1. Shape Morphing / Picker Popover */}
-      <AppTooltip content="Change shape geometry">
+      {/* 1. Shape / Line Morphing Picker Popover */}
+      <AppTooltip content="Change element geometry or line style">
         <button
           ref={shapeTriggerRef}
           type="button"
@@ -172,10 +175,22 @@ export function ShapeSelectionToolbar({
             shapePickerOpen && "border-primary text-primary",
           )}
         >
-          <span
-            className="h-4 w-4 shrink-0 bg-primary"
-            style={shapeCss(layer.kind, layer.radius >= 80 ? 999 : Math.min(layer.radius, 6))}
-          />
+          {isLineShape(layer.kind) ? (
+            <div className="h-4 w-6 shrink-0 flex items-center text-primary">
+              <LineShapeSvg
+                kind={layer.kind}
+                color={layer.color}
+                gradient={layer.style === "gradient" ? (layer.gradient ?? "linear-gradient(135deg, #6366f1, #ec4899)") : undefined}
+                strokeWidth={2.5}
+                preserveAspect={true}
+              />
+            </div>
+          ) : (
+            <span
+              className="h-4 w-4 shrink-0 bg-primary"
+              style={shapeCss(layer.kind, layer.radius >= 80 ? 999 : Math.min(layer.radius, 6))}
+            />
+          )}
           <span className="font-semibold text-xs">{currentLabel}</span>
           <span className="text-[10px] text-muted-foreground">▾</span>
         </button>
@@ -191,44 +206,86 @@ export function ShapeSelectionToolbar({
         <div
           data-nopan=""
           data-keep-text-editing=""
-          className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+          className="w-72 max-md:w-full max-h-[80vh] overflow-y-auto rounded-2xl border border-border bg-background shadow-xl"
         >
           <DragHandle
-            label="Shape"
+            label="Elements & Lines"
             {...shapeDrag.dragHandleProps}
             pinned={shapePickerPinned}
             onTogglePin={() => setShapePickerPinned((p) => !p)}
             onClose={() => setShapePickerOpen(false)}
           />
-          <div className="space-y-2 p-3">
-            <span className="text-xs font-semibold text-foreground">Select Shape</span>
-            <div className="grid grid-cols-4 gap-1.5 pt-1">
-              {SHAPE_PRESETS.map((preset) => {
-                const isActive = currentPresetId === preset.id;
-                const previewRadius = preset.id === "rounded" ? 6 : preset.radius;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      onUpdate({ kind: preset.kind, radius: preset.radius });
-                      setShapePickerOpen(false);
-                    }}
-                    title={preset.label}
-                    className={cn(
-                      "flex aspect-square items-center justify-center rounded-lg border p-2 transition-all",
-                      isActive
-                        ? "border-primary bg-primary/20 text-primary ring-2 ring-primary/60 shadow-sm"
-                        : "border-border bg-secondary/50 text-muted-foreground hover:border-primary hover:text-foreground",
-                    )}
-                  >
-                    <span
-                      className="block h-full w-full"
-                      style={{ background: "currentColor", ...shapeCss(preset.kind, previewRadius) }}
-                    />
-                  </button>
-                );
-              })}
+          <div className="space-y-4 p-3">
+            {/* Lines Section */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-foreground">Lines</span>
+                <span className="text-[10px] text-muted-foreground">{LINE_PRESETS.length} styles</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {LINE_PRESETS.map((preset) => {
+                  const isActive = layer.kind === preset.kind;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        onUpdate({
+                          kind: preset.kind,
+                          height: typeof layer.height === "number" ? layer.height : 30,
+                          strokeWidth: layer.strokeWidth ?? 4,
+                        });
+                        setShapePickerOpen(false);
+                      }}
+                      title={preset.label}
+                      className={cn(
+                        "flex h-10 items-center justify-center rounded-lg border p-1.5 transition-all",
+                        isActive
+                          ? "border-primary bg-primary/20 text-primary ring-2 ring-primary/60 shadow-sm"
+                          : "border-border bg-secondary/50 text-foreground hover:border-primary hover:text-primary",
+                      )}
+                    >
+                      <LineShapeSvg kind={preset.kind} strokeWidth={2.5} preserveAspect={true} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Geometric Shapes Section */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-foreground">Shapes</span>
+                <span className="text-[10px] text-muted-foreground">{SHAPE_PRESETS.length} shapes</span>
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {SHAPE_PRESETS.map((preset) => {
+                  const isActive = currentPresetId === preset.id;
+                  const previewRadius = preset.id === "rounded" ? 6 : preset.radius;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        onUpdate({ kind: preset.kind, radius: preset.radius });
+                        setShapePickerOpen(false);
+                      }}
+                      title={preset.label}
+                      className={cn(
+                        "flex aspect-square items-center justify-center rounded-lg border p-2 transition-all",
+                        isActive
+                          ? "border-primary bg-primary/20 text-primary ring-2 ring-primary/60 shadow-sm"
+                          : "border-border bg-secondary/50 text-muted-foreground hover:border-primary hover:text-foreground",
+                      )}
+                    >
+                      <span
+                        className="block h-full w-full"
+                        style={{ background: "currentColor", ...shapeCss(preset.kind, previewRadius) }}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -394,8 +451,88 @@ export function ShapeSelectionToolbar({
         </div>
       </FloatingDropdown>
 
-      {/* 3. Corner Radius (if supported) */}
-      {supportsRadius ? (
+      {/* 3. Corner Radius (if supported) OR Line Thickness (if line) */}
+      {isLineShape(layer.kind) ? (
+        <>
+          <AppTooltip content="Adjust line thickness">
+            <button
+              ref={strokeWidthTriggerRef}
+              type="button"
+              onClick={() => {
+                setStrokeWidthOpen((wasOpen) => {
+                  if (!wasOpen) {
+                    strokeWidthDrag.reset();
+                    setStrokeWidthPinned(false);
+                  }
+                  return !wasOpen;
+                });
+              }}
+              className={cn(
+                btnClass,
+                strokeWidthOpen && "bg-secondary text-primary",
+              )}
+            >
+              <span className="text-[11px] font-semibold">
+                Weight: {layer.strokeWidth ?? 4}px
+              </span>
+            </button>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={strokeWidthAnchor}
+            offset={strokeWidthDrag.offset}
+            align="center"
+            pinned={strokeWidthPinned}
+            onRequestClose={() => setStrokeWidthOpen(false)}
+            triggerRef={strokeWidthTriggerRef}
+          >
+            <div
+              data-nopan=""
+              data-keep-text-editing=""
+              className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+            >
+              <DragHandle
+                label="Line Thickness"
+                {...strokeWidthDrag.dragHandleProps}
+                pinned={strokeWidthPinned}
+                onTogglePin={() => setStrokeWidthPinned((p) => !p)}
+                onClose={() => setStrokeWidthOpen(false)}
+              />
+              <div className="space-y-3 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Line Weight</span>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {layer.strokeWidth ?? 4}px
+                  </span>
+                </div>
+                <Range
+                  value={layer.strokeWidth ?? 4}
+                  min={1}
+                  max={24}
+                  step={1}
+                  onChange={(v) => onUpdate({ strokeWidth: v })}
+                />
+                <div className="grid grid-cols-6 gap-1 pt-1">
+                  {[1, 2, 4, 6, 8, 12].map((px) => (
+                    <button
+                      key={px}
+                      type="button"
+                      onClick={() => onUpdate({ strokeWidth: px })}
+                      className={cn(
+                        "rounded-md py-1 text-center font-mono text-[10px] font-semibold transition-colors border",
+                        (layer.strokeWidth ?? 4) === px
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border/70 bg-secondary/50 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {px}px
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </FloatingDropdown>
+        </>
+      ) : supportsRadius ? (
         <>
           <AppTooltip content="Adjust corner radius">
             <button

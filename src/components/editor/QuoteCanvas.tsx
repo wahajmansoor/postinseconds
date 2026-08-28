@@ -12,6 +12,7 @@ import { HandGrabIcon } from "@hugeicons/core-free-icons";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { triggerAlignmentHaptic } from "@/lib/haptics";
+import { cn } from "@/lib/utils";
 import {
   getImageLayers,
   getShapeLayers,
@@ -22,11 +23,15 @@ import {
   sanitizeTextHtml,
   shapeCss,
   shapeFillStyle,
+  isLineShape,
   withImageDuplicated,
   withImageRemoved,
   withImageUpdated,
   withMultipleLayersDuplicated,
   withMultipleLayersRemoved,
+  withMultipleLayersRotated,
+  withMultipleLayersScaled,
+  withMixedLayersSpacedEvenly,
   withShapeDuplicated,
   withShapeRemoved,
   withShapeUpdated,
@@ -35,6 +40,7 @@ import {
   withTextUpdated,
 } from "./types";
 import { getTextEffectStyle } from "./textEffects";
+import { LineShapeSvg } from "./LineShapeSvg";
 import type { EditorState, ImageLayer, ShapeLayer, TextLayer } from "./types";
 
 export type RichFormatCmd = "bold" | "italic" | "underline" | "strike" | "uppercase" | "bulletList" | "numberedList";
@@ -115,6 +121,111 @@ type Props = {
   suppressDragRef?: React.RefObject<boolean> | undefined;
 };
 
+// The 8 handle positions around a selection box — 4 round corners plus 4
+// pill-shaped edge midpoints (wide/short on top+bottom, narrow/tall on
+// left+right — matches Canva's look). Images, Shapes, and Multi-Selections
+// stretch width/height independently per handle; Text uses font scaling.
+const HANDLE_POSITIONS = [
+  { id: "nw", kind: "corner", style: { left: -12, top: -12 }, cursor: "nwse-resize" },
+  { id: "n", kind: "edge-h", style: { left: "50%", top: -8, transform: "translateX(-50%)" }, cursor: "ns-resize" },
+  { id: "ne", kind: "corner", style: { right: -12, top: -12 }, cursor: "nesw-resize" },
+  { id: "e", kind: "edge-v", style: { right: -8, top: "50%", transform: "translateY(-50%)" }, cursor: "ew-resize" },
+  { id: "se", kind: "corner", style: { right: -12, bottom: -12 }, cursor: "nwse-resize" },
+  { id: "s", kind: "edge-h", style: { left: "50%", bottom: -8, transform: "translateX(-50%)" }, cursor: "ns-resize" },
+  { id: "sw", kind: "corner", style: { left: -12, bottom: -12 }, cursor: "nesw-resize" },
+  { id: "w", kind: "edge-v", style: { left: -8, top: "50%", transform: "translateY(-50%)" }, cursor: "ew-resize" },
+] as const;
+
+// Text layers only use the 4 corner resize handles (for font scaling) plus left/right
+// pill handles (for adjusting text wrapping width). Top and bottom pill handles are excluded.
+const TEXT_HANDLE_POSITIONS = HANDLE_POSITIONS.filter((h) => h.id !== "n" && h.id !== "s");
+
+type HandleId = (typeof HANDLE_POSITIONS)[number]["id"];
+
+function handleDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
+  switch (kind) {
+    case "corner":
+      return { width: 10, height: 10 };
+    case "edge-h":
+      return { width: 16, height: 8 };
+    case "edge-v":
+      return { width: 8, height: 16 };
+  }
+}
+
+function handleHitDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
+  switch (kind) {
+    case "corner":
+      return { width: 28, height: 28 };
+    case "edge-h":
+      return { width: 32, height: 22 };
+    case "edge-v":
+      return { width: 22, height: 32 };
+  }
+}
+
+function zoomed(dims: { width: number; height: number }, scale: number): { width: number; height: number } {
+  if (!scale || scale <= 0) return dims;
+  return { width: dims.width / scale, height: dims.height / scale };
+}
+
+function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): React.CSSProperties {
+  const dims = zoomed(handleHitDims(h.kind), scale);
+  const outlineOffset = 5; // 4px outlineOffset + 1px stroke offset to center on outline line
+
+  const offsetX = outlineOffset + dims.width / 2;
+  const offsetY = outlineOffset + dims.height / 2;
+
+  let posStyle: React.CSSProperties = {};
+  switch (h.id) {
+    case "nw":
+      posStyle = { left: -offsetX, top: -offsetY };
+      break;
+    case "n":
+      posStyle = { left: "50%", top: -offsetY, transform: "translateX(-50%)" };
+      break;
+    case "ne":
+      posStyle = { right: -offsetX, top: -offsetY };
+      break;
+    case "e":
+      posStyle = { right: -offsetX, top: "50%", transform: "translateY(-50%)" };
+      break;
+    case "se":
+      posStyle = { right: -offsetX, bottom: -offsetY };
+      break;
+    case "s":
+      posStyle = { left: "50%", bottom: -offsetY, transform: "translateX(-50%)" };
+      break;
+    case "sw":
+      posStyle = { left: -offsetX, bottom: -offsetY };
+      break;
+    case "w":
+      posStyle = { left: -offsetX, top: "50%", transform: "translateY(-50%)" };
+      break;
+  }
+
+  return {
+    position: "absolute",
+    ...posStyle,
+    ...dims,
+    cursor: h.cursor,
+    zIndex: 60,
+    touchAction: "none",
+  };
+}
+
+function getHandleVisualStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): React.CSSProperties {
+  const dims = zoomed(handleDims(h.kind), scale);
+  return {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    transform: "translate(-50%, -50%)",
+    ...dims,
+    boxShadow: "0 2px 10px 0 rgba(0,33,255,0.5), 0 0 0 2px rgba(255,255,255,0.9)",
+  };
+}
+
 export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanvas(
   {
     s,
@@ -136,6 +247,12 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   const effectiveIsMobile = isMobile !== undefined ? isMobile : isMobileHook;
   const lastBgTapTimeRef = useRef<number>(0);
   const lastBgTapPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastBgPointerDownPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [multiRotateAngle, setMultiRotateAngle] = useState<number | null>(null);
+  // Set true the instant a multi-selection drag begins so all floating
+  // controls (info bar, resize handles, rotate button) vanish for the
+  // duration, matching the single-layer isMoving/isRotating hide logic.
+  const [isGroupDragging, setIsGroupDragging] = useState(false);
   // Always-current `s` without being a captured closure value — `s`
   // necessarily gets a new reference on every keystroke typed into any text
   // layer (that's what typing does), and beginGroupDrag/updateGroupDrag
@@ -242,6 +359,22 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     startMouseY: number;
     items: (LayerRef & { startX: number; startY: number })[];
   } | null>(null);
+  const multiResizeRef = useRef<{
+    handle: string;
+    startMouseX: number;
+    startMouseY: number;
+    startBounds: { left: number; top: number; width: number; height: number };
+    initialItems: {
+      kind: "text" | "image" | "shape";
+      id: string;
+      x: number;
+      y: number;
+      size: number;
+      width?: number | undefined;
+      height?: number | undefined;
+      strokeWidth?: number | undefined;
+    }[];
+  } | null>(null);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // useCallback (same stability reasoning as `selectLayer` above — these
@@ -293,6 +426,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         }
       }
       groupDragRef.current = { startMouseX: clientX, startMouseY: clientY, items };
+      setIsGroupDragging(true);
     },
     [selected, set, onSelectionChange],
   );
@@ -476,6 +610,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
 
   const endGroupDrag = useCallback(() => {
     groupDragRef.current = null;
+    setIsGroupDragging(false);
     handleGuidesChangeRef.current({ vCenter: false, hCenter: false });
   }, []);
 
@@ -641,9 +776,19 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       {/* 1. CLIPPED CANVAS VISUAL CONTENT VIEWPORT (overflow: hidden) */}
       {/* Clips images, shapes, text, and shadows strictly at the canvas border like Canva */}
       <div
+        onPointerDown={(e) => {
+          lastBgPointerDownPosRef.current = { x: e.clientX, y: e.clientY };
+        }}
         onClick={(e) => {
           if (suppressDragRef?.current) return;
           if (!interactive || e.target !== e.currentTarget) return;
+
+          // If the pointer was dragged (e.g. marquee selection or canvas pan), do NOT select background
+          const dragDist = Math.hypot(
+            e.clientX - lastBgPointerDownPosRef.current.x,
+            e.clientY - lastBgPointerDownPosRef.current.y,
+          );
+          if (dragDist > 5) return;
 
           if (effectiveIsMobile) {
             const now = Date.now();
@@ -1224,77 +1369,426 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
             height: selectedBounds.height,
             border: "1.5px dashed #8b5cf6",
             boxShadow: "0 0 12px rgba(139,92,246,0.35)",
+            // Hide entire bounding box + all children (handles, info bar,
+            // rotate button) the instant a group drag starts — reappears
+            // cleanly when the drag ends without any visual pop-in flicker.
+            visibility: isGroupDragging ? "hidden" : "visible",
           }}
         >
-          {/* Corner Pin Anchors */}
-          <div className="absolute -left-1.5 -top-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
-          <div className="absolute -right-1.5 -top-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
-          <div className="absolute -left-1.5 -bottom-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
-          <div className="absolute -right-1.5 -bottom-1.5 h-3 w-3 rounded-full border-2 border-white bg-violet-600 shadow" />
+          {/* 8 Transform Handles: 4 round corner circles + 4 edge pills — perfectly aligned with single item handles */}
+          {HANDLE_POSITIONS.map((h) => (
+            <div
+              key={h.id}
+              data-nopan=""
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                const items: {
+                  kind: "text" | "image" | "shape";
+                  id: string;
+                  x: number;
+                  y: number;
+                  size: number;
+                  width?: number | undefined;
+                  height?: number | undefined;
+                  strokeWidth?: number | undefined;
+                }[] = [];
+                selected.forEach((sel) => {
+                  if (sel.kind === "text") {
+                    const t = getTextLayers(sRef.current).find((item) => item.id === sel.id);
+                    if (t) items.push({ kind: "text", id: t.id, x: t.x, y: t.y, size: t.size, width: t.width, height: t.minHeight });
+                  } else if (sel.kind === "image") {
+                    const img = getImageLayers(sRef.current).find((item) => item.id === sel.id);
+                    if (img) items.push({ kind: "image", id: img.id, x: img.x, y: img.y, size: img.size, width: img.size, height: img.height });
+                  } else if (sel.kind === "shape") {
+                    const sh = getShapeLayers(sRef.current).find((item) => item.id === sel.id);
+                    if (sh) items.push({ kind: "shape", id: sh.id, x: sh.x, y: sh.y, size: sh.size, width: sh.size, height: sh.height, strokeWidth: sh.strokeWidth });
+                  }
+                });
+                multiResizeRef.current = {
+                  handle: h.id,
+                  startMouseX: e.clientX,
+                  startMouseY: e.clientY,
+                  startBounds: { ...selectedBounds },
+                  initialItems: items,
+                };
+              }}
+              onPointerMove={(e) => {
+                const r = multiResizeRef.current;
+                if (!r || r.handle !== h.id) return;
+                e.stopPropagation();
+                const rawDx = (e.clientX - r.startMouseX) / scale;
+                const rawDy = (e.clientY - r.startMouseY) / scale;
 
-          {/* Group Info Badge & Interactive Multi-Delete Toolbar — this
-              whole subtree lives inside the canvas's own `scale(${scale})`
-              transform, so without a counter-scale here this pill (and its
-              text/icons) would shrink right along with it at low zoom,
-              becoming unreadably tiny — same fix as LayerToolbar's own
-              invScale above. */}
+                let newLeft = r.startBounds.left;
+                let newTop = r.startBounds.top;
+                let newWidth = r.startBounds.width;
+                let newHeight = r.startBounds.height;
+
+                if (h.kind === "corner") {
+                  let scaleFactor = 1;
+                  if (h.id === "se") {
+                    scaleFactor = 1 + (rawDx / r.startBounds.width + rawDy / r.startBounds.height) / 2;
+                    newWidth = Math.max(20, r.startBounds.width * scaleFactor);
+                    newHeight = Math.max(20, r.startBounds.height * scaleFactor);
+                    newLeft = r.startBounds.left;
+                    newTop = r.startBounds.top;
+                  } else if (h.id === "nw") {
+                    scaleFactor = 1 + (-rawDx / r.startBounds.width - rawDy / r.startBounds.height) / 2;
+                    newWidth = Math.max(20, r.startBounds.width * scaleFactor);
+                    newHeight = Math.max(20, r.startBounds.height * scaleFactor);
+                    newLeft = r.startBounds.left + (r.startBounds.width - newWidth);
+                    newTop = r.startBounds.top + (r.startBounds.height - newHeight);
+                  } else if (h.id === "ne") {
+                    scaleFactor = 1 + (rawDx / r.startBounds.width - rawDy / r.startBounds.height) / 2;
+                    newWidth = Math.max(20, r.startBounds.width * scaleFactor);
+                    newHeight = Math.max(20, r.startBounds.height * scaleFactor);
+                    newLeft = r.startBounds.left;
+                    newTop = r.startBounds.top + (r.startBounds.height - newHeight);
+                  } else if (h.id === "sw") {
+                    scaleFactor = 1 + (-rawDx / r.startBounds.width + rawDy / r.startBounds.height) / 2;
+                    newWidth = Math.max(20, r.startBounds.width * scaleFactor);
+                    newHeight = Math.max(20, r.startBounds.height * scaleFactor);
+                    newLeft = r.startBounds.left + (r.startBounds.width - newWidth);
+                    newTop = r.startBounds.top;
+                  }
+                } else {
+                  if (h.id === "e") {
+                    newWidth = Math.max(20, r.startBounds.width + rawDx);
+                  } else if (h.id === "w") {
+                    newWidth = Math.max(20, r.startBounds.width - rawDx);
+                    newLeft = r.startBounds.left + (r.startBounds.width - newWidth);
+                  } else if (h.id === "s") {
+                    newHeight = Math.max(20, r.startBounds.height + rawDy);
+                  } else if (h.id === "n") {
+                    newHeight = Math.max(20, r.startBounds.height - rawDy);
+                    newTop = r.startBounds.top + (r.startBounds.height - newHeight);
+                  }
+                }
+
+                if (!set) return;
+                const nextBounds = { left: newLeft, top: newTop, width: newWidth, height: newHeight };
+                const res = withMultipleLayersScaled(sRef.current, selected, r.initialItems, r.startBounds, nextBounds);
+                set("texts", res.texts, { continuousKey: "multi-resize" });
+                set("images", res.images, { continuousKey: "multi-resize" });
+                set("shapes", res.shapes, { continuousKey: "multi-resize" });
+              }}
+              onPointerUp={(e) => {
+                e.stopPropagation();
+                try {
+                  (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                } catch { }
+                multiResizeRef.current = null;
+              }}
+              onPointerCancel={(e) => {
+                e.stopPropagation();
+                multiResizeRef.current = null;
+              }}
+              style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+              title="Drag to resize multi-selection"
+              className="group"
+            >
+              <div
+                className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                style={getHandleVisualStyle(h, scale)}
+              />
+            </div>
+          ))}
+
+          {/* Full-area transparent drag overlay — lets the user start a group
+              move from anywhere inside the selection bounding box, not just
+              from individual layer elements. Sits below (z-index wise) the 8
+              resize handles so it doesn't steal their pointer events, but
+              above the canvas layers so it catches any pointer-down that
+              isn't on a handle. Hidden with the rest of the box during drag. */}
           <div
             data-nopan=""
-            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              inset: 0,
+              cursor: "move",
+              pointerEvents: "auto",
+              zIndex: 0,
+            }}
+            onPointerDown={(e) => {
+              // Only respond to primary pointer (left mouse / first touch).
+              if (e.button !== 0 && e.pointerType === "mouse") return;
+              e.stopPropagation();
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              beginGroupDrag(e.clientX, e.clientY, e.altKey);
+            }}
+            onPointerMove={(e) => {
+              if (!groupDragRef.current) return;
+              e.stopPropagation();
+              updateGroupDrag(e.clientX, e.clientY);
+            }}
+            onPointerUp={(e) => {
+              e.stopPropagation();
+              try {
+                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+              } catch {}
+              endGroupDrag();
+            }}
+            onPointerCancel={(e) => {
+              e.stopPropagation();
+              endGroupDrag();
+            }}
+          />
+
+          {/* Group Info Badge & Interactive Multi-Delete Toolbar — hidden during rotation or drag */}
+          {multiRotateAngle === null && !isGroupDragging ? (
+            <div
+              data-nopan=""
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: -18 * multiSelectInvScale,
+                transformOrigin: "bottom center",
+                transform: `translateX(-50%) translateY(-100%) scale(${multiSelectInvScale})`,
+                zIndex: 80,
+                background: "#0f172a",
+                border: "1px solid rgba(255,255,255,0.15)",
+                color: "#ffffff",
+                fontSize: 13,
+                fontWeight: 600,
+                padding: "6px 14px",
+                borderRadius: 20,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+                whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                pointerEvents: "auto",
+              }}
+            >
+              <span>{selected.length} Layers Selected</span>
+              <span style={{ opacity: 0.3 }}>|</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!set) return;
+                  const result = withMixedLayersSpacedEvenly(s, selected, "tidy");
+                  set("texts", result.texts);
+                  set("images", result.images);
+                  set("shapes", result.shapes);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  color: "#a78bfa",
+                  background: "rgba(167, 139, 250, 0.15)",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  transition: "all 0.15s ease",
+                }}
+                title="Tidy up & space all selected layers evenly"
+              >
+                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="6" y1="5" x2="6" y2="19" />
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="18" y1="5" x2="18" y2="19" />
+                </svg>
+                Space evenly
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!set) return;
+                  const result = withMultipleLayersRotated(s, selected, 90, "group");
+                  set("texts", result.texts);
+                  set("images", result.images);
+                  set("shapes", result.shapes);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  color: "#34d399",
+                  background: "rgba(52, 211, 153, 0.15)",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  transition: "all 0.15s ease",
+                }}
+                title="Rotate selected layers 90°"
+              >
+                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19" />
+                </svg>
+                Rotate 90°
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!set) return;
+                  const result = withMultipleLayersDuplicated(s, selected, { x: 3, y: 3 });
+                  set("texts", result.texts);
+                  set("images", result.images);
+                  set("shapes", result.shapes);
+                  set("layerOrder", result.layerOrder);
+                  onSelectionChange?.(result.newSelection.map((item) => ({ kind: item.kind, id: item.id })));
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  color: "#38bdf8",
+                  background: "rgba(56, 189, 248, 0.15)",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  transition: "all 0.15s ease",
+                }}
+                title="Duplicate all selected layers"
+              >
+                <Copy01Icon size={14} />
+                Duplicate
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!set) return;
+                  const result = withMultipleLayersRemoved(s, selected);
+                  set("texts", result.texts);
+                  set("images", result.images);
+                  set("shapes", result.shapes);
+                  set("layerOrder", result.layerOrder);
+                  onSelectionChange?.([]);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  color: "#ef4444",
+                  background: "rgba(239, 68, 68, 0.15)",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  transition: "all 0.15s ease",
+                }}
+                title="Delete all selected layers"
+              >
+                <Delete02Icon size={14} />
+                Delete All
+              </button>
+            </div>
+          ) : null}
+
+          {/* Group Rotate Handle docked below multi-selection bounding box — hidden while actively rotating or dragging */}
+          <div
+            data-nopan=""
             style={{
               position: "absolute",
               left: "50%",
-              top: -34 * multiSelectInvScale,
-              transformOrigin: "top center",
+              top: "calc(100% + 22px)",
+              transformOrigin: "center top",
               transform: `translateX(-50%) scale(${multiSelectInvScale})`,
-              background: "#0f172a",
-              border: "1px solid rgba(255,255,255,0.15)",
-              color: "#ffffff",
-              fontSize: 13,
-              fontWeight: 600,
-              padding: "6px 14px",
-              borderRadius: 20,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
-              whiteSpace: "nowrap",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              pointerEvents: "auto",
+              visibility: (multiRotateAngle !== null || isGroupDragging) ? "hidden" : "visible",
+              pointerEvents: (multiRotateAngle !== null || isGroupDragging) ? "none" : "auto",
             }}
           >
-            <span>{selected.length} Layers Selected</span>
-            <span style={{ opacity: 0.3 }}>|</span>
             <button
               type="button"
-              onClick={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
-                if (!set) return;
-                const result = withMultipleLayersRemoved(s, selected);
-                set("texts", result.texts);
-                set("images", result.images);
-                set("shapes", result.shapes);
-                set("layerOrder", result.layerOrder);
-                onSelectionChange?.([]);
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                const startClientX = e.clientX;
+                const startClientY = e.clientY;
+                const rect = (e.currentTarget.parentElement?.parentElement as HTMLElement)?.getBoundingClientRect();
+                if (!rect) return;
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const startPointerAngle = Math.atan2(startClientY - centerY, startClientX - centerX) * (180 / Math.PI);
+                const initialEditorState = { ...sRef.current };
+
+                const handlePointerMove = (ev: PointerEvent) => {
+                  ev.stopPropagation();
+                  const currentAngle = Math.atan2(ev.clientY - centerY, ev.clientX - centerX) * (180 / Math.PI);
+                  let totalDelta = currentAngle - startPointerAngle;
+                  while (totalDelta > 180) totalDelta -= 360;
+                  while (totalDelta < -180) totalDelta += 360;
+
+                  const SNAP_TARGETS = [-180, -135, -90, -45, 0, 45, 90, 135, 180];
+                  let displayAngle = Math.round(totalDelta);
+                  for (const target of SNAP_TARGETS) {
+                    if (Math.abs(displayAngle - target) < 4) {
+                      displayAngle = target;
+                      totalDelta = target;
+                      break;
+                    }
+                  }
+
+                  setMultiRotateAngle(displayAngle);
+                  if (!set) return;
+                  const res = withMultipleLayersRotated(initialEditorState, selected, Math.round(totalDelta), "group");
+                  set("texts", res.texts);
+                  set("images", res.images);
+                  set("shapes", res.shapes);
+                };
+
+                const handlePointerUp = (ev: PointerEvent) => {
+                  ev.stopPropagation();
+                  try {
+                    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                  } catch { }
+                  setMultiRotateAngle(null);
+                  window.removeEventListener("pointermove", handlePointerMove);
+                  window.removeEventListener("pointerup", handlePointerUp);
+                  window.removeEventListener("pointercancel", handlePointerUp);
+                };
+
+                window.addEventListener("pointermove", handlePointerMove);
+                window.addEventListener("pointerup", handlePointerUp);
+                window.addEventListener("pointercancel", handlePointerUp);
               }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                color: "#ef4444",
-                background: "rgba(239, 68, 68, 0.15)",
-                border: "none",
-                borderRadius: 12,
-                padding: "4px 10px",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: 12,
-              }}
-              title="Delete all selected layers"
+              className="grid h-7 w-7 place-items-center rounded-full bg-white text-black shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-[#15161c] hover:text-white active:scale-95"
+              style={{ cursor: "grab" }}
+              title="Drag to rotate entire selection"
             >
-              <Delete02Icon size={14} />
-              Delete All
+              <CursorCircleSelection02Icon size={16} />
             </button>
           </div>
+
+          {/* Live Angle Badge shown while rotating entire multi-selection */}
+          {multiRotateAngle !== null ? (
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "100%",
+                transform: "translateX(-50%)",
+                marginTop: 100 * multiSelectInvScale,
+                zIndex: 110,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{ transform: `scale(${multiSelectInvScale})` }}
+                className="rounded-full bg-[#15161c]/95 px-3 py-1.5 text-xs font-semibold text-white shadow-2xl backdrop-blur-md whitespace-nowrap"
+              >
+                {multiRotateAngle}°
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -1358,13 +1852,17 @@ function getAllCanvasElements(s: EditorState): ElementBounds[] {
   getTextLayers(s)
     .filter((t) => !t.hidden && t.text && t.text.trim().length > 0)
     .forEach((t) => {
-      let w = t.width ?? 400;
-      let h = t.minHeight ?? t.size * 1.3;
+      let rawW = t.width ?? 400;
+      let rawH = t.minHeight ?? t.size * 1.3;
       const el = document.querySelector(`[data-layer-id="${t.id}"]`) as HTMLElement | null;
       if (el) {
-        w = el.offsetWidth || w;
-        h = el.offsetHeight || h;
+        rawW = el.offsetWidth || rawW;
+        rawH = el.offsetHeight || rawH;
       }
+      const rot = t.rotation ?? 0;
+      const rad = (rot * Math.PI) / 180;
+      const w = rot === 0 ? rawW : rawW * Math.abs(Math.cos(rad)) + rawH * Math.abs(Math.sin(rad));
+      const h = rot === 0 ? rawH : rawW * Math.abs(Math.sin(rad)) + rawH * Math.abs(Math.cos(rad));
       elements.push({
         id: t.id,
         x: t.x,
@@ -1376,13 +1874,19 @@ function getAllCanvasElements(s: EditorState): ElementBounds[] {
   getShapeLayers(s)
     .filter((sh) => !sh.hidden && (sh.size > 0 || (sh.height ?? 0) > 0))
     .forEach((sh) => {
-      let w = sh.size;
-      let h = sh.height ?? sh.size;
+      const isLn = isLineShape(sh.kind);
+      const rot = sh.rotation ?? 0;
+      const rad = (rot * Math.PI) / 180;
+      const effH = typeof sh.height === "number" ? sh.height : (isLn ? 24 : sh.size);
+      let rawW = sh.size;
+      let rawH = effH;
       const el = document.querySelector(`[data-layer-id="${sh.id}"]`) as HTMLElement | null;
-      if (el) {
-        w = el.offsetWidth || w;
-        h = el.offsetHeight || h;
+      if (el && !isLn) {
+        rawW = el.offsetWidth || rawW;
+        rawH = el.offsetHeight || rawH;
       }
+      const w = rot === 0 ? rawW : rawW * Math.abs(Math.cos(rad)) + rawH * Math.abs(Math.sin(rad));
+      const h = rot === 0 ? rawH : rawW * Math.abs(Math.sin(rad)) + rawH * Math.abs(Math.cos(rad));
       elements.push({
         id: sh.id,
         x: sh.x,
@@ -1394,13 +1898,17 @@ function getAllCanvasElements(s: EditorState): ElementBounds[] {
   getImageLayers(s)
     .filter((img) => !img.hidden && (img.size > 0 || (img.height ?? 0) > 0))
     .forEach((img) => {
-      let w = img.size;
-      let h = img.height ?? img.size;
+      let rawW = img.size;
+      let rawH = img.height ?? img.size;
       const el = document.querySelector(`[data-layer-id="${img.id}"]`) as HTMLElement | null;
       if (el) {
-        w = el.offsetWidth || w;
-        h = el.offsetHeight || h;
+        rawW = el.offsetWidth || rawW;
+        rawH = el.offsetHeight || rawH;
       }
+      const rot = img.rotation ?? 0;
+      const rad = (rot * Math.PI) / 180;
+      const w = rot === 0 ? rawW : rawW * Math.abs(Math.cos(rad)) + rawH * Math.abs(Math.sin(rad));
+      const h = rot === 0 ? rawH : rawW * Math.abs(Math.sin(rad)) + rawH * Math.abs(Math.cos(rad));
       elements.push({
         id: img.id,
         x: img.x,
@@ -1734,6 +2242,86 @@ function calculateAlignmentSnap({
   };
 }
 
+function calculateLineSnapGuides({
+  xPct,
+  yPct,
+  length,
+  angleDeg,
+  strokeHeight,
+  canvasW,
+  canvasH,
+}: {
+  xPct: number;
+  yPct: number;
+  length: number;
+  angleDeg: number;
+  strokeHeight: number;
+  canvasW: number;
+  canvasH: number;
+}): GuidesState {
+  const rad = (angleDeg * Math.PI) / 180;
+  const halfLen = length / 2;
+  const cX = (xPct / 100) * canvasW;
+  const cY = (yPct / 100) * canvasH;
+
+  const halfW = halfLen * Math.abs(Math.cos(rad)) + (strokeHeight / 2) * Math.abs(Math.sin(rad));
+  const halfH = halfLen * Math.abs(Math.sin(rad)) + (strokeHeight / 2) * Math.abs(Math.cos(rad));
+  const snapPx = 8;
+
+  let edgeLeft = false;
+  let edgeRight = false;
+  let edgeTop = false;
+  let edgeBottom = false;
+  let vCenter = false;
+  let hCenter = false;
+  const lines: AlignmentGuideLine[] = [];
+
+  // Canvas Outer Edges:
+  if (Math.abs(cX - halfW) <= snapPx || Math.abs(cX - halfLen * Math.abs(Math.cos(rad))) <= snapPx) {
+    edgeLeft = true;
+  }
+  if (Math.abs(cX + halfW - canvasW) <= snapPx || Math.abs(cX + halfLen * Math.abs(Math.cos(rad)) - canvasW) <= snapPx) {
+    edgeRight = true;
+  }
+  if (Math.abs(cY - halfH) <= snapPx || Math.abs(cY - halfLen * Math.abs(Math.sin(rad))) <= snapPx) {
+    edgeTop = true;
+  }
+  if (Math.abs(cY + halfH - canvasH) <= snapPx || Math.abs(cY + halfLen * Math.abs(Math.sin(rad)) - canvasH) <= snapPx) {
+    edgeBottom = true;
+  }
+
+  // Canvas Center Guides:
+  if (Math.abs(cX - canvasW / 2) <= snapPx || Math.abs(xPct - 50) < 1.2) {
+    vCenter = true;
+    lines.push({ orientation: "vertical", posPct: 50, startPct: 0, endPct: 100, style: "dotted" });
+  }
+  if (Math.abs(cY - canvasH / 2) <= snapPx || Math.abs(yPct - 50) < 1.2) {
+    hCenter = true;
+    lines.push({ orientation: "horizontal", posPct: 50, startPct: 0, endPct: 100, style: "dotted" });
+  }
+
+  // Horizontal / Vertical angle alignment lines:
+  const normAngle = ((Math.round(angleDeg) % 360) + 360) % 360;
+  if (normAngle === 0 || normAngle === 180) {
+    hCenter = true;
+    lines.push({ orientation: "horizontal", posPct: yPct, startPct: 0, endPct: 100, style: "dotted" });
+  } else if (normAngle === 90 || normAngle === 270) {
+    vCenter = true;
+    lines.push({ orientation: "vertical", posPct: xPct, startPct: 0, endPct: 100, style: "dotted" });
+  }
+
+  return {
+    vCenter,
+    hCenter,
+    edgeLeft,
+    edgeRight,
+    edgeTop,
+    edgeBottom,
+    lines,
+  };
+}
+
+
 // Canva-style floating action bar shown above a selected gallery layer
 // (image/text/shape) — Lock/Unlock, Duplicate, Delete. Shared by all three
 // so the look and the stopPropagation plumbing (clicking a button must
@@ -1745,6 +2333,8 @@ function LayerToolbar({
   onDelete,
   scale = 1,
   placement = "top",
+  extraOffset = 0,
+  inline = false,
 }: {
   locked: boolean;
   onToggleLock: () => void;
@@ -1752,6 +2342,8 @@ function LayerToolbar({
   onDelete: () => void;
   scale?: number | undefined;
   placement?: "top" | "bottom" | undefined;
+  extraOffset?: number | undefined;
+  inline?: boolean | undefined;
 }) {
   const invScale = scale > 0 ? 1 / scale : 1;
   const btn =
@@ -1761,16 +2353,24 @@ function LayerToolbar({
       data-nopan=""
       onPointerDown={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
-      style={{
-        position: "absolute",
-        top: placement === "top" ? -16 * invScale : undefined,
-        bottom: placement === "bottom" ? -16 * invScale : undefined,
-        left: "50%",
-        transformOrigin: placement === "top" ? "bottom center" : "top center",
-        transform: `translateX(-50%) translateY(${placement === "top" ? "-100%" : "100%"}) scale(${invScale})`,
-        zIndex: 80,
-        touchAction: "manipulation",
-      }}
+      style={
+        inline
+          ? {
+              transform: `scale(${invScale})`,
+              zIndex: 80,
+              touchAction: "manipulation",
+            }
+          : {
+              position: "absolute",
+              top: placement === "top" ? -(16 + extraOffset) * invScale : undefined,
+              bottom: placement === "bottom" ? -(16 + extraOffset) * invScale : undefined,
+              left: "50%",
+              transformOrigin: placement === "top" ? "bottom center" : "top center",
+              transform: `translateX(-50%) translateY(${placement === "top" ? "-100%" : "100%"}) scale(${invScale})`,
+              zIndex: 80,
+              touchAction: "manipulation",
+            }
+      }
       className="flex items-center gap-1 whitespace-nowrap rounded-full border border-white/15 bg-[#15161c]/95 px-2 py-1.5 shadow-2xl backdrop-blur-md"
     >
       {locked ? (
@@ -1849,46 +2449,55 @@ function LayerToolbar({
 function RotateMoveHandleRow({
   containerRef,
   onRotate,
+  onGuides,
   onMovePointerDown,
   onMovePointerMove,
   onMovePointerUp,
   scale = 1,
-  placement = "bottom",
-  // True while the parent layer is being dragged via ANY path (this row's
-  // own move handle, or dragging the layer's body directly) — hides the
-  // rotate button for the duration, same idea as onRotatingChange below
-  // hiding the move button while rotating, so the handle for whichever
-  // gesture ISN'T active doesn't compete for attention/fat-finger taps
-  // right next to the one that is.
+  orientation = "horizontal",
+  docked = true,
   isMoving = false,
-  // Reports this row's own rotate-drag state back up to the parent, which
-  // uses it to hide the move button here (see isMoving's own comment) and
-  // to hide its LayerToolbar/resize handles for the same duration.
   onRotatingChange,
+  elementRotation = 0,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
   onRotate: (deg: number) => void;
+  onGuides?: (g: GuidesState) => void;
   onMovePointerDown: ((e: React.PointerEvent) => void) | undefined;
   onMovePointerMove: ((e: React.PointerEvent) => void) | undefined;
   onMovePointerUp: ((e: React.PointerEvent) => void) | undefined;
   scale?: number | undefined;
-  placement?: "top" | "bottom" | undefined;
+  orientation?: "horizontal" | "vertical" | undefined;
+  docked?: boolean;
   isMoving?: boolean;
   onRotatingChange?: (isRotating: boolean) => void;
+  /** The element's own rotation in degrees — used when docked=true to push
+   *  the handle row below the full axis-aligned bounding box bottom instead
+   *  of just the raw (unrotated) CSS height, so it never overlaps a
+   *  vertically-rotated element whose visual extent exceeds its DOM height. */
+  elementRotation?: number;
 }) {
   const rotatingRef = useRef(false);
   const invScale = scale > 0 ? 1 / scale : 1;
-  // Drives the little "-17°"-style badge below, live during an active
-  // rotate drag. Kept local (not read from the layer's own rotation prop)
-  // since it needs to update on every pointermove, one render ahead of the
-  // parent's own state actually committing.
+
+  // When docked, compute how much extra vertical offset is needed so the row
+  // clears the element's full axis-aligned bounding box rather than its raw
+  // CSS height. For a rotation of R degrees with unrotated W×H:
+  //   axisAlignedH = W|sin R| + H|cos R|
+  // The container's CSS height is H (the unrotated height). The difference
+  // (axisAlignedH − H)/2 is the extra half-span that sticks out beyond each
+  // edge after rotating, so we add that as a marginTop offset.
+  const rotationExtraOffset = (() => {
+    if (!docked || elementRotation === 0) return 0;
+    const el = containerRef.current;
+    if (!el) return 0;
+    const rawW = el.offsetWidth;
+    const rawH = el.offsetHeight;
+    const rad = (elementRotation * Math.PI) / 180;
+    const axisAlignedH = rawW * Math.abs(Math.sin(rad)) + rawH * Math.abs(Math.cos(rad));
+    return Math.max(0, (axisAlignedH - rawH) / 2);
+  })();
   const [liveAngle, setLiveAngle] = useState<number | null>(null);
-  // This row's own "am I rotating" flag, for hiding the move button (and,
-  // via onRotatingChange, the parent's LayerToolbar/resize handles) — a
-  // dedicated state rather than reusing liveAngle !== null above, since
-  // liveAngle only starts updating on the FIRST pointermove after the
-  // rotate handle is grabbed; this flips immediately on pointerdown so
-  // nothing else stays visible for that first instant of the gesture.
   const [isRotating, setIsRotating] = useState(false);
 
   const handleRotatePointerDown = (e: React.PointerEvent) => {
@@ -1905,11 +2514,8 @@ function RotateMoveHandleRow({
     const rect = containerRef.current.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
-    // atan2 with a pointer straight below center (this handle's resting
-    // spot at rotation 0) reads 90° — subtracting that lines up "handle
-    // hasn't moved" with "rotation hasn't changed".
     let angle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * (180 / Math.PI) - 90;
-    angle = ((angle + 180) % 360 + 360) % 360 - 180; // normalize to (-180, 180]
+    angle = ((angle + 180) % 360 + 360) % 360 - 180;
     const SNAP_TARGETS = [-180, -135, -90, -45, 0, 45, 90, 135, 180];
     for (const target of SNAP_TARGETS) {
       if (Math.abs(angle - target) < 4) {
@@ -1920,6 +2526,14 @@ function RotateMoveHandleRow({
     const rounded = Math.round(angle);
     setLiveAngle(rounded);
     onRotate(rounded);
+
+    if (rounded === 0 || rounded === 180 || rounded === -180) {
+      onGuides?.({ hCenter: true, lines: [{ orientation: "horizontal", posPct: 50, startPct: 0, endPct: 100, style: "dotted" }] });
+    } else if (rounded === 90 || rounded === -90) {
+      onGuides?.({ vCenter: true, lines: [{ orientation: "vertical", posPct: 50, startPct: 0, endPct: 100, style: "dotted" }] });
+    } else {
+      onGuides?.({ vCenter: false, hCenter: false, lines: [] });
+    }
   };
 
   const handleRotatePointerUp = (e: React.PointerEvent) => {
@@ -1931,6 +2545,7 @@ function RotateMoveHandleRow({
     setLiveAngle(null);
     setIsRotating(false);
     onRotatingChange?.(false);
+    onGuides?.({ vCenter: false, hCenter: false, lines: [] });
   };
 
   const btn =
@@ -1940,82 +2555,124 @@ function RotateMoveHandleRow({
     <>
       <div
         data-nopan=""
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: placement === "bottom" ? "100%" : undefined,
-          bottom: placement === "top" ? "100%" : undefined,
-          transform: `translateX(-50%) scale(${invScale})`,
-          transformOrigin: placement === "bottom" ? "top center" : "bottom center",
-          marginTop: placement === "bottom" ? 14 * invScale : undefined,
-          marginBottom: placement === "top" ? 14 * invScale : undefined,
-          zIndex: 80,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          touchAction: "none",
-          // Hide BOTH handles the instant either gesture starts — including
-          // the one actively being dragged, since pointer capture keeps
-          // delivering move/up events to it even while visibility:hidden,
-          // so the gesture itself keeps working with nothing left on
-          // screen to clutter the view or get in the way of what's under
-          // the cursor. Kept as visibility (not unmount) so pointer capture
-          // on whichever button started the drag isn't lost mid-gesture.
-          visibility: isMoving || isRotating ? "hidden" : "visible",
-          pointerEvents: "auto",
-        }}
+        style={
+          docked
+            ? {
+                position: "absolute",
+                left: "50%",
+                top: "calc(100% + 22px)",
+                marginTop: rotationExtraOffset,
+                transform: `translateX(-50%) scale(${invScale})`,
+                transformOrigin: "center top",
+                zIndex: 80,
+                display: "flex",
+                flexDirection: orientation === "vertical" ? "column" : "row",
+                alignItems: "center",
+                gap: 8,
+                touchAction: "none",
+                visibility: isMoving || isRotating ? "hidden" : "visible",
+                pointerEvents: "auto",
+              }
+            : {
+                transform: `scale(${invScale})`,
+                transformOrigin: "center center",
+                zIndex: 80,
+                display: "flex",
+                flexDirection: orientation === "vertical" ? "column" : "row",
+                alignItems: "center",
+                gap: 8,
+                touchAction: "none",
+                visibility: isMoving || isRotating ? "hidden" : "visible",
+                pointerEvents: "auto",
+              }
+        }
       >
-        <button
-          type="button"
-          title="Drag to rotate"
-          onPointerDown={handleRotatePointerDown}
-          onPointerMove={handleRotatePointerMove}
-          onPointerUp={handleRotatePointerUp}
-          onPointerCancel={handleRotatePointerUp}
-          className={btn}
-          style={{ cursor: "grab" }}
-        >
-          <CursorCircleSelection02Icon size={16} />
-        </button>
-        <button
-          type="button"
-          title="Drag to move"
-          onPointerDown={onMovePointerDown}
-          onPointerMove={onMovePointerMove}
-          onPointerUp={onMovePointerUp}
-          onPointerCancel={onMovePointerUp}
-          className={btn}
-          style={{ cursor: "grab" }}
-        >
-          <HugeiconsIcon icon={HandGrabIcon} size={18} />
-        </button>
+        {orientation === "vertical" ? (
+          <>
+            {/* Move Button on Top */}
+            <button
+              type="button"
+              title="Drag to move"
+              onPointerDown={onMovePointerDown}
+              onPointerMove={onMovePointerMove}
+              onPointerUp={onMovePointerUp}
+              onPointerCancel={onMovePointerUp}
+              className={btn}
+              style={{ cursor: "move" }}
+            >
+              <HugeiconsIcon icon={HandGrabIcon} size={18} />
+            </button>
+            {/* Rotate Button on Bottom */}
+            <button
+              type="button"
+              title="Drag to rotate"
+              onPointerDown={handleRotatePointerDown}
+              onPointerMove={handleRotatePointerMove}
+              onPointerUp={handleRotatePointerUp}
+              onPointerCancel={handleRotatePointerUp}
+              className={btn}
+              style={{ cursor: "grab" }}
+            >
+              <CursorCircleSelection02Icon size={16} />
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Rotate Button on Left */}
+            <button
+              type="button"
+              title="Drag to rotate"
+              onPointerDown={handleRotatePointerDown}
+              onPointerMove={handleRotatePointerMove}
+              onPointerUp={handleRotatePointerUp}
+              onPointerCancel={handleRotatePointerUp}
+              className={btn}
+              style={{ cursor: "grab" }}
+            >
+              <CursorCircleSelection02Icon size={16} />
+            </button>
+            {/* Move Button on Right */}
+            <button
+              type="button"
+              title="Drag to move"
+              onPointerDown={onMovePointerDown}
+              onPointerMove={onMovePointerMove}
+              onPointerUp={onMovePointerUp}
+              onPointerCancel={onMovePointerUp}
+              className={btn}
+              style={{ cursor: "move" }}
+            >
+              <HugeiconsIcon icon={HandGrabIcon} size={18} />
+            </button>
+          </>
+        )}
       </div>
 
-      {/* Live angle readout, shown only while actively dragging the rotate
-          handle. Stays upright and readable (screen-aligned, not rotating with
-          the gesture) no matter how far the layer has been turned. */}
       {liveAngle !== null ? (
         <div
           style={{
             position: "absolute",
             left: "50%",
-            top: placement === "bottom" ? "100%" : undefined,
-            bottom: placement === "top" ? "100%" : undefined,
+            top: "100%",
             transform: "translateX(-50%)",
-            marginTop: placement === "bottom" ? (44 + 14) * invScale : undefined,
-            marginBottom: placement === "top" ? (44 + 14) * invScale : undefined,
+            // Push the badge below: the standard 100px gap (invScale-adjusted)
+            // PLUS the extra half-span that a rotated element sticks out beyond
+            // its CSS box bottom, so it always clears the full visual extent of
+            // the text/image/shape regardless of how much it has been rotated.
+            marginTop: 100 * invScale + rotationExtraOffset,
             zIndex: 90,
             pointerEvents: "none",
           }}
         >
           <div
             style={{ transform: `scale(${invScale})` }}
-            className="rounded-full bg-[#15161c]/95 px-2.5 py-1 text-xs font-semibold text-white shadow-2xl backdrop-blur-md whitespace-nowrap"
+            className="rounded-full bg-[#15161c]/95 px-3 py-1.5 text-xs font-semibold text-white shadow-2xl backdrop-blur-md whitespace-nowrap"
           >
             {liveAngle}°
           </div>
         </div>
       ) : null}
+
     </>
   );
 }
@@ -2029,153 +2686,7 @@ function RotateMoveHandleRow({
 // diagonal scale instead.
 //
 // Every layer's selection outline is drawn via `outline: 2px solid` at
-// `outlineOffset: 4`, which puts its visual centerline 5px out from the
-// box's actual edge (offset 4 + half the 2px stroke). Each handle's own
-// offset is picked so ITS center — not just its near edge — lands on that
-// same 5px line: corner = -(5 + 14/2) = -12, edge perpendicular axis =
-// -(5 + 10/2) = -10. (The old flat -8/-5 offsets predate the outline ring
-// being added and only centered the handles on the box's raw edge instead.)
-const HANDLE_POSITIONS = [
-  { id: "nw", kind: "corner", style: { left: -12, top: -12 }, cursor: "nwse-resize" },
-  { id: "n", kind: "edge-h", style: { left: "50%", top: -8, transform: "translateX(-50%)" }, cursor: "ns-resize" },
-  { id: "ne", kind: "corner", style: { right: -12, top: -12 }, cursor: "nesw-resize" },
-  { id: "e", kind: "edge-v", style: { right: -8, top: "50%", transform: "translateY(-50%)" }, cursor: "ew-resize" },
-  { id: "se", kind: "corner", style: { right: -12, bottom: -12 }, cursor: "nwse-resize" },
-  { id: "s", kind: "edge-h", style: { left: "50%", bottom: -8, transform: "translateX(-50%)" }, cursor: "ns-resize" },
-  { id: "sw", kind: "corner", style: { left: -12, bottom: -12 }, cursor: "nesw-resize" },
-  { id: "w", kind: "edge-v", style: { left: -8, top: "50%", transform: "translateY(-50%)" }, cursor: "ew-resize" },
-] as const;
 
-// Text layers only use the 4 corner resize handles (for font scaling) plus left/right
-// pill handles (for adjusting text wrapping width). Top and bottom pill handles are excluded.
-const TEXT_HANDLE_POSITIONS = HANDLE_POSITIONS.filter((h) => h.id !== "n" && h.id !== "s");
-
-type HandleId = (typeof HANDLE_POSITIONS)[number]["id"];
-
-// Corners render as small circles; edge handles as pill/bar shapes (a
-// stadium shape falls straight out of `rounded-full` once width != height,
-// no separate border-radius logic needed). These are the DESIGN-time sizes,
-// i.e. what renders at canvas zoom = 100% — see `zoomed` below for how they
-// actually get rendered at other zoom levels.
-//
-// This is the small VISIBLE dot/pill only — see handleHitDims right below
-// for the (larger) actual pointer/touch hit target. Splitting the two
-// apart is what let this shrink from the old single-size 14 / 20×10: on a
-// small mobile canvas the previous size regularly sat close enough to a
-// layer's own text to cover it, and shrinking it outright (tried earlier)
-// just made it hard to grab. A small visible mark + a generous invisible
-// hit area (the Figma/Canva pattern) fixes both at once.
-function handleDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
-  switch (kind) {
-    case "corner":
-      return { width: 10, height: 10 };
-    case "edge-h":
-      return { width: 16, height: 8 };
-    case "edge-v":
-      return { width: 8, height: 16 };
-  }
-}
-
-// The actual pointer/touch hit target for each resize handle — deliberately
-// bigger than the visible dot/pill above so handles stay easy to grab
-// (especially on mobile touch) without the VISIBLE shape itself being large
-// enough to sit on top of, and hide, nearby text. This box is fully
-// transparent; see each render site below for how the small dot gets
-// centered inside it.
-function handleHitDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
-  switch (kind) {
-    case "corner":
-      return { width: 28, height: 28 };
-    case "edge-h":
-      return { width: 32, height: 22 };
-    case "edge-v":
-      return { width: 22, height: 32 };
-  }
-}
-
-// Handles live inside the canvas stage's own `transform: scale(zoom)`
-// wrapper (see index.tsx), same as every layer — so left alone they'd
-// shrink/grow proportionally with every zoom change, same as the content
-// they're attached to. That's not what's wanted here: dims are kept a
-// fixed, constant ON-SCREEN size regardless of zoom (same pattern as
-// LayerToolbar's invScale) — a canvas that's zoomed out to fit a big
-// design on screen shouldn't make the handles themselves harder to grab.
-function zoomed(dims: { width: number; height: number }, scale: number): { width: number; height: number } {
-  if (!scale || scale <= 0) return dims;
-  return { width: dims.width / scale, height: dims.height / scale };
-}
-
-// Positions + sizes the (invisible) HIT box — see handleHitDims. Each
-// layer's render site nests the small visible dot (getHandleVisualStyle)
-// centered inside this, so the two always share the same on-screen center
-// point without any separate offset math for the inner element.
-function getHandleStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): React.CSSProperties {
-  const dims = zoomed(handleHitDims(h.kind), scale);
-  // Deliberately NOT counter-scaled like `dims` above — this is the gap
-  // between the selection outline and the handle, and keeping it flat (its
-  // on-screen size shrinking a bit at low mobile zoom, same as before) is
-  // what keeps the dot feeling anchored to the outline instead of floating
-  // away from it. A counter-scaled version was tried and made the gap
-  // balloon up at mobile's low default canvas zoom (~0.3–0.5), visibly
-  // detaching the handles from the selection outline — worse than the
-  // small-zoom shrink it was meant to fix.
-  const outlineOffset = 5; // 4px outlineOffset + 1px stroke offset to center on outline line
-
-  const offsetX = outlineOffset + dims.width / 2;
-  const offsetY = outlineOffset + dims.height / 2;
-
-  let posStyle: React.CSSProperties = {};
-  switch (h.id) {
-    case "nw":
-      posStyle = { left: -offsetX, top: -offsetY };
-      break;
-    case "n":
-      posStyle = { left: "50%", top: -offsetY, transform: "translateX(-50%)" };
-      break;
-    case "ne":
-      posStyle = { right: -offsetX, top: -offsetY };
-      break;
-    case "e":
-      posStyle = { right: -offsetX, top: "50%", transform: "translateY(-50%)" };
-      break;
-    case "se":
-      posStyle = { right: -offsetX, bottom: -offsetY };
-      break;
-    case "s":
-      posStyle = { left: "50%", bottom: -offsetY, transform: "translateX(-50%)" };
-      break;
-    case "sw":
-      posStyle = { left: -offsetX, bottom: -offsetY };
-      break;
-    case "w":
-      posStyle = { left: -offsetX, top: "50%", transform: "translateY(-50%)" };
-      break;
-  }
-
-  return {
-    position: "absolute",
-    ...posStyle,
-    ...dims,
-    cursor: h.cursor,
-    zIndex: 60,
-    touchAction: "none",
-  };
-}
-
-// The small visible dot/pill, centered inside its parent hit box (see
-// getHandleStyle) via plain 50%/50% + translate — no offset math needed
-// here since the hit box is already centered on the right on-screen point.
-function getHandleVisualStyle(h: (typeof HANDLE_POSITIONS)[number], scale: number): React.CSSProperties {
-  const dims = zoomed(handleDims(h.kind), scale);
-  return {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    transform: "translate(-50%, -50%)",
-    ...dims,
-    boxShadow: "0 2px 10px 0 rgba(0,33,255,0.5), 0 0 0 2px rgba(255,255,255,0.9)",
-  };
-}
 
 // A layer's own rendered output only depends on `scale` when it's actually
 // SELECTED — that's the only time it draws resize handles, the rotate/move
@@ -4061,10 +4572,40 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                     onMovePointerUp={handleMovePointerUp}
                     isMoving={isMoving}
                     onRotatingChange={setIsRotating}
+                    elementRotation={rotation}
                   />
                 </div>
               </>
             ) : null}
+          </div>,
+          controlsOverlayEl,
+        )
+        : null}
+
+      {/* Multi-Selection Item Outline (shows individual layer selection bounds during marquee or multi-select) */}
+      {canInteract && selected && selectedCount > 1 && controlsOverlayEl
+        ? createPortal(
+          <div
+            style={{
+              position: "absolute",
+              left: `${t.x}%`,
+              top: `${t.y}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              width: measuredBox?.w ?? containerRef.current?.offsetWidth ?? (validTextWidth ?? 200),
+              height: measuredBox?.h ?? containerRef.current?.offsetHeight ?? (t.minHeight ?? 40),
+              zIndex: 80 + index,
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: -3,
+                border: "1.5px solid var(--color-primary, #6366f1)",
+                borderRadius: 4,
+                pointerEvents: "none",
+              }}
+            />
           </div>,
           controlsOverlayEl,
         )
@@ -4577,10 +5118,45 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                     onMovePointerUp={handlePointerUp}
                     isMoving={isMoving}
                     onRotatingChange={setIsRotating}
+                    elementRotation={rotation}
                   />
                 </div>
               </>
             ) : null}
+          </div>,
+          controlsOverlayEl,
+        )
+        : null}
+
+      {/* Multi-Selection Item Outline (shows individual layer selection bounds during marquee or multi-select) */}
+      {canInteract && selected && selectedCount > 1 && controlsOverlayEl
+        ? createPortal(
+          <div
+            style={{
+              position: "absolute",
+              left: `${img.x}%`,
+              top: `${img.y}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
+              height:
+                hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
+                  ? `${img.height}px`
+                  : `${(measuredBox && measuredBox.h > 0 ? measuredBox.h : null) ??
+                    (naturalAspect !== null ? img.size * naturalAspect : (containerRef.current?.offsetHeight ?? img.size))
+                  }px`,
+              zIndex: 80 + index,
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: -3,
+                border: "1.5px solid var(--color-primary, #6366f1)",
+                borderRadius: 4,
+                pointerEvents: "none",
+              }}
+            />
           </div>,
           controlsOverlayEl,
         )
@@ -4652,7 +5228,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   // HANDLE_POSITIONS' own comment) is currently being dragged, if any — the
   // other 7 hide for the duration so the one in use isn't competing for
   // attention with a ring of handles the user isn't touching.
-  const [activeHandle, setActiveHandle] = useState<HandleId | null>(null);
+  const [activeHandle, setActiveHandle] = useState<HandleId | "line-start" | "line-end" | null>(null);
   // True for the duration of an active move drag (single-item, group, or an
   // Alt+drag duplicate — every branch in handlePointerDown that actually
   // starts dragging) — used to hide LayerToolbar, the resize handles, and
@@ -4665,12 +5241,37 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   // hide for that gesture too — RotateMoveHandleRow already hides its own
   // move button internally without needing this passed back in.
   const [isRotating, setIsRotating] = useState(false);
+  const lineEndpointDragRef = useRef<{
+    isEnd: boolean;
+    startLen: number;
+    startRot: number;
+    startCenterX: number;
+    startCenterY: number;
+    startMouseX: number;
+    startMouseY: number;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const canInteract = interactive && !!set && !s.locked;
   const locked = shape.locked ?? false;
-  const effectiveHeight = shape.height ?? shape.size;
+  const isLine = isLineShape(shape.kind);
+  const effectiveHeight = typeof shape.height === "number" ? shape.height : (isLine ? 24 : shape.size);
   const rotation = shape.rotation ?? 0;
+  const invScale = scale > 0 ? 1 / scale : 1;
+  const lineRad = (rotation * Math.PI) / 180;
+  const lineLen = typeof shape.size === "number" && shape.size > 0 ? shape.size : 200;
+  const p1 = { x: (-lineLen / 2) * Math.cos(lineRad), y: (-lineLen / 2) * Math.sin(lineRad) };
+  const p2 = { x: (lineLen / 2) * Math.cos(lineRad), y: (lineLen / 2) * Math.sin(lineRad) };
+  const topEndpoint = p1.y < p2.y ? p1 : p2;
+  const isNearlyHorizontal = Math.abs(Math.sin(lineRad)) < 0.35;
+
+  const toolbarPos = isNearlyHorizontal
+    ? { x: 0, y: -26 * invScale }
+    : { x: topEndpoint.x, y: topEndpoint.y - 28 * invScale };
+
+  const handlesPos = isNearlyHorizontal
+    ? { x: 0, y: 26 * invScale, orientation: "horizontal" as const }
+    : { x: 34 * invScale, y: 0, orientation: "vertical" as const };
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
   const update = (
@@ -4708,6 +5309,30 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
       // them return before this point without dragging, so setting it once
       // here covers all four instead of repeating it in each branch.
       setIsMoving(true);
+
+      // Alt+drag on an existing multi-selection duplicates the whole group
+      // at once — see the matching block in TextLayer / ImageLayer.
+      if (e.altKey && selected && selectedCount > 1) {
+        groupDraggingRef.current = true;
+        onGroupDragStart(e.clientX, e.clientY, true);
+        return;
+      }
+
+      if (e.altKey && set) {
+        const dup = withShapeDuplicated(sRef.current, shape.id);
+        set("shapes", dup.list);
+        onSelect(dup.newId);
+        dragRef.current = {
+          px: shape.x,
+          py: shape.y,
+          x: e.clientX,
+          y: e.clientY,
+          activeId: dup.newId,
+          hasDuplicated: true,
+        };
+        return;
+      }
+
       if (!selected) {
         onSelect(shape.id);
       }
@@ -4739,8 +5364,17 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
 
         const dx = ((moveEv.clientX - d.x) / scale / sRef.current.width) * 100;
         const dy = ((moveEv.clientY - d.y) / scale / sRef.current.height) * 100;
-        const width = shape.size;
-        const height = effectiveHeight;
+        const isLn = isLineShape(shape.kind);
+        const rotRad = ((shape.rotation ?? 0) * Math.PI) / 180;
+        const lineLen = shape.size;
+        const halfW = isLn
+          ? (lineLen / 2) * Math.abs(Math.cos(rotRad)) + (effectiveHeight / 2) * Math.abs(Math.sin(rotRad))
+          : shape.size / 2;
+        const halfH = isLn
+          ? (lineLen / 2) * Math.abs(Math.sin(rotRad)) + (effectiveHeight / 2) * Math.abs(Math.cos(rotRad))
+          : effectiveHeight / 2;
+        const width = halfW * 2;
+        const height = halfH * 2;
         const otherElements = getAllCanvasElements(sRef.current);
         const targetId = d.activeId || shape.id;
         const { nextX, nextY, guides: snapGuides } = calculateAlignmentSnap({
@@ -4812,21 +5446,56 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
         }}
         className="group"
       >
-        <div
-          style={{
-            width: "100%",
-            height: "100%",
-            pointerEvents: "none",
-            transform: [
-              shape.flipH ? "scaleX(-1)" : "",
-              shape.flipV ? "scaleY(-1)" : "",
-            ]
-              .filter(Boolean)
-              .join(" ") || undefined,
-            ...shapeFillStyle(shape),
-            ...shapeCss(shape.kind, shape.radius),
-          }}
-        />
+        {isLineShape(shape.kind) ? (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              transform: [
+                shape.flipH ? "scaleX(-1)" : "",
+                shape.flipV ? "scaleY(-1)" : "",
+              ]
+                .filter(Boolean)
+                .join(" ") || undefined,
+              opacity: (shape.opacity ?? 100) / 100,
+              filter: shape.shadow
+                ? `drop-shadow(${shape.shadowX ?? 0}px ${shape.shadowY ?? 8}px ${shape.shadowBlur ?? 20}px ${hexToRgba(
+                    shape.shadowColor ?? "#000000",
+                    (shape.shadowOpacity ?? 35) / 100,
+                  )})`
+                : undefined,
+            }}
+          >
+            <LineShapeSvg
+              kind={shape.kind}
+              color={shape.color || "#ffffff"}
+              gradient={shape.style === "gradient" ? (shape.gradient ?? "linear-gradient(135deg, #6366f1, #ec4899)") : undefined}
+              strokeWidth={shape.strokeWidth ?? 4}
+              width={typeof shape.size === "number" && shape.size > 0 ? shape.size : 500}
+              height={typeof effectiveHeight === "number" && effectiveHeight > 0 ? effectiveHeight : 24}
+            />
+          </div>
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              pointerEvents: "none",
+              transform: [
+                shape.flipH ? "scaleX(-1)" : "",
+                shape.flipV ? "scaleY(-1)" : "",
+              ]
+                .filter(Boolean)
+                .join(" ") || undefined,
+              ...shapeFillStyle(shape),
+              ...shapeCss(shape.kind, shape.radius),
+            }}
+          />
+        )}
       </div>
 
       {canInteract && selected && selectedCount === 1 && controlsOverlayEl
@@ -4838,169 +5507,27 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               top: `${shape.y}%`,
               transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
               width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
-              height:
-                typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
+              height: isLine
+                ? Math.max(30, (shape.strokeWidth ?? 4) * 3, typeof shape.height === "number" ? shape.height : 30)
+                : (typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
                   ? effectiveHeight
-                  : 200,
+                  : 200),
               zIndex: 80 + index,
               pointerEvents: "none",
             }}
           >
+            {/* Outline: only show rectangular border for non-line shapes or when locked */}
             <div
               style={{
                 position: "absolute",
                 inset: -4,
-                border: locked ? "2px dashed #f59e0b" : "2px solid #0021ff",
+                border: locked ? "2px dashed #f59e0b" : (isLine ? "none" : "2px solid #0021ff"),
                 borderRadius: 4,
                 pointerEvents: "none",
               }}
             />
-            {/* Hidden (not just visually deprioritized) for the duration of
-                a move or rotate drag — see isMoving/isRotating's own
-                comments above for why, and RotateMoveHandleRow's matching
-                treatment of its own two buttons. Safe to fully unmount:
-                neither of these ever holds the pointer capture driving
-                the active gesture (that's either the shape's own body, or
-                RotateMoveHandleRow's move/rotate button, both separate
-                elements that stay mounted throughout). */}
-            {!(isMoving || isRotating) ? (
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  // See the matching wrapper's comment in DraggableTextLayer
-                  // for why this counter-rotation keeps LayerToolbar docked
-                  // at the box's true screen-space top and upright.
-                  transform: `rotate(${-rotation}deg)`,
-                  pointerEvents: "none",
-                }}
-              >
-                <div style={{ pointerEvents: "auto" }}>
-                  <LayerToolbar
-                    locked={locked}
-                    onToggleLock={() => update({ locked: !locked })}
-                    onDuplicate={duplicate}
-                    onDelete={remove}
-                    scale={scale}
-                    placement="top"
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {!locked ? (
-              <>
-                {!(isMoving || isRotating)
-                  ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
-                    <div
-                      key={h.id}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                        setActiveHandle(h.id);
-                        resizeRef.current = {
-                          startWidth: shape.size,
-                          startHeight: effectiveHeight,
-                          startPosX: shape.x,
-                          startPosY: shape.y,
-                          startMouseX: e.clientX,
-                          startMouseY: e.clientY,
-                          handle: h.id,
-                        };
-                      }}
-                      onPointerMove={(e) => {
-                        const r = resizeRef.current;
-                        if (!r || r.handle !== h.id) return;
-                        e.stopPropagation();
-                        const rawDx = (e.clientX - r.startMouseX) / scale;
-                        const rawDy = (e.clientY - r.startMouseY) / scale;
-                        const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
-                        const maxBound = Math.max(s.width, s.height, 4000);
-
-                        // Guide-only check (via calculateAlignmentSnap) against
-                        // the resized box's own resulting position/size — its
-                        // returned nextX/nextY are intentionally discarded,
-                        // since the resize math above already computed the
-                        // correct position; only `.guides` (what to draw) is
-                        // used. Same treatment for both branches below, right
-                        // after each one's own update() call.
-                        const showResizeGuides = (nextX: number, nextY: number, w: number, h2: number) => {
-                          onGuides(
-                            calculateAlignmentSnap({
-                              currentId: shape.id,
-                              rawX: nextX,
-                              rawY: nextY,
-                              width: w,
-                              height: h2,
-                              s: sRef.current,
-                              otherElements: getAllCanvasElements(sRef.current),
-                            }).guides,
-                          );
-                        };
-                        if (h.kind === "corner") {
-                          const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
-                            h.id,
-                            dx,
-                            dy,
-                            r.startWidth,
-                            r.startHeight,
-                            10,
-                            maxBound,
-                          );
-                          const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextHeight - r.startHeight;
-                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
-                          const nextX = r.startPosX + (shift.dx / s.width) * 100;
-                          const nextY = r.startPosY + (shift.dy / s.height) * 100;
-                          update(
-                            { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
-                            { continuousKey: `shape-resize-${shape.id}` },
-                          );
-                          showResizeGuides(nextX, nextY, nextWidth, nextHeight);
-                        } else {
-                          const dw = widthDeltaFor(h.id, dx);
-                          const dh = heightDeltaFor(h.id, dy);
-                          const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
-                          const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
-                          const appliedDw = nextWidth - r.startWidth;
-                          const appliedDh = nextHeight - r.startHeight;
-                          const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
-                          const nextX = r.startPosX + (shift.dx / s.width) * 100;
-                          const nextY = r.startPosY + (shift.dy / s.height) * 100;
-                          update(
-                            { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
-                            { continuousKey: `shape-resize-${shape.id}` },
-                          );
-                          showResizeGuides(nextX, nextY, nextWidth, nextHeight);
-                        }
-                      }}
-                      onPointerUp={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                        setActiveHandle(null);
-                        onGuides({ vCenter: false, hCenter: false });
-                      }}
-                      onPointerCancel={(e) => {
-                        e.stopPropagation();
-                        resizeRef.current = null;
-                        setActiveHandle(null);
-                        onGuides({ vCenter: false, hCenter: false });
-                      }}
-                      data-nopan=""
-                      className="group"
-                      style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
-                      title="Drag to resize shape"
-                    >
-                      <div
-                        className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
-                        style={getHandleVisualStyle(h, scale)}
-                      />
-                    </div>
-                  ))
-                  : null}
-                {/* See the matching wrapper's comment in DraggableTextLayer
-                    for why this counter-rotation keeps the row docked at
-                    the box's true screen-space bottom. */}
+            {!(isMoving || isRotating || activeHandle !== null) ? (
+              isLine ? (
                 <div
                   style={{
                     position: "absolute",
@@ -5009,19 +5536,497 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                     pointerEvents: "none",
                   }}
                 >
-                  <RotateMoveHandleRow
-                    containerRef={containerRef}
-                    scale={scale}
-                    onRotate={(deg) => update({ rotation: deg })}
-                    onMovePointerDown={handlePointerDown}
-                    onMovePointerMove={handlePointerMove}
-                    onMovePointerUp={handlePointerUp}
-                    isMoving={isMoving}
-                    onRotatingChange={setIsRotating}
-                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: `calc(50% + ${toolbarPos.x}px)`,
+                      top: `calc(50% + ${toolbarPos.y}px)`,
+                      transform: "translate(-50%, -100%)",
+                      pointerEvents: "auto",
+                      zIndex: 90,
+                    }}
+                  >
+                    <LayerToolbar
+                      locked={locked}
+                      onToggleLock={() => update({ locked: !locked })}
+                      onDuplicate={duplicate}
+                      onDelete={remove}
+                      scale={scale}
+                      inline={true}
+                    />
+                  </div>
                 </div>
+              ) : (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    transform: `rotate(${-rotation}deg)`,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <div style={{ pointerEvents: "auto" }}>
+                    <LayerToolbar
+                      locked={locked}
+                      onToggleLock={() => update({ locked: !locked })}
+                      onDuplicate={duplicate}
+                      onDelete={remove}
+                      scale={scale}
+                      placement="top"
+                    />
+                  </div>
+                </div>
+              )
+            ) : null}
+
+            {!locked ? (
+              <>
+                {/* 1. Canva-style Line Endpoint Handles (Two round circles at start and end) */}
+                {isLine ? (
+                  !(isMoving || isRotating) ? (
+                    <>
+                      {/* Left (Start) Endpoint Handle — Always visible */}
+                      <div
+                        data-nopan=""
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                          setActiveHandle("line-start");
+                          lineEndpointDragRef.current = {
+                            isEnd: false,
+                            startLen: shape.size,
+                            startRot: rotation,
+                            startCenterX: (shape.x * s.width) / 100,
+                            startCenterY: (shape.y * s.height) / 100,
+                            startMouseX: e.clientX,
+                            startMouseY: e.clientY,
+                          };
+                        }}
+                        onPointerMove={(e) => {
+                          const drag = lineEndpointDragRef.current;
+                          if (!drag || drag.isEnd) return;
+                          e.stopPropagation();
+                          const rad = (drag.startRot * Math.PI) / 180;
+                          const halfLen = drag.startLen / 2;
+                          const fixedEndPt = {
+                            x: drag.startCenterX + halfLen * Math.cos(rad),
+                            y: drag.startCenterY + halfLen * Math.sin(rad),
+                          };
+                          const movingStartPt = {
+                            x: drag.startCenterX - halfLen * Math.cos(rad) + (e.clientX - drag.startMouseX) / scale,
+                            y: drag.startCenterY - halfLen * Math.sin(rad) + (e.clientY - drag.startMouseY) / scale,
+                          };
+                          const vx = fixedEndPt.x - movingStartPt.x;
+                          const vy = fixedEndPt.y - movingStartPt.y;
+                          const newLen = Math.max(20, Math.round(Math.hypot(vx, vy)));
+                          let newAngleDeg = (Math.atan2(vy, vx) * 180) / Math.PI;
+                          const snapAngles = [0, 45, 90, 135, 180, -45, -90, -135, -180, 360];
+                          for (const sa of snapAngles) {
+                            if (Math.abs(newAngleDeg - sa) <= 3) {
+                              newAngleDeg = sa;
+                              break;
+                            }
+                          }
+                          const finalRad = (newAngleDeg * Math.PI) / 180;
+                          const newCenterX = fixedEndPt.x - (newLen / 2) * Math.cos(finalRad);
+                          const newCenterY = fixedEndPt.y - (newLen / 2) * Math.sin(finalRad);
+                          const nextX = (newCenterX / s.width) * 100;
+                          const nextY = (newCenterY / s.height) * 100;
+
+                          const snapGuides = calculateLineSnapGuides({
+                            xPct: nextX,
+                            yPct: nextY,
+                            length: newLen,
+                            angleDeg: newAngleDeg,
+                            strokeHeight: effectiveHeight,
+                            canvasW: s.width,
+                            canvasH: s.height,
+                          });
+                          onGuides(snapGuides);
+
+                          update(
+                            { size: newLen, rotation: Math.round(newAngleDeg * 10) / 10, x: nextX, y: nextY },
+                            { continuousKey: `line-endpoint-${shape.id}` },
+                          );
+                        }}
+                        onPointerUp={(e) => {
+                          e.stopPropagation();
+                          lineEndpointDragRef.current = null;
+                          setActiveHandle(null);
+                          onGuides({ vCenter: false, hCenter: false, lines: [] });
+                        }}
+                        onPointerCancel={(e) => {
+                          e.stopPropagation();
+                          lineEndpointDragRef.current = null;
+                          setActiveHandle(null);
+                          onGuides({ vCenter: false, hCenter: false, lines: [] });
+                        }}
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          top: "50%",
+                          transform: "translate(-50%, -50%)",
+                          width: 28,
+                          height: 28,
+                          pointerEvents: "auto",
+                          cursor: "crosshair",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          zIndex: activeHandle === "line-start" ? 120 : 100,
+                        }}
+                        className="group"
+                        title="Drag endpoint to resize length or angle"
+                      >
+                        <div
+                          className={cn(
+                            "h-5 w-5 rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            activeHandle === "line-start" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
+                          )}
+                        />
+                        {/* Live Measurement Badge anchored outward past start tip */}
+                        {activeHandle === "line-start" && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: Math.abs(rotation % 180) === 90 ? "50%" : `calc(-100% - ${16 * invScale}px)`,
+                              top: Math.abs(rotation % 180) === 90 ? `calc(-100% - ${16 * invScale}px)` : "50%",
+                              transform: `translate(${Math.abs(rotation % 180) === 90 ? '-50%' : '-100%'}, -50%) rotate(${-rotation}deg) scale(${invScale})`,
+                              pointerEvents: "none",
+                              zIndex: 250,
+                            }}
+                            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-[#18181b]/95 px-3 py-1 text-xs font-mono font-medium tracking-tight text-white shadow-xl backdrop-blur-md ring-1 ring-white/20 animate-in fade-in zoom-in-95 duration-100"
+                          >
+                            <span className="text-zinc-400 font-normal">L:</span>
+                            <span className="text-white font-semibold">{Math.round(shape.size)}px</span>
+                            <span className="text-zinc-600 font-light">•</span>
+                            <span className="text-zinc-400 font-normal">∠</span>
+                            <span className="text-white font-semibold">{Math.round(rotation)}°</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right (End) Endpoint Handle — Always visible */}
+                      <div
+                        data-nopan=""
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                          setActiveHandle("line-end");
+                          lineEndpointDragRef.current = {
+                            isEnd: true,
+                            startLen: shape.size,
+                            startRot: rotation,
+                            startCenterX: (shape.x * s.width) / 100,
+                            startCenterY: (shape.y * s.height) / 100,
+                            startMouseX: e.clientX,
+                            startMouseY: e.clientY,
+                          };
+                        }}
+                        onPointerMove={(e) => {
+                          const drag = lineEndpointDragRef.current;
+                          if (!drag || !drag.isEnd) return;
+                          e.stopPropagation();
+                          const rad = (drag.startRot * Math.PI) / 180;
+                          const halfLen = drag.startLen / 2;
+                          const fixedStartPt = {
+                            x: drag.startCenterX - halfLen * Math.cos(rad),
+                            y: drag.startCenterY - halfLen * Math.sin(rad),
+                          };
+                          const movingEndPt = {
+                            x: drag.startCenterX + halfLen * Math.cos(rad) + (e.clientX - drag.startMouseX) / scale,
+                            y: drag.startCenterY + halfLen * Math.sin(rad) + (e.clientY - drag.startMouseY) / scale,
+                          };
+                          const vx = movingEndPt.x - fixedStartPt.x;
+                          const vy = movingEndPt.y - fixedStartPt.y;
+                          const newLen = Math.max(20, Math.round(Math.hypot(vx, vy)));
+                          let newAngleDeg = (Math.atan2(vy, vx) * 180) / Math.PI;
+                          const snapAngles = [0, 45, 90, 135, 180, -45, -90, -135, -180, 360];
+                          for (const sa of snapAngles) {
+                            if (Math.abs(newAngleDeg - sa) <= 3) {
+                              newAngleDeg = sa;
+                              break;
+                            }
+                          }
+                          const finalRad = (newAngleDeg * Math.PI) / 180;
+                          const newCenterX = fixedStartPt.x + (newLen / 2) * Math.cos(finalRad);
+                          const newCenterY = fixedStartPt.y + (newLen / 2) * Math.sin(finalRad);
+                          const nextX = (newCenterX / s.width) * 100;
+                          const nextY = (newCenterY / s.height) * 100;
+
+                          const snapGuides = calculateLineSnapGuides({
+                            xPct: nextX,
+                            yPct: nextY,
+                            length: newLen,
+                            angleDeg: newAngleDeg,
+                            strokeHeight: effectiveHeight,
+                            canvasW: s.width,
+                            canvasH: s.height,
+                          });
+                          onGuides(snapGuides);
+
+                          update(
+                            { size: newLen, rotation: Math.round(newAngleDeg * 10) / 10, x: nextX, y: nextY },
+                            { continuousKey: `line-endpoint-${shape.id}` },
+                          );
+                        }}
+                        onPointerUp={(e) => {
+                          e.stopPropagation();
+                          lineEndpointDragRef.current = null;
+                          setActiveHandle(null);
+                          onGuides({ vCenter: false, hCenter: false, lines: [] });
+                        }}
+                        onPointerCancel={(e) => {
+                          e.stopPropagation();
+                          lineEndpointDragRef.current = null;
+                          setActiveHandle(null);
+                          onGuides({ vCenter: false, hCenter: false, lines: [] });
+                        }}
+                        style={{
+                          position: "absolute",
+                          left: "100%",
+                          top: "50%",
+                          transform: "translate(-50%, -50%)",
+                          width: 28,
+                          height: 28,
+                          pointerEvents: "auto",
+                          cursor: "crosshair",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          zIndex: activeHandle === "line-end" ? 120 : 100,
+                        }}
+                        className="group"
+                        title="Drag endpoint to resize length or angle"
+                      >
+                        <div
+                          className={cn(
+                            "h-5 w-5 rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            activeHandle === "line-end" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
+                          )}
+                        />
+                        {/* Live Measurement Badge anchored outward past end tip */}
+                        {activeHandle === "line-end" && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: `calc(100% + ${16 * invScale}px)`,
+                              top: "50%",
+                              transform: `translate(0%, -50%) rotate(${-rotation}deg) scale(${invScale})`,
+                              pointerEvents: "none",
+                              zIndex: 250,
+                            }}
+                            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-[#18181b]/95 px-3 py-1 text-xs font-mono font-medium tracking-tight text-white shadow-xl backdrop-blur-md ring-1 ring-white/20 animate-in fade-in zoom-in-95 duration-100"
+                          >
+                            <span className="text-zinc-400 font-normal">L:</span>
+                            <span className="text-white font-semibold">{Math.round(shape.size)}px</span>
+                            <span className="text-zinc-600 font-light">•</span>
+                            <span className="text-zinc-400 font-normal">∠</span>
+                            <span className="text-white font-semibold">{Math.round(rotation)}°</span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : null
+                ) : (
+                  /* 2. Standard 8 handles for geometric shapes */
+                  !(isMoving || isRotating)
+                    ? HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (
+                      <div
+                        key={h.id}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                          setActiveHandle(h.id);
+                          resizeRef.current = {
+                            startWidth: shape.size,
+                            startHeight: effectiveHeight,
+                            startPosX: shape.x,
+                            startPosY: shape.y,
+                            startMouseX: e.clientX,
+                            startMouseY: e.clientY,
+                            handle: h.id,
+                          };
+                        }}
+                        onPointerMove={(e) => {
+                          const r = resizeRef.current;
+                          if (!r || r.handle !== h.id) return;
+                          e.stopPropagation();
+                          const rawDx = (e.clientX - r.startMouseX) / scale;
+                          const rawDy = (e.clientY - r.startMouseY) / scale;
+                          const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                          const maxBound = Math.max(s.width, s.height, 4000);
+
+                          const showResizeGuides = (nextX: number, nextY: number, w: number, h2: number) => {
+                            onGuides(
+                              calculateAlignmentSnap({
+                                currentId: shape.id,
+                                rawX: nextX,
+                                rawY: nextY,
+                                width: w,
+                                height: h2,
+                                s: sRef.current,
+                                otherElements: getAllCanvasElements(sRef.current),
+                              }).guides,
+                            );
+                          };
+                          if (h.kind === "corner") {
+                            const { width: nextWidth, height: nextHeight } = proportionalCornerSize(
+                              h.id,
+                              dx,
+                              dy,
+                              r.startWidth,
+                              r.startHeight,
+                              10,
+                              maxBound,
+                            );
+                            const appliedDw = nextWidth - r.startWidth;
+                            const appliedDh = nextHeight - r.startHeight;
+                            const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                            const nextX = r.startPosX + (shift.dx / s.width) * 100;
+                            const nextY = r.startPosY + (shift.dy / s.height) * 100;
+                            update(
+                              { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
+                              { continuousKey: `shape-resize-${shape.id}` },
+                            );
+                            showResizeGuides(nextX, nextY, nextWidth, nextHeight);
+                          } else {
+                            const dw = widthDeltaFor(h.id, dx);
+                            const dh = heightDeltaFor(h.id, dy);
+                            const nextWidth = Math.round(Math.max(10, Math.min(maxBound, r.startWidth + dw)));
+                            const nextHeight = Math.round(Math.max(10, Math.min(maxBound, r.startHeight + dh)));
+                            const appliedDw = nextWidth - r.startWidth;
+                            const appliedDh = nextHeight - r.startHeight;
+                            const shift = rotateVector(centerShiftX(h.id, appliedDw), centerShiftY(h.id, appliedDh), rotation);
+                            const nextX = r.startPosX + (shift.dx / s.width) * 100;
+                            const nextY = r.startPosY + (shift.dy / s.height) * 100;
+                            update(
+                              { size: nextWidth, height: nextHeight, x: nextX, y: nextY },
+                              { continuousKey: `shape-resize-${shape.id}` },
+                            );
+                            showResizeGuides(nextX, nextY, nextWidth, nextHeight);
+                          }
+                        }}
+                        onPointerUp={(e) => {
+                          e.stopPropagation();
+                          resizeRef.current = null;
+                          setActiveHandle(null);
+                          onGuides({ vCenter: false, hCenter: false });
+                        }}
+                        onPointerCancel={(e) => {
+                          e.stopPropagation();
+                          resizeRef.current = null;
+                          setActiveHandle(null);
+                          onGuides({ vCenter: false, hCenter: false });
+                        }}
+                        data-nopan=""
+                        className="group"
+                        style={{ ...getHandleStyle(h, scale), pointerEvents: "auto" }}
+                        title="Drag to resize shape"
+                      >
+                        <div
+                          className="pointer-events-none rounded-full bg-white transition-all duration-150 group-hover:scale-125 group-hover:bg-[#0021FF] group-active:scale-135 group-active:bg-[#0021FF] group-active:ring-4 group-active:ring-[#0021FF]/40"
+                          style={getHandleVisualStyle(h, scale)}
+                        />
+                      </div>
+                    ))
+                    : null
+                )}
+
+                {/* Rotate & Move Handle Row */}
+                {activeHandle === null ? (
+                  isLine ? (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        transform: `rotate(${-rotation}deg)`,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: `calc(50% + ${handlesPos.x}px)`,
+                          top: `calc(50% + ${handlesPos.y}px)`,
+                          transform: "translate(-50%, -50%)",
+                          pointerEvents: "auto",
+                          zIndex: 90,
+                        }}
+                      >
+                        <RotateMoveHandleRow
+                          containerRef={containerRef}
+                          scale={scale}
+                          orientation={handlesPos.orientation}
+                          docked={false}
+                          onRotate={(deg) => update({ rotation: deg })}
+                          onGuides={onGuides}
+                          onMovePointerDown={handlePointerDown}
+                          onMovePointerMove={handlePointerMove}
+                          onMovePointerUp={handlePointerUp}
+                          isMoving={isMoving}
+                          onRotatingChange={setIsRotating}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        transform: `rotate(${-rotation}deg)`,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <RotateMoveHandleRow
+                        containerRef={containerRef}
+                        scale={scale}
+                        onRotate={(deg) => update({ rotation: deg })}
+                        onMovePointerDown={handlePointerDown}
+                        onMovePointerMove={handlePointerMove}
+                        onMovePointerUp={handlePointerUp}
+                        isMoving={isMoving}
+                        onRotatingChange={setIsRotating}
+                        elementRotation={rotation}
+                      />
+                    </div>
+                  )
+                ) : null}
               </>
             ) : null}
+          </div>,
+          controlsOverlayEl,
+        )
+        : null}
+
+      {/* Multi-Selection Item Outline (shows individual layer selection bounds during marquee or multi-select) */}
+      {canInteract && selected && selectedCount > 1 && controlsOverlayEl
+        ? createPortal(
+          <div
+            style={{
+              position: "absolute",
+              left: `${shape.x}%`,
+              top: `${shape.y}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
+              height: isLine
+                ? Math.max(16, typeof shape.height === "number" ? shape.height : 24)
+                : (typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
+                  ? effectiveHeight
+                  : 200),
+              zIndex: 80 + index,
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: -3,
+                border: "1.5px solid var(--color-primary, #6366f1)",
+                borderRadius: 4,
+                pointerEvents: "none",
+              }}
+            />
           </div>,
           controlsOverlayEl,
         )

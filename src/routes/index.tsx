@@ -78,6 +78,7 @@ import {
   getImageLayers,
   getShapeLayers,
   getTextLayers,
+  isLineShape,
   migrateLegacyContentToLayers,
   withImageDuplicated,
   withImageRemoved,
@@ -87,13 +88,16 @@ import {
   withImagesLockSet,
   withImagesShifted,
   withImagesUpdated,
+  withMultipleLayersDuplicated,
   withMultipleLayersRemoved,
+  withMultipleLayersRotated,
   withShapeDuplicated,
   withShapeRemoved,
   withShapeUpdated,
   withShapesAligned,
   withShapesLockSet,
   withShapesShifted,
+  withShapesSpacedEvenly,
   withShapesUpdated,
   withTextDuplicated,
   withTextRemoved,
@@ -102,14 +106,18 @@ import {
   withTextsLockSet,
   withMixedLayersAligned,
   withMixedLayersShifted,
+  withMixedLayersSpacedEvenly,
+  withImagesSpacedEvenly,
   withUnifiedLayersReordered,
   getUnifiedLayers,
   getArrangeEligibility,
+  CANVAS_PRESETS,
   type EditorState,
   type ImageLayer,
   type MixedLayerRef,
   type ShapeAlignEdge,
   type ShapeLayer,
+  type SpaceEvenlyDirection,
   type Template,
 } from "@/components/editor/types";
 import {
@@ -687,7 +695,11 @@ function Index() {
   // Same lifted-state reasoning as croppingImageLayer above — see
   // onOpenErase's own comment in ImageSelectionToolbar.tsx.
   const [erasingImageLayer, setErasingImageLayer] = useState<ImageLayer | null>(null);
-  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [newPostConfirmOpen, setNewPostConfirmOpen] = useState(false);
+  const [resetCanvasConfirmOpen, setResetCanvasConfirmOpen] = useState(false);
+  const [saveAndNewPending, setSaveAndNewPending] = useState(false);
+  const [newPostCanvasSize, setNewPostCanvasSize] = useState<{ width: number; height: number }>({ width: 1200, height: 1500 });
+  const [pendingNewPostSize, setPendingNewPostSize] = useState<{ width: number; height: number } | null>(null);
   const [isExportingFinal, setIsExportingFinal] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -914,16 +926,32 @@ function Index() {
 
         const matched: { kind: "image" | "text" | "shape"; id: string }[] = [...initialSelected];
 
-        // Shapes
+        // Shapes & Line Shapes
         for (const sh of getShapeLayers(s)) {
-          const cx = canvasRect.left + (sh.x / 100) * (s.width * scale);
-          const cy = canvasRect.top + (sh.y / 100) * (s.height * scale);
-          const w = (typeof sh.size === "number" && sh.size > 0 ? sh.size : 200) * scale;
-          const h = (typeof sh.height === "number" && sh.height > 0 ? sh.height : w);
-          const left = cx - w / 2;
-          const right = cx + w / 2;
-          const top = cy - h / 2;
-          const bottom = cy + h / 2;
+          const el = stageEl.querySelector(`[data-layer-id="${sh.id}"]`) as HTMLElement | null;
+          let left: number, right: number, top: number, bottom: number;
+          if (el) {
+            const r = el.getBoundingClientRect();
+            left = r.left;
+            right = r.right;
+            top = r.top;
+            bottom = r.bottom;
+          } else {
+            const cx = canvasRect.left + (sh.x / 100) * (s.width * scale);
+            const cy = canvasRect.top + (sh.y / 100) * (s.height * scale);
+            const isLn = isLineShape(sh.kind);
+            const rawW = typeof sh.size === "number" && sh.size > 0 ? sh.size : 200;
+            const rawH = typeof sh.height === "number" && sh.height > 0 ? sh.height : (isLn ? 24 : rawW);
+            const rad = ((sh.rotation || 0) * Math.PI) / 180;
+            const cos = Math.abs(Math.cos(rad));
+            const sin = Math.abs(Math.sin(rad));
+            const boundW = (rawW * cos + rawH * sin) * scale;
+            const boundH = (rawW * sin + rawH * cos) * scale;
+            left = cx - boundW / 2;
+            right = cx + boundW / 2;
+            top = cy - boundH / 2;
+            bottom = cy + boundH / 2;
+          }
 
           if (!(left > marqueeClientRight || right < marqueeClientLeft || top > marqueeClientBottom || bottom < marqueeClientTop)) {
             if (!matched.some((m) => m.kind === "shape" && m.id === sh.id)) {
@@ -934,14 +962,29 @@ function Index() {
 
         // Images
         for (const img of getImageLayers(s)) {
-          const cx = canvasRect.left + (img.x / 100) * (s.width * scale);
-          const cy = canvasRect.top + (img.y / 100) * (s.height * scale);
-          const w = (typeof img.size === "number" && img.size > 0 ? img.size : 200) * scale;
-          const h = (typeof img.height === "number" && img.height > 0 ? img.height : w);
-          const left = cx - w / 2;
-          const right = cx + w / 2;
-          const top = cy - h / 2;
-          const bottom = cy + h / 2;
+          const el = stageEl.querySelector(`[data-layer-id="${img.id}"]`) as HTMLElement | null;
+          let left: number, right: number, top: number, bottom: number;
+          if (el) {
+            const r = el.getBoundingClientRect();
+            left = r.left;
+            right = r.right;
+            top = r.top;
+            bottom = r.bottom;
+          } else {
+            const cx = canvasRect.left + (img.x / 100) * (s.width * scale);
+            const cy = canvasRect.top + (img.y / 100) * (s.height * scale);
+            const rawW = typeof img.size === "number" && img.size > 0 ? img.size : 200;
+            const rawH = typeof img.height === "number" && img.height > 0 ? img.height : rawW;
+            const rad = ((img.rotation || 0) * Math.PI) / 180;
+            const cos = Math.abs(Math.cos(rad));
+            const sin = Math.abs(Math.sin(rad));
+            const boundW = (rawW * cos + rawH * sin) * scale;
+            const boundH = (rawW * sin + rawH * cos) * scale;
+            left = cx - boundW / 2;
+            right = cx + boundW / 2;
+            top = cy - boundH / 2;
+            bottom = cy + boundH / 2;
+          }
 
           if (!(left > marqueeClientRight || right < marqueeClientLeft || top > marqueeClientBottom || bottom < marqueeClientTop)) {
             if (!matched.some((m) => m.kind === "image" && m.id === img.id)) {
@@ -952,16 +995,29 @@ function Index() {
 
         // Texts
         for (const txt of getTextLayers(s)) {
-          const cx = canvasRect.left + (txt.x / 100) * (s.width * scale);
-          const cy = canvasRect.top + (txt.y / 100) * (s.height * scale);
-          const baseW = txt.width && txt.width > 0 ? txt.width : Math.max(120, (txt.text?.length || 10) * (txt.size * 0.55));
-          const baseH = txt.minHeight && txt.minHeight > 0 ? txt.minHeight : txt.size * 1.5;
-          const w = baseW * scale;
-          const h = baseH * scale;
-          const left = cx - w / 2;
-          const right = cx + w / 2;
-          const top = cy - h / 2;
-          const bottom = cy + h / 2;
+          const el = stageEl.querySelector(`[data-layer-id="${txt.id}"]`) as HTMLElement | null;
+          let left: number, right: number, top: number, bottom: number;
+          if (el) {
+            const r = el.getBoundingClientRect();
+            left = r.left;
+            right = r.right;
+            top = r.top;
+            bottom = r.bottom;
+          } else {
+            const cx = canvasRect.left + (txt.x / 100) * (s.width * scale);
+            const cy = canvasRect.top + (txt.y / 100) * (s.height * scale);
+            const baseW = txt.width && txt.width > 0 ? txt.width : Math.max(120, (txt.text?.length || 10) * (txt.size * 0.55));
+            const baseH = txt.minHeight && txt.minHeight > 0 ? txt.minHeight : txt.size * 1.5;
+            const rad = ((txt.rotation || 0) * Math.PI) / 180;
+            const cos = Math.abs(Math.cos(rad));
+            const sin = Math.abs(Math.sin(rad));
+            const boundW = (baseW * cos + baseH * sin) * scale;
+            const boundH = (baseW * sin + baseH * cos) * scale;
+            left = cx - boundW / 2;
+            right = cx + boundW / 2;
+            top = cy - boundH / 2;
+            bottom = cy + boundH / 2;
+          }
 
           if (!(left > marqueeClientRight || right < marqueeClientLeft || top > marqueeClientBottom || bottom < marqueeClientTop)) {
             if (!matched.some((m) => m.kind === "text" && m.id === txt.id)) {
@@ -970,6 +1026,7 @@ function Index() {
           }
         }
 
+        setIsBackgroundSelected(false);
         setCanvasSelection(matched);
       }
     };
@@ -979,6 +1036,9 @@ function Index() {
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
       setStageMarquee(null);
+      if (hasMoved) {
+        setIsBackgroundSelected(false);
+      }
     };
 
     window.addEventListener("pointermove", onPointerMove, { passive: false });
@@ -1283,8 +1343,8 @@ function Index() {
         const timeSinceLast = now - lastCommitTimeRef.current;
         const isContinuous = Boolean(
           opts?.continuousKey &&
-            opts.continuousKey === lastContinuousKeyRef.current &&
-            timeSinceLast < 600,
+          opts.continuousKey === lastContinuousKeyRef.current &&
+          timeSinceLast < 600,
         );
 
         const shouldReplace =
@@ -1396,6 +1456,76 @@ function Index() {
     setPan({ x: 0, y: 0 });
   }, [calculateFitScale]);
 
+  const handleStartNewPost = useCallback((customSize?: { width: number; height: number }) => {
+    clearActiveDraft();
+    setEditingSavedQuoteTarget(null);
+    setEditingTemplateTarget(null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("postinseconds:reset-canvas"));
+    }
+    const targetW = customSize?.width || 1200;
+    const targetH = customSize?.height || 1500;
+    commit((prev) => ({
+      ...INITIAL_STATE,
+      width: targetW,
+      height: targetH,
+      exportFormat: prev.exportFormat,
+      exportScale: prev.exportScale,
+    }));
+    fit();
+    toast.success(`Started a new blank post (${targetW}×${targetH}px)!`);
+  }, [commit, fit]);
+
+  const handleFullReset = useCallback(() => {
+    clearActiveDraft();
+    setEditingSavedQuoteTarget(null);
+    setEditingTemplateTarget(null);
+    setCanvasSelection([]);
+    setIsBackgroundSelected(false);
+    setGuidesH([]);
+    setGuidesV([]);
+    setCroppingImageLayer(null);
+    setErasingImageLayer(null);
+    setShowRulers(false);
+    setShowMargins(false);
+    setTab("templates");
+    setTemplateCategory("starter");
+    setTextSubTab("add");
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("postinseconds:reset-canvas"));
+    }
+
+    const freshDefault: EditorState = {
+      ...INITIAL_STATE,
+      background: "#ffffff",
+      bgImage: null,
+      bgBlur: 0,
+      bgDim: 0,
+      bgImageZoom: 100,
+      bgImagePosX: 50,
+      bgImagePosY: 50,
+      canvasRadius: 0,
+      width: 1200,
+      height: 1500,
+      postName: "Untitled Post",
+      exportFormat: "png",
+      exportScale: 2,
+      shapes: [],
+      texts: [],
+      images: [],
+      layersInitialized: true,
+    };
+
+    setS(freshDefault);
+    history.current = [freshDefault];
+    historyIdx.current = 0;
+    setCanUndo(false);
+    setCanRedo(false);
+    fit();
+    toast.success("Reset all properties to default!");
+  }, [fit]);
+
   useEffect(() => {
     fit();
   }, [fit, s.width, s.height, showRulers]);
@@ -1489,19 +1619,29 @@ function Index() {
     (rawPan: { x: number; y: number }, atScale: number, stageW: number, stageH: number) => {
       if (stageW <= 0 || stageH <= 0) return rawPan;
       const rOffset = showRulers ? RULER_SIZE / 2 : 0;
-      const scrollRangeX = s.width * atScale - stageW;
-      const scrollRangeY = s.height * atScale - stageH;
-      const x =
-        scrollRangeX > 0
-          ? Math.max(-scrollRangeX / 2 - rOffset, Math.min(scrollRangeX / 2 - rOffset, rawPan.x))
-          : 0;
-      const y =
-        scrollRangeY > 0
-          ? Math.max(-scrollRangeY / 2 - rOffset, Math.min(scrollRangeY / 2 - rOffset, rawPan.y))
-          : 0;
+      // Generous margin around canvas edges when zoomed in / panning (Canva & Figma parity),
+      // allowing the user to comfortably view, select, and drag objects near all 4 edges.
+      const marginX = isMobile ? 60 : 220;
+      const marginY = isMobile ? 60 : 180;
+
+      const halfContentW = (s.width * atScale) / 2;
+      const halfContentH = (s.height * atScale) / 2;
+      const halfStageW = stageW / 2;
+      const halfStageH = stageH / 2;
+
+      const maxDeltaX = Math.max(0, halfContentW - halfStageW) + marginX;
+      const maxDeltaY = Math.max(0, halfContentH - halfStageH) + marginY;
+
+      const minX = -maxDeltaX - rOffset;
+      const maxX = maxDeltaX - rOffset;
+      const minY = -maxDeltaY - rOffset;
+      const maxY = maxDeltaY - rOffset;
+
+      const x = Math.max(minX, Math.min(maxX, rawPan.x));
+      const y = Math.max(minY, Math.min(maxY, rawPan.y));
       return { x, y };
     },
-    [s.width, s.height, showRulers],
+    [s.width, s.height, showRulers, isMobile],
   );
 
   // Mobile only: pans (in screen pixels, same 1:1 unit `pan` state already
@@ -2380,6 +2520,14 @@ function Index() {
     },
     [multiSelectedShapeLayers, set],
   );
+  const handleShapeSpaceEvenly = useCallback(
+    (direction: SpaceEvenlyDirection) => {
+      set("shapes", (_, prev) =>
+        withShapesSpacedEvenly(prev, multiSelectedShapeLayers.map((l) => l.id), direction),
+      );
+    },
+    [multiSelectedShapeLayers, set],
+  );
   const handleShapeShiftGroup = useCallback(
     (dxPercent: number, dyPercent: number) => {
       set("shapes", (_, prev) =>
@@ -2429,6 +2577,26 @@ function Index() {
     [canvasSelection, s, set],
   );
 
+  const handleMixedSpaceEvenly = useCallback(
+    (direction: SpaceEvenlyDirection) => {
+      const result = withMixedLayersSpacedEvenly(s, canvasSelection as MixedLayerRef[], direction);
+      set("texts", result.texts);
+      set("images", result.images);
+      set("shapes", result.shapes);
+    },
+    [canvasSelection, s, set],
+  );
+
+  const handleMixedRotate = useCallback(
+    (degDelta: number) => {
+      const result = withMultipleLayersRotated(s, canvasSelection, degDelta, "group");
+      set("texts", result.texts);
+      set("images", result.images);
+      set("shapes", result.shapes);
+    },
+    [canvasSelection, s, set],
+  );
+
   const handleMixedArrange = useCallback(
     (direction: ShapeArrangeDirection) => {
       const ids = canvasSelection.map((l) => l.id);
@@ -2464,6 +2632,14 @@ function Index() {
     (edge: ShapeAlignEdge) => {
       set("images", (_, prev) =>
         withImagesAligned(prev, multiSelectedImageLayers.map((l) => l.id), edge),
+      );
+    },
+    [multiSelectedImageLayers, set],
+  );
+  const handleImageSpaceEvenly = useCallback(
+    (direction: SpaceEvenlyDirection) => {
+      set("images", (_, prev) =>
+        withImagesSpacedEvenly(prev, multiSelectedImageLayers.map((l) => l.id), direction),
       );
     },
     [multiSelectedImageLayers, set],
@@ -2896,6 +3072,7 @@ function Index() {
                   onArrange={handleShapeArrange}
                   canArrange={getArrangeEligibility(unifiedLayers, multiSelectedShapeLayers.map((l) => l.id))}
                   onAlign={handleShapeAlign}
+                  onSpaceEvenly={handleShapeSpaceEvenly}
                   onShiftGroup={handleShapeShiftGroup}
                   onUpdateAll={(patch) =>
                     set("shapes", (_, prev) =>
@@ -2916,6 +3093,19 @@ function Index() {
                       ),
                     );
                   }}
+                  onDuplicateAll={() => {
+                    commit((prev) => {
+                      const result = withMultipleLayersDuplicated(prev, canvasSelection, { x: 3, y: 3 });
+                      setCanvasSelection(result.newSelection.map((item) => ({ kind: item.kind, id: item.id })));
+                      return {
+                        ...prev,
+                        texts: result.texts,
+                        images: result.images,
+                        shapes: result.shapes,
+                        layerOrder: result.layerOrder,
+                      };
+                    });
+                  }}
                   onDeleteAll={() => {
                     commit((prev) => {
                       const result = withMultipleLayersRemoved(prev, canvasSelection);
@@ -2933,6 +3123,7 @@ function Index() {
                   onArrange={handleImageArrange}
                   canArrange={getArrangeEligibility(unifiedLayers, multiSelectedImageLayers.map((l) => l.id))}
                   onAlign={handleImageAlign}
+                  onSpaceEvenly={handleImageSpaceEvenly}
                   onShiftGroup={handleImageShiftGroup}
                   onUpdateAll={(patch) =>
                     set("images", (_, prev) =>
@@ -2953,6 +3144,19 @@ function Index() {
                       ),
                     );
                   }}
+                  onDuplicateAll={() => {
+                    commit((prev) => {
+                      const result = withMultipleLayersDuplicated(prev, canvasSelection, { x: 3, y: 3 });
+                      setCanvasSelection(result.newSelection.map((item) => ({ kind: item.kind, id: item.id })));
+                      return {
+                        ...prev,
+                        texts: result.texts,
+                        images: result.images,
+                        shapes: result.shapes,
+                        layerOrder: result.layerOrder,
+                      };
+                    });
+                  }}
                   onDeleteAll={() => {
                     commit((prev) => {
                       const result = withMultipleLayersRemoved(prev, canvasSelection);
@@ -2970,6 +3174,8 @@ function Index() {
                   canvasWidth={s.width}
                   canvasHeight={s.height}
                   onAlign={handleMixedAlign}
+                  onSpaceEvenly={handleMixedSpaceEvenly}
+                  onRotate={handleMixedRotate}
                   onArrange={handleMixedArrange}
                   canArrange={getArrangeEligibility(unifiedLayers, canvasSelection.map((l) => l.id))}
                   onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
@@ -2991,6 +3197,19 @@ function Index() {
                     if (sel.kind === "image") return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                     return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
                   })}
+                  onDuplicateAll={() => {
+                    commit((prev) => {
+                      const result = withMultipleLayersDuplicated(prev, canvasSelection, { x: 3, y: 3 });
+                      setCanvasSelection(result.newSelection.map((item) => ({ kind: item.kind, id: item.id })));
+                      return {
+                        ...prev,
+                        texts: result.texts,
+                        images: result.images,
+                        shapes: result.shapes,
+                        layerOrder: result.layerOrder,
+                      };
+                    });
+                  }}
                   onDeleteAll={() => {
                     commit((prev) => {
                       const result = withMultipleLayersRemoved(prev, canvasSelection);
@@ -3134,10 +3353,13 @@ function Index() {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* 1. + Icon (New Blank Post Action) */}
-            <AppTooltip content="Clear canvas and start a fresh blank post">
+            <AppTooltip content="Start a fresh blank post with custom size">
               <button
                 type="button"
-                onClick={() => setResetConfirmOpen(true)}
+                onClick={() => {
+                  setNewPostCanvasSize({ width: s.width || 1200, height: s.height || 1500 });
+                  setNewPostConfirmOpen(true);
+                }}
                 className="grid h-8 w-8 place-items-center rounded-full border border-border/80 bg-secondary/40 text-muted-foreground transition-all hover:border-border hover:bg-secondary hover:text-foreground active:scale-95 sm:flex sm:h-auto sm:w-auto sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs sm:font-semibold"
                 title="New Post"
               >
@@ -3639,6 +3861,7 @@ function Index() {
                           onArrange={handleShapeArrange}
                           canArrange={getArrangeEligibility(unifiedLayers, multiSelectedShapeLayers.map((l) => l.id))}
                           onAlign={handleShapeAlign}
+                          onSpaceEvenly={handleShapeSpaceEvenly}
                           onShiftGroup={handleShapeShiftGroup}
                           onUpdateAll={(patch) =>
                             set("shapes", (_, prev) =>
@@ -3678,6 +3901,7 @@ function Index() {
                           onArrange={handleImageArrange}
                           canArrange={getArrangeEligibility(unifiedLayers, multiSelectedImageLayers.map((l) => l.id))}
                           onAlign={handleImageAlign}
+                          onSpaceEvenly={handleImageSpaceEvenly}
                           onShiftGroup={handleImageShiftGroup}
                           onUpdateAll={(patch) =>
                             set("images", (_, prev) =>
@@ -3714,6 +3938,7 @@ function Index() {
                           canvasWidth={s.width}
                           canvasHeight={s.height}
                           onAlign={handleMixedAlign}
+                          onSpaceEvenly={handleMixedSpaceEvenly}
                           onArrange={handleMixedArrange}
                           canArrange={getArrangeEligibility(unifiedLayers, canvasSelection.map((l) => l.id))}
                           onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
@@ -4054,9 +4279,9 @@ function Index() {
                       <Delete02Icon size={13} />
                     </Chip>
                   </AppTooltip>
-                  <AppTooltip content="Clear canvas and start a fresh blank post">
+                  <AppTooltip content="Clear canvas and start from scratch">
                     <Chip
-                      onClick={() => setResetConfirmOpen(true)}
+                      onClick={() => setResetCanvasConfirmOpen(true)}
                       className="flex h-7 items-center gap-1 px-2 py-0 text-xs"
                     >
                       <ReloadIcon size={12} /> Reset
@@ -4198,7 +4423,19 @@ function Index() {
         <GoogleLoginDialog />
         <SaveTemplateDialog
           open={saveTemplateOpen}
-          onClose={() => setSaveTemplateOpen(false)}
+          onClose={() => {
+            setSaveTemplateOpen(false);
+            setSaveAndNewPending(false);
+            setPendingNewPostSize(null);
+          }}
+          onSaved={() => {
+            if (saveAndNewPending) {
+              const targetSize = pendingNewPostSize || newPostCanvasSize;
+              setSaveAndNewPending(false);
+              setPendingNewPostSize(null);
+              handleStartNewPost(targetSize);
+            }
+          }}
           s={s}
         />
         <ExportPreviewDialog
@@ -4237,57 +4474,190 @@ function Index() {
           />
         ) : null}
 
-        {/* Start New Blank Design Confirmation Dialog */}
-        <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
-          <DialogContent className="sm:max-w-[440px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
+        {/* 1. Start New Blank Design Dialog (with Save Prompt & Canvas Size Options) */}
+        <Dialog open={newPostConfirmOpen} onOpenChange={setNewPostConfirmOpen}>
+          <DialogContent className="sm:max-w-[480px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
             <DialogHeader>
               <div className="flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary shadow-sm">
-                  <SparklesIcon size={20} />
+                <img
+                  src="/logo.png"
+                  alt="Post In Seconds"
+                  className="h-10 w-auto shrink-0 object-contain drop-shadow-sm"
+                />
+                <div>
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    Create a New Post
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                    Choose your new canvas size. You can save your current design as a template or start fresh with a blank canvas.
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            {/* Canvas Size Selection for New Post */}
+            <div className="mt-3.5 space-y-3 rounded-xl border border-border/80 bg-secondary/30 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Choose Canvas Size
+                </span>
+                <span className="font-mono text-[11px] font-semibold text-primary">
+                  {newPostCanvasSize.width} × {newPostCanvasSize.height}px
+                </span>
+              </div>
+
+              {/* Presets Grid */}
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+                {CANVAS_PRESETS.map((p) => {
+                  const isSelected =
+                    newPostCanvasSize.width === p.w && newPostCanvasSize.height === p.h;
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      onClick={() => setNewPostCanvasSize({ width: p.w, height: p.h })}
+                      className={cn(
+                        "flex flex-col items-center justify-center rounded-lg border py-2 px-1 text-center transition-all cursor-pointer",
+                        isSelected
+                          ? "border-primary bg-primary text-primary-foreground shadow-sm scale-100 font-bold"
+                          : "border-border/70 bg-card text-foreground hover:border-primary/50 hover:bg-secondary/60 text-xs",
+                      )}
+                    >
+                      <span className="text-xs font-semibold">{p.label}</span>
+                      <span className="text-[9px] opacity-75 font-mono mt-0.5">
+                        {p.w === p.h ? "Square" : p.w < p.h ? "Portrait" : "Landscape"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom Dimensions Input Box */}
+              <div className="pt-2 border-t border-border/60">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    Custom Dimensions
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    Min 200px • Max 6000px
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="relative flex items-center">
+                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">W:</span>
+                    <input
+                      type="number"
+                      min={200}
+                      max={6000}
+                      value={newPostCanvasSize.width || ""}
+                      onChange={(e) => {
+                        const val = Math.max(1, Math.min(8000, Number(e.target.value) || 0));
+                        setNewPostCanvasSize((prev) => ({ ...prev, width: val }));
+                      }}
+                      className="h-8 w-full rounded-lg border border-border/80 bg-background pl-8 pr-7 text-xs font-mono font-medium text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
+                      placeholder="1200"
+                    />
+                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">px</span>
+                  </div>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">H:</span>
+                    <input
+                      type="number"
+                      min={200}
+                      max={6000}
+                      value={newPostCanvasSize.height || ""}
+                      onChange={(e) => {
+                        const val = Math.max(1, Math.min(8000, Number(e.target.value) || 0));
+                        setNewPostCanvasSize((prev) => ({ ...prev, height: val }));
+                      }}
+                      className="h-8 w-full rounded-lg border border-border/80 bg-background pl-8 pr-7 text-xs font-mono font-medium text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
+                      placeholder="1500"
+                    />
+                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">px</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewPostConfirmOpen(false)}
+                  className="rounded-xl border border-border px-3.5 py-2 text-[11px] font-bold uppercase tracking-[1px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground active:scale-95"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewPostConfirmOpen(false);
+                    setPendingNewPostSize(newPostCanvasSize);
+                    setSaveAndNewPending(true);
+                    setSaveTemplateOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-primary-foreground shadow-md transition-all hover:bg-primary/90 active:scale-95"
+                >
+                  <Bookmark01Icon size={14} />
+                  <span>Save & Start New</span>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setNewPostConfirmOpen(false);
+                  handleStartNewPost(newPostCanvasSize);
+                }}
+                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] shadow-md transition-all active:scale-95"
+              >
+                <span>Start Blank</span>
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* 2. Reset Canvas / Start From Scratch Confirmation Dialog */}
+        <Dialog open={resetCanvasConfirmOpen} onOpenChange={setResetCanvasConfirmOpen}>
+          <DialogContent className="sm:max-w-[420px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
+            <DialogHeader>
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive shadow-sm">
+                  <ReloadIcon size={20} />
                 </span>
                 <div>
                   <DialogTitle className="text-base font-bold text-foreground">
-                    Start a new blank design?
+                    Reset everything to default?
                   </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                    Your current work is automatically saved in history.
+                    Are you sure you want to reset?
                   </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
 
             <div className="mt-2 text-xs text-muted-foreground leading-relaxed">
-              This will clear the canvas and reset all layers so you can start a fresh new post from scratch.
+              This will clear all layers and restore all canvas properties, styles, dimensions, and settings back to default, just like a fresh page refresh.
             </div>
 
             <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
               <button
                 type="button"
-                onClick={() => setResetConfirmOpen(false)}
-                className="rounded-xl border border-border px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary active:scale-95"
+                onClick={() => setResetCanvasConfirmOpen(false)}
+                className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground active:scale-95"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setResetConfirmOpen(false);
-                  clearActiveDraft();
-                  setEditingSavedQuoteTarget(null);
-                  setEditingTemplateTarget(null);
-                  commit((prev) => ({
-                    ...INITIAL_STATE,
-                    width: prev.width || 1200,
-                    height: prev.height || 1500,
-                    exportFormat: prev.exportFormat,
-                    exportScale: prev.exportScale,
-                  }));
-                  fit();
+                  setResetCanvasConfirmOpen(false);
+                  handleFullReset();
                 }}
-                className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-md transition-opacity hover:opacity-90 active:scale-95"
+                className="flex items-center gap-1.5 rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground shadow-md transition-all hover:bg-destructive/90 active:scale-95"
               >
-                <Add01Icon size={14} />
-                <span>Start New Post</span>
+                <ReloadIcon size={14} />
+                <span>Reset Everything</span>
               </button>
             </div>
           </DialogContent>

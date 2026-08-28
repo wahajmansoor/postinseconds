@@ -6,6 +6,7 @@ import {
   AlignRightIcon,
   AlignTopIcon,
   AlignVerticalCenterIcon,
+  Copy01Icon,
   Delete02Icon,
   LayerBringForwardIcon,
   LayerBringToFrontIcon,
@@ -17,12 +18,13 @@ import {
   Tick02Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
-import { FONTS, normalizeColorToHex, type ShapeAlignEdge, type TextLayer } from "./types";
+import { FONTS, normalizeColorToHex, type ShapeAlignEdge, type SpaceEvenlyDirection, type TextLayer } from "./types";
 import type { ShapeArrangeDirection } from "./MultiShapeSelectionToolbar";
 import {
   ColorPickerContent,
   DragHandle,
   FloatingDropdown,
+  Range,
   useDraggableOffset,
   useStableAnchor,
 } from "./ui";
@@ -51,11 +53,16 @@ interface MultiMixedSelectionToolbarProps {
   canvasHeight: number;
   /** Align all selected layers against the canvas */
   onAlign: (edge: ShapeAlignEdge) => void;
+  /** Spaces selected layers evenly (vertically, horizontally, or tidy up). */
+  onSpaceEvenly?: (direction: SpaceEvenlyDirection) => void;
+  /** Rotates all selected layers by degree delta */
+  onRotate?: (degDelta: number) => void;
   /** Arrange all selected layers in the z-order */
   onArrange: (direction: ShapeArrangeDirection) => void;
   canArrange?: { canForward: boolean; canBackward: boolean; canFront: boolean; canBack: boolean } | undefined;
   /** Apply a patch to every selected text layer (only fired when allText=true) */
   onUpdateAllTexts?: ((patch: Partial<Omit<TextLayer, "id">>) => void) | undefined;
+  onDuplicateAll?: (() => void) | undefined;
   onDeleteAll?: (() => void) | undefined;
   onToggleLockAll?: (() => void) | undefined;
   allLocked?: boolean | undefined;
@@ -70,9 +77,12 @@ export function MultiMixedSelectionToolbar({
   canvasWidth,
   canvasHeight,
   onAlign,
+  onSpaceEvenly,
+  onRotate,
   onArrange,
   canArrange,
   onUpdateAllTexts,
+  onDuplicateAll,
   onDeleteAll,
   onToggleLockAll,
   allLocked = false,
@@ -80,12 +90,28 @@ export function MultiMixedSelectionToolbar({
   onAnyPopoverOpenChange,
 }: MultiMixedSelectionToolbarProps) {
   // ---- popover open / pin / drag states ----
-  const [alignOpen, setAlignOpen]     = useState(false);
-  const [alignPinned, setAlignPinned] = useState(false);
+  const [alignOpen, setAlignOpen]         = useState(false);
+  const [alignPinned, setAlignPinned]     = useState(false);
   const alignDrag = useDraggableOffset();
   const alignTriggerRef = useRef<HTMLButtonElement>(null);
   const alignAnchor = useStableAnchor(alignOpen, alignTriggerRef);
 
+  // Space Evenly
+  const [spaceEvenlyOpen, setSpaceEvenlyOpen] = useState(false);
+  const [spaceEvenlyPinned, setSpaceEvenlyPinned] = useState(false);
+  const spaceEvenlyDrag = useDraggableOffset();
+  const spaceEvenlyTriggerRef = useRef<HTMLButtonElement>(null);
+  const spaceEvenlyAnchor = useStableAnchor(spaceEvenlyOpen, spaceEvenlyTriggerRef);
+
+  // Rotate
+  const [rotateOpen, setRotateOpen] = useState(false);
+  const [rotatePinned, setRotatePinned] = useState(false);
+  const [rotateAngle, setRotateAngle] = useState(0);
+  const rotateDrag = useDraggableOffset();
+  const rotateTriggerRef = useRef<HTMLButtonElement>(null);
+  const rotateAnchor = useStableAnchor(rotateOpen, rotateTriggerRef);
+
+  // Arrange
   const [arrangeOpen, setArrangeOpen]     = useState(false);
   const [arrangePinned, setArrangePinned] = useState(false);
   const arrangeDrag = useDraggableOffset();
@@ -107,7 +133,7 @@ export function MultiMixedSelectionToolbar({
   const fontTriggerRef = useRef<HTMLButtonElement>(null);
   const fontAnchor = useStableAnchor(fontOpen, fontTriggerRef);
 
-  const anyPopoverOpen = alignOpen || arrangeOpen || colorOpen || fontOpen;
+  const anyPopoverOpen = alignOpen || spaceEvenlyOpen || rotateOpen || arrangeOpen || colorOpen || fontOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -510,9 +536,266 @@ export function MultiMixedSelectionToolbar({
                 </AppTooltip>
               </div>
             </div>
+
+            {/* Space evenly */}
+            {onSpaceEvenly && (
+              <div className="space-y-1.5 border-t border-border/60 pt-2.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Space evenly
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <AppTooltip content="Space vertically">
+                    <button
+                      type="button"
+                      onClick={() => onSpaceEvenly("vertical")}
+                      className="flex h-8 items-center justify-start gap-2 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary active:scale-95"
+                    >
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                        <line x1="4" y1="4" x2="20" y2="4" />
+                        <rect x="7" y="9" width="10" height="6" rx="1" />
+                        <line x1="4" y1="20" x2="20" y2="20" />
+                      </svg>
+                      <span>Vertically</span>
+                    </button>
+                  </AppTooltip>
+                  <AppTooltip content="Space horizontally">
+                    <button
+                      type="button"
+                      onClick={() => onSpaceEvenly("horizontal")}
+                      className="flex h-8 items-center justify-start gap-2 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary active:scale-95"
+                    >
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                        <line x1="4" y1="4" x2="4" y2="20" />
+                        <rect x="9" y="7" width="6" height="10" rx="1" />
+                        <line x1="20" y1="4" x2="20" y2="20" />
+                      </svg>
+                      <span>Horizontally</span>
+                    </button>
+                  </AppTooltip>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <AppTooltip content="Tidy up & distribute evenly in a grid">
+                    <button
+                      type="button"
+                      onClick={() => onSpaceEvenly("tidy")}
+                      className="flex h-8 items-center justify-start gap-2 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary active:scale-95"
+                    >
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                        <line x1="6" y1="5" x2="6" y2="19" />
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="18" y1="5" x2="18" y2="19" />
+                      </svg>
+                      <span>Tidy up</span>
+                    </button>
+                  </AppTooltip>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </FloatingDropdown>
+
+      {/* ──── Dedicated Space Evenly ──── */}
+      {onSpaceEvenly && (
+        <>
+          <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
+          <AppTooltip content="Space selected elements evenly">
+            <button
+              ref={spaceEvenlyTriggerRef}
+              type="button"
+              onClick={() => {
+                setSpaceEvenlyOpen((was) => {
+                  if (!was) { spaceEvenlyDrag.reset(); setSpaceEvenlyPinned(false); }
+                  return !was;
+                });
+              }}
+              className={cn(btnClass, spaceEvenlyOpen && "bg-secondary text-primary")}
+            >
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <line x1="6" y1="5" x2="6" y2="19" />
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="18" y1="5" x2="18" y2="19" />
+              </svg>
+              <span className="text-xs">Space evenly</span>
+            </button>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={spaceEvenlyAnchor}
+            offset={spaceEvenlyDrag.offset}
+            align="center"
+            pinned={spaceEvenlyPinned}
+            onRequestClose={() => setSpaceEvenlyOpen(false)}
+            triggerRef={spaceEvenlyTriggerRef}
+          >
+            <div className="w-56 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl">
+              <DragHandle
+                label="Space Evenly"
+                {...spaceEvenlyDrag.dragHandleProps}
+                pinned={spaceEvenlyPinned}
+                onTogglePin={() => setSpaceEvenlyPinned((p) => !p)}
+                onClose={() => setSpaceEvenlyOpen(false)}
+              />
+              <div className="space-y-2 p-3">
+                <div className="grid grid-cols-2 gap-1.5">
+                  <AppTooltip content="Space vertically with equal gaps">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSpaceEvenly("vertical");
+                        setSpaceEvenlyOpen(false);
+                      }}
+                      className="flex h-9 items-center justify-start gap-2 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary active:scale-95"
+                    >
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                        <line x1="4" y1="4" x2="20" y2="4" />
+                        <rect x="7" y="9" width="10" height="6" rx="1" />
+                        <line x1="4" y1="20" x2="20" y2="20" />
+                      </svg>
+                      <span>Vertically</span>
+                    </button>
+                  </AppTooltip>
+                  <AppTooltip content="Space horizontally with equal gaps">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSpaceEvenly("horizontal");
+                        setSpaceEvenlyOpen(false);
+                      }}
+                      className="flex h-9 items-center justify-start gap-2 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary active:scale-95"
+                    >
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                        <line x1="4" y1="4" x2="4" y2="20" />
+                        <rect x="9" y="7" width="6" height="10" rx="1" />
+                        <line x1="20" y1="4" x2="20" y2="20" />
+                      </svg>
+                      <span>Horizontally</span>
+                    </button>
+                  </AppTooltip>
+                </div>
+                <AppTooltip content="Tidy up & distribute evenly in a clean grid">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSpaceEvenly("tidy");
+                      setSpaceEvenlyOpen(false);
+                    }}
+                    className="flex h-9 w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-secondary/40 px-2.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary active:scale-95"
+                  >
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                      <line x1="6" y1="5" x2="6" y2="19" />
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="18" y1="5" x2="18" y2="19" />
+                    </svg>
+                    <span>Tidy up</span>
+                  </button>
+                </AppTooltip>
+              </div>
+            </div>
+          </FloatingDropdown>
+        </>
+      )}
+
+      {/* ──── Dedicated Rotate ──── */}
+      {onRotate && (
+        <>
+          <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
+          <AppTooltip content="Rotate selected elements">
+            <button
+              ref={rotateTriggerRef}
+              type="button"
+              onClick={() => {
+                setRotateOpen((was) => {
+                  if (!was) { rotateDrag.reset(); setRotatePinned(false); }
+                  return !was;
+                });
+              }}
+              className={cn(btnClass, rotateOpen && "bg-secondary text-primary")}
+            >
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19" />
+              </svg>
+              <span className="text-xs">Rotate</span>
+            </button>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={rotateAnchor}
+            offset={rotateDrag.offset}
+            align="center"
+            pinned={rotatePinned}
+            onRequestClose={() => setRotateOpen(false)}
+            triggerRef={rotateTriggerRef}
+          >
+            <div className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl">
+              <DragHandle
+                label="Rotate — All Selected"
+                {...rotateDrag.dragHandleProps}
+                pinned={rotatePinned}
+                onTogglePin={() => setRotatePinned((p) => !p)}
+                onClose={() => setRotateOpen(false)}
+              />
+              <div className="space-y-3 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Rotate Group</span>
+                  <span className="text-xs font-mono text-muted-foreground">{rotateAngle}°</span>
+                </div>
+                <Range
+                  value={rotateAngle}
+                  min={-180}
+                  max={180}
+                  step={1}
+                  onChange={(deg) => {
+                    const delta = deg - rotateAngle;
+                    setRotateAngle(deg);
+                    onRotate(delta);
+                  }}
+                />
+                <div className="grid grid-cols-4 gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRotate(90);
+                      setRotateAngle((a) => (a + 90) % 360);
+                    }}
+                    className="rounded-lg border border-border/70 bg-secondary/50 py-1 text-center font-mono text-[10px] font-semibold text-muted-foreground transition-colors hover:text-foreground active:scale-95"
+                  >
+                    +90°
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRotate(-90);
+                      setRotateAngle((a) => (a - 90) % 360);
+                    }}
+                    className="rounded-lg border border-border/70 bg-secondary/50 py-1 text-center font-mono text-[10px] font-semibold text-muted-foreground transition-colors hover:text-foreground active:scale-95"
+                  >
+                    -90°
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRotate(180);
+                      setRotateAngle((a) => (a + 180) % 360);
+                    }}
+                    className="rounded-lg border border-border/70 bg-secondary/50 py-1 text-center font-mono text-[10px] font-semibold text-muted-foreground transition-colors hover:text-foreground active:scale-95"
+                  >
+                    +180°
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRotate(45);
+                      setRotateAngle((a) => (a + 45) % 360);
+                    }}
+                    className="rounded-lg border border-border/70 bg-secondary/50 py-1 text-center font-mono text-[10px] font-semibold text-muted-foreground transition-colors hover:text-foreground active:scale-95"
+                  >
+                    +45°
+                  </button>
+                </div>
+              </div>
+            </div>
+          </FloatingDropdown>
+        </>
+      )}
 
       {/* ──── Lock / Delete ──── */}
       {onToggleLockAll && (
@@ -528,6 +811,18 @@ export function MultiMixedSelectionToolbar({
             </button>
           </AppTooltip>
         </>
+      )}
+
+      {onDuplicateAll && (
+        <AppTooltip content="Duplicate all selected layers">
+          <button
+            type="button"
+            onClick={onDuplicateAll}
+            className={cn(btnClass, "px-2 text-muted-foreground hover:text-foreground")}
+          >
+            <Copy01Icon size={15} />
+          </button>
+        </AppTooltip>
       )}
 
       {onDeleteAll && (

@@ -27,8 +27,17 @@ import {
   Tick02Icon,
   Search01Icon,
   Cancel01Icon,
+  ReloadIcon,
 } from "hugeicons-react";
 import { CaseUpper } from "lucide-react";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { fetchSavedQuotes, deleteSavedQuote, updateSavedQuoteDesign, fetchAllTemplates, type DbSavedQuote } from "@/lib/supabase";
@@ -43,6 +52,8 @@ import {
   PREMIUM_TEMPLATES,
   SHADOW_OVERLAY_PRESETS,
   SHAPE_PRESETS,
+  LINE_PRESETS,
+  isLineShape,
   STARTER_TEMPLATES,
   TEMPLATES,
   getImageLayers,
@@ -51,6 +62,7 @@ import {
   getShapeLayers,
   getTextLayers,
   getUnifiedLayers,
+  withMultipleLayersDuplicated,
   withMultipleLayersRemoved,
   withUnifiedLayerReordered,
   sanitizeTextHtml,
@@ -79,7 +91,9 @@ import {
   type ShadowPreset,
   type TextLayer,
   type Template,
+  type ShapeLayer,
 } from "./types";
+import { LineShapeSvg } from "./LineShapeSvg";
 import {
   AreaInput,
   Chip,
@@ -400,8 +414,8 @@ function ShapeGradientControl({
 // then getting silently swapped for whatever's actually published.
 function TemplateCardSkeleton() {
   return (
-    <div className="shrink-0 overflow-hidden rounded-2xl border border-border bg-card" style={{ width: 162 }}>
-      <div className="animate-pulse bg-secondary/70" style={{ width: 162, height: 203 }} />
+    <div className="shrink-0 overflow-hidden rounded-2xl border border-border bg-card" style={{ width: 158 }}>
+      <div className="animate-pulse bg-secondary/70" style={{ width: 158, height: 198 }} />
       <div className="space-y-1.5 px-2.5 py-2">
         <div className="h-2.5 w-3/4 animate-pulse rounded-full bg-secondary/70" />
         <div className="h-2 w-1/2 animate-pulse rounded-full bg-secondary/50" />
@@ -559,12 +573,12 @@ export function LeftPanel({
     return () => window.removeEventListener("postinseconds:template-saved", handleTemplateSaved);
   }, []);
 
-  const handleDeleteSaved = async (id: string, e: React.MouseEvent) => {
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeletingSaved, setIsDeletingSaved] = useState(false);
+
+  const handleDeleteSaved = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Delete this saved template?")) {
-      await deleteSavedQuote(id);
-      await loadSavedQuotes();
-    }
+    setDeleteConfirmId(id);
   };
 
   const [gradStart, setGradStart] = useState("#6366f1");
@@ -572,7 +586,7 @@ export function LeftPanel({
   const [gradMid, setGradMid] = useState("#a855f7");
   const [useMid, setUseMid] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [shadowThemeFilter, setShadowThemeFilter] = useState<"all" | "black" | "white">("all");
+  const [shadowThemeFilter, setShadowThemeFilter] = useState<"black" | "white">("black");
   const [activeCategory, setActiveCategory] = useState<"starter" | "premium" | "saved">(
     templateCategory ?? "starter",
   );
@@ -595,6 +609,20 @@ export function LeftPanel({
     window.addEventListener("postinseconds:open-premium", handleOpenPremium);
     return () => window.removeEventListener("postinseconds:open-premium", handleOpenPremium);
   }, []);
+
+  useEffect(() => {
+    const handleResetCanvas = () => {
+      setGradStart("#6366f1");
+      setGradEnd("#ec4899");
+      setGradMid("#a855f7");
+      setUseMid(false);
+      setGradAngle(135);
+      setGradType("linear");
+    };
+    window.addEventListener("postinseconds:reset-canvas", handleResetCanvas);
+    return () => window.removeEventListener("postinseconds:reset-canvas", handleResetCanvas);
+  }, []);
+
   const [gradAngle, setGradAngle] = useState(135);
   const [gradType, setGradType] = useState<"linear" | "radial">("linear");
   const [savedGradients, setSavedGradients] = useState<string[]>(() => {
@@ -833,19 +861,24 @@ export function LeftPanel({
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="columns-2 gap-3 [column-fill:_balance]">
                 {templatesLoading
-                  ? Array.from({ length: 6 }, (_, i) => <TemplateCardSkeleton key={i} />)
+                  ? Array.from({ length: 6 }, (_, i) => (
+                    <div key={i} className="mb-3 inline-block w-full break-inside-avoid">
+                      <TemplateCardSkeleton />
+                    </div>
+                  ))
                   : filteredStarterTemplates.map((t) => (
-                    <TemplatePreview
-                      key={t.id}
-                      template={t}
-                      width={162}
-                      onClick={() => {
-                        applyTemplate({ ...t.state, postName: t.label });
-                        onItemSelect?.();
-                      }}
-                    />
+                    <div key={t.id} className="mb-3 inline-block w-full break-inside-avoid">
+                      <TemplatePreview
+                        template={t}
+                        width={158}
+                        onClick={() => {
+                          applyTemplate({ ...t.state, postName: t.label });
+                          onItemSelect?.();
+                        }}
+                      />
+                    </div>
                   ))}
               </div>
             )}
@@ -910,17 +943,18 @@ export function LeftPanel({
                 ) : null}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="columns-2 gap-3 [column-fill:_balance]">
                 {filteredPremiumTemplates.map((t) => (
-                  <TemplatePreview
-                    key={t.id}
-                    template={t}
-                    width={162}
-                    onClick={() => {
-                      applyTemplate({ ...t.state, postName: t.label });
-                      onItemSelect?.();
-                    }}
-                  />
+                  <div key={t.id} className="mb-3 inline-block w-full break-inside-avoid">
+                    <TemplatePreview
+                      template={t}
+                      width={158}
+                      onClick={() => {
+                        applyTemplate({ ...t.state, postName: t.label });
+                        onItemSelect?.();
+                      }}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -1042,9 +1076,9 @@ export function LeftPanel({
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="columns-2 gap-3 [column-fill:_balance]">
                 {filteredSavedQuotes.map((q) => (
-                  <div key={q.id} className="group relative">
+                  <div key={q.id} className="group relative mb-3 inline-block w-full break-inside-avoid">
                     <TemplatePreview
                       template={{
                         id: q.id,
@@ -1052,7 +1086,7 @@ export function LeftPanel({
                         description: `Saved ${new Date(q.created_at).toLocaleDateString()}`,
                         state: q.state,
                       }}
-                      width={162}
+                      width={158}
                       onClick={() => {
                         applyTemplate({ ...q.state, postName: q.title });
                         onSelectSavedQuote?.(q);
@@ -1083,6 +1117,68 @@ export function LeftPanel({
           s={s}
           onSaved={() => loadSavedQuotes()}
         />
+
+        {/* Delete Saved Template Confirmation Dialog */}
+        <Dialog open={Boolean(deleteConfirmId)} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+          <DialogContent className="sm:max-w-[420px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
+            <DialogHeader>
+              <div className="flex items-center gap-3">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive shadow-sm">
+                  <Delete02Icon size={20} />
+                </span>
+                <div>
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    Delete saved template?
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                    This action cannot be undone.
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className="mt-2 text-xs text-muted-foreground leading-relaxed">
+              Are you sure you want to permanently delete{" "}
+              <span className="font-semibold text-foreground">
+                "{userSavedQuotes.find((q) => q.id === deleteConfirmId)?.title || "this template"}"
+              </span>{" "}
+              from your saved library?
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-4">
+              <button
+                type="button"
+                disabled={isDeletingSaved}
+                onClick={() => setDeleteConfirmId(null)}
+                className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary active:scale-95 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSaved}
+                onClick={async () => {
+                  if (!deleteConfirmId) return;
+                  setIsDeletingSaved(true);
+                  try {
+                    await deleteSavedQuote(deleteConfirmId);
+                    await loadSavedQuotes();
+                    toast.success("Template deleted");
+                    setDeleteConfirmId(null);
+                  } catch {
+                    toast.error("Failed to delete template");
+                  } finally {
+                    setIsDeletingSaved(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground shadow-md transition-all hover:bg-destructive/90 active:scale-95 disabled:opacity-50"
+              >
+                <Delete02Icon size={14} />
+                <span>{isDeletingSaved ? "Deleting..." : "Delete Template"}</span>
+              </button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </>
     );
   }
@@ -1847,22 +1943,45 @@ export function LeftPanel({
                 </div>
                 <div className="flex items-center gap-1.5">
                   {selection && selection.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const result = withMultipleLayersRemoved(s, selection);
-                        set("texts", result.texts);
-                        set("images", result.images);
-                        set("shapes", result.shapes);
-                        set("layerOrder", result.layerOrder);
-                        onSelectLayer?.({ kind: "text", id: "" }, { selectAll: false, toggle: false });
-                      }}
-                      className="flex items-center gap-1 rounded-lg bg-destructive/15 px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/25"
-                      title="Delete all selected layers"
-                    >
-                      <Delete02Icon size={12} />
-                      Delete ({selection.length})
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const result = withMultipleLayersDuplicated(s, selection, { x: 3, y: 3 });
+                          set("texts", result.texts);
+                          set("images", result.images);
+                          set("shapes", result.shapes);
+                          set("layerOrder", result.layerOrder);
+                          if (result.newSelection.length > 0) {
+                            onSelectLayer?.(
+                              { kind: result.newSelection[0]!.kind, id: result.newSelection[0]!.id },
+                              { selectAll: false, toggle: false },
+                            );
+                          }
+                        }}
+                        className="flex items-center gap-1 rounded-lg bg-primary/15 px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/25"
+                        title="Duplicate all selected layers"
+                      >
+                        <Copy01Icon size={12} />
+                        Duplicate ({selection.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const result = withMultipleLayersRemoved(s, selection);
+                          set("texts", result.texts);
+                          set("images", result.images);
+                          set("shapes", result.shapes);
+                          set("layerOrder", result.layerOrder);
+                          onSelectLayer?.({ kind: "text", id: "" }, { selectAll: false, toggle: false });
+                        }}
+                        className="flex items-center gap-1 rounded-lg bg-destructive/15 px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/25"
+                        title="Delete all selected layers"
+                      >
+                        <Delete02Icon size={12} />
+                        Delete ({selection.length})
+                      </button>
+                    </>
                   ) : null}
                   <button
                     type="button"
@@ -2316,14 +2435,46 @@ export function LeftPanel({
       : null;
 
     const displayedShadows = SHADOW_OVERLAY_PRESETS.filter(
-      (preset) => shadowThemeFilter === "all" || (preset.theme ?? "black") === shadowThemeFilter,
+      (preset) => (preset.theme ?? "black") === shadowThemeFilter,
     );
 
     return (
       <>
         <Panel title="Elements">
           <div className="flex flex-col gap-5">
-            {/* 1. Geometric Shapes */}
+            {/* 1. Lines */}
+            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-secondary/30 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-foreground">Lines</span>
+                <span className="text-[10px] text-muted-foreground">{LINE_PRESETS.length} styles</span>
+              </div>
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                Solid, dashed, arrows, and decorative marker lines for dividers and accents.
+              </p>
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {LINE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => {
+                      const res = withShapeAdded(s, preset.kind, 0);
+                      set("shapes", res.list);
+                      set("layerOrder", res.layerOrder);
+                      if (res.newId) {
+                        onSelectLayer?.({ kind: "shape", id: res.newId });
+                      }
+                      onItemSelect?.();
+                    }}
+                    title={preset.label}
+                    className="flex h-11 items-center justify-center rounded-xl border border-border/80 bg-card/90 px-3 text-foreground shadow-sm transition-all hover:scale-105 hover:border-primary/60 hover:bg-secondary hover:text-primary active:scale-95"
+                  >
+                    <LineShapeSvg kind={preset.kind} strokeWidth={2.5} preserveAspect={true} />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. Geometric Shapes */}
             <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-secondary/30 p-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-foreground">Shapes</span>
@@ -2372,19 +2523,7 @@ export function LeftPanel({
               </p>
 
               {/* Black & White Filter Tabs */}
-              <div className="grid grid-cols-3 gap-1 rounded-xl border border-border/80 bg-background/60 p-1">
-                <button
-                  type="button"
-                  onClick={() => setShadowThemeFilter("all")}
-                  className={cn(
-                    "flex items-center justify-center rounded-lg py-1.5 text-xs font-semibold transition-all",
-                    shadowThemeFilter === "all"
-                      ? "bg-secondary text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  All
-                </button>
+              <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/80 bg-background/60 p-1">
                 <button
                   type="button"
                   onClick={() => setShadowThemeFilter("black")}
@@ -2396,7 +2535,7 @@ export function LeftPanel({
                   )}
                 >
                   <span className="h-2 w-2 rounded-full bg-black ring-1 ring-white/40" />
-                  <span>Black</span>
+                  <span>Black Shadows</span>
                 </button>
                 <button
                   type="button"
@@ -2409,7 +2548,7 @@ export function LeftPanel({
                   )}
                 >
                   <span className="h-2 w-2 rounded-full bg-white ring-1 ring-black/30" />
-                  <span>White</span>
+                  <span>White Highlights</span>
                 </button>
               </div>
 
@@ -2572,15 +2711,15 @@ export function LeftPanel({
                       }}
                       title={preset.description || preset.label}
                       className={cn(
-                        "group relative flex aspect-square w-full overflow-hidden rounded-xl border shadow-sm transition-all hover:scale-105 hover:border-primary hover:shadow-lg active:scale-95",
+                        "group relative flex aspect-square w-full flex-col justify-end overflow-hidden rounded-xl border shadow-xs transition-all hover:scale-105 hover:border-primary hover:shadow-lg active:scale-95",
                         isWhite
-                          ? "border-zinc-800 bg-[#0e0f14]"
-                          : "border-zinc-200 bg-[#ffffff] dark:border-zinc-700/80",
+                          ? "border-zinc-800 bg-[#0c0d12] hover:bg-[#181a20]"
+                          : "border-zinc-300/80 bg-[#ffffff] hover:bg-zinc-50 dark:border-zinc-700/80 dark:bg-zinc-100",
                       )}
                     >
                       {/* Shadow / Glow Overlay */}
                       <div
-                        className="pointer-events-none absolute inset-0 transition-transform group-hover:scale-105"
+                        className="pointer-events-none absolute inset-0 transition-transform duration-200 group-hover:scale-105"
                         style={{
                           background: preset.gradient,
                           opacity: (preset.opacity ?? 90) / 100,
@@ -2590,9 +2729,16 @@ export function LeftPanel({
                       {/* Subtle Inner Glow Ring */}
                       <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/5" />
 
-                      {/* Hover Plus Icon */}
-                      <span className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-                        +
+                      {/* Label on bottom */}
+                      <div className="relative z-10 w-full bg-gradient-to-t from-black/80 via-black/40 to-transparent p-1.5 pt-3 text-left">
+                        <span className="block truncate text-[9px] font-semibold text-white drop-shadow-xs">
+                          {preset.label}
+                        </span>
+                      </div>
+
+                      {/* Pixel-perfect Centered Hover Plus Icon */}
+                      <span className="absolute right-1.5 top-1.5 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                        <Add01Icon size={10} className="shrink-0" />
                       </span>
                     </button>
                   );
@@ -2797,6 +2943,22 @@ export function LeftPanel({
               {gradType === "radial" ? "Radial Gradient" : `${gradAngle}° Linear`}
             </span>
             <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setGradStart("#6366f1");
+                  setGradEnd("#ec4899");
+                  setGradMid("#a855f7");
+                  setUseMid(false);
+                  setGradAngle(135);
+                  setGradType("linear");
+                }}
+                className="flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-md transition-transform hover:scale-105 active:scale-95"
+                title="Reset gradient builder to default"
+              >
+                <ReloadIcon size={11} />
+                <span>Reset</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {

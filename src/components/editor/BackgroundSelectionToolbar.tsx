@@ -1,4 +1,4 @@
-import { ArrowDown01Icon, ArrowLeft01Icon, Image01Icon } from "hugeicons-react";
+import { ArrowDown01Icon, ArrowLeft01Icon, Image01Icon, ReloadIcon } from "hugeicons-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ColorPickerContent } from "@/components/ui/color-picker";
@@ -112,6 +112,20 @@ export function BackgroundSelectionToolbar({
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anyPopoverOpen]);
+
+  useEffect(() => {
+    const handleReset = () => {
+      setGradStart("#6366f1");
+      setGradMid("#8b5cf6");
+      setGradEnd("#ec4899");
+      setUseMid(false);
+      setGradType("linear");
+      setGradAngle(135);
+      setShowCustomGradient(false);
+    };
+    window.addEventListener("postinseconds:reset-canvas", handleReset);
+    return () => window.removeEventListener("postinseconds:reset-canvas", handleReset);
+  }, []);
 
   const rowRef = useRef<HTMLDivElement>(null);
   const lastLiveRectRef = useRef<{ top: number; left: number } | null>(null);
@@ -266,14 +280,32 @@ export function BackgroundSelectionToolbar({
               </div>
             ) : (
               <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCustomGradient(false)}
-                  className="flex items-center gap-1 rounded-lg px-1 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <ArrowLeft01Icon size={14} />
-                  Custom Gradient
-                </button>
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomGradient(false)}
+                    className="flex items-center gap-1 rounded-lg px-1 py-0.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ArrowLeft01Icon size={14} />
+                    Custom Gradient
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGradStart("#6366f1");
+                      setGradMid("#8b5cf6");
+                      setGradEnd("#ec4899");
+                      setUseMid(false);
+                      setGradType("linear");
+                      setGradAngle(135);
+                    }}
+                    className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                    title="Reset custom gradient"
+                  >
+                    <ReloadIcon size={11} />
+                    Reset
+                  </button>
+                </div>
 
                 <div
                   className="relative flex h-20 w-full items-end justify-between rounded-2xl border border-border p-2.5 shadow-inner"

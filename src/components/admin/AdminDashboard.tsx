@@ -54,6 +54,8 @@ export function AdminDashboard() {
   const [editThumbnailUrl, setEditThumbnailUrl] = useState("");
   const [isUploadingThumb, setIsUploadingThumb] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleOpenInEditor = (t: Template) => {
     try {
@@ -150,11 +152,8 @@ export function AdminDashboard() {
     }
   };
 
-  const handleDeleteTemplate = async (id: string) => {
-    if (confirm("Are you sure you want to delete this template?")) {
-      await deleteTemplate(id);
-      await loadData();
-    }
+  const handleDeleteTemplate = (id: string) => {
+    setDeleteConfirmId(id);
   };
 
   const handleToggleRole = async (targetUser: DbProfile) => {
@@ -870,6 +869,64 @@ export function AdminDashboard() {
                 className="flex-1 sm:flex-none rounded-xl bg-primary px-5 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50"
               >
                 {isSaving ? "Saving..." : "Save Template"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <span className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive shadow-sm">
+                <Delete02Icon size={20} />
+              </span>
+              <div>
+                <h3 className="text-base font-bold text-foreground">Delete template?</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
+              Are you sure you want to permanently delete{" "}
+              <span className="font-semibold text-foreground">
+                "{templates.find((t) => t.id === deleteConfirmId)?.label || "this template"}"
+              </span>{" "}
+              from the template catalog?
+            </p>
+
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-border pt-3">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeleteConfirmId(null)}
+                className="rounded-xl border border-border px-3.5 py-2 text-xs font-semibold text-foreground hover:bg-secondary active:scale-95 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={async () => {
+                  if (!deleteConfirmId) return;
+                  setIsDeleting(true);
+                  try {
+                    await deleteTemplate(deleteConfirmId);
+                    await loadData();
+                    toast.success("Template deleted successfully");
+                    setDeleteConfirmId(null);
+                  } catch {
+                    toast.error("Failed to delete template");
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground shadow-md hover:bg-destructive/90 active:scale-95 disabled:opacity-50"
+              >
+                <Delete02Icon size={14} />
+                <span>{isDeleting ? "Deleting..." : "Delete Template"}</span>
               </button>
             </div>
           </div>
