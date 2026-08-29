@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 import { SignupPage } from "@/components/auth/SignupPage";
-import { AuthProvider, useAuth } from "@/lib/auth";
-import { SecurityCheckIcon, SparklesIcon } from "hugeicons-react";
+import { useAuth } from "@/lib/auth";
+import { FullScreenLogoLoader } from "@/components/FullScreenLogoLoader";
+import { SecurityCheckIcon } from "hugeicons-react";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -21,28 +22,37 @@ function AdminPage() {
 function AdminGate() {
   const { user, isAuthenticated, isAdmin, isLoading } = useAuth();
 
+  // Each branch below replaces the previous one outright (React unmounts
+  // one, mounts the other), but fading each incoming view in via
+  // animate-in/fade-in — the same enter-animation utilities used for every
+  // dialog/menu/popover elsewhere in this app — turns what would otherwise
+  // be an instant, jarring pop into a soft 200ms appearance instead.
+  //
+  // isLoading covers the initial session check, login, AND logout (all
+  // three flow through the same AuthProvider flag) — so this one branch is
+  // what shows for all of them. Deliberately the same FullScreenLogoLoader
+  // used for the dark/light toggle and the studio's own auth gate, so
+  // every "please wait a moment" state in the app reads as one consistent
+  // thing instead of several different loading styles.
   if (isLoading) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
-        <div className="flex flex-col items-center gap-4">
-          <span className="grid h-12 w-12 animate-pulse place-items-center rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-xl">
-            <SparklesIcon size={24} className="text-white" />
-          </span>
-          <p className="text-xs font-semibold text-muted-foreground animate-pulse">
-            Verifying Admin Access...
-          </p>
-        </div>
+      <div className="animate-in fade-in duration-200">
+        <FullScreenLogoLoader />
       </div>
     );
   }
 
   if (!isAuthenticated || !user) {
-    return <SignupPage />;
+    return (
+      <div className="animate-in fade-in duration-200">
+        <SignupPage />
+      </div>
+    );
   }
 
   if (!isAdmin) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center bg-background px-4 text-center text-foreground">
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-background px-4 text-center text-foreground animate-in fade-in duration-200">
         <span className="grid h-12 w-12 place-items-center rounded-2xl bg-destructive/10 text-destructive">
           <SecurityCheckIcon size={24} />
         </span>
@@ -60,5 +70,9 @@ function AdminGate() {
     );
   }
 
-  return <AdminDashboard />;
+  return (
+    <div className="animate-in fade-in duration-200">
+      <AdminDashboard />
+    </div>
+  );
 }

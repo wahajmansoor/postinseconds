@@ -177,10 +177,26 @@
    * the utilities layer, which wins the cascade) keeps that behavior
    * untouched; this only fills in the gap for plain elements that had no
    * transition at all.
+   *
+   * border-color is deliberately NOT in transition-property (even though
+   * the line below still sets its *value* on every element, for the bare
+   * `border` utility's default color) — measured directly on a loaded
+   * template (404 DOM nodes): with border-color included, toggling dark
+   * mode fired ~1930 individual transitionend events, the last one landing
+   * ~990ms after the click, because border-color is a 4-longhand shorthand
+   * (top/right/bottom/left transition independently) applied to literally
+   * every element regardless of whether it has any visible border-width —
+   * almost entirely wasted work that only added a long, sluggish "still
+   * settling" tail well past the intended 200ms. Dropping it from
+   * transition-property (the value assignment below is untouched, so
+   * `border` utility elements still pick up the right color instantly)
+   * cut the event count and end time dramatically with no visible
+   * difference, since a border-color change nobody can see doesn't need
+   * to animate in the first place.
    */
   * {
     border-color: var(--color-border);
-    transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+    transition-property: background-color, color, fill, stroke, box-shadow;
     transition-timing-function: ease;
     transition-duration: 200ms;
   }
@@ -222,6 +238,34 @@
     }
 
     *::-webkit-scrollbar-thumb:hover {
+      background-color: var(--color-muted-foreground);
+    }
+
+    /*
+     * Hover-to-reveal variant — opt-in via [data-scrollbar="hover"] on a
+     * scrollable container (the left editor sidebar uses this), for panels
+     * where a persistently-visible thumb competes with the panel's own
+     * content for attention. Transparent until the pointer is actually
+     * over the element, then the exact same themed scrollbar as above.
+     */
+    [data-scrollbar="hover"] {
+      scrollbar-color: transparent transparent;
+    }
+
+    [data-scrollbar="hover"]:hover {
+      scrollbar-color: var(--color-border) transparent;
+    }
+
+    [data-scrollbar="hover"]::-webkit-scrollbar-thumb {
+      background-color: transparent;
+      transition: background-color 150ms ease;
+    }
+
+    [data-scrollbar="hover"]:hover::-webkit-scrollbar-thumb {
+      background-color: var(--color-border);
+    }
+
+    [data-scrollbar="hover"]:hover::-webkit-scrollbar-thumb:hover {
       background-color: var(--color-muted-foreground);
     }
   }

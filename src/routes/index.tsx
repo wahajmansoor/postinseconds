@@ -24,6 +24,7 @@ import {
   Bookmark01Icon,
   CenterFocusIcon,
   CheckmarkCircle02Icon,
+  CleanIcon,
   CloudIcon,
   Delete02Icon,
   Download01Icon,
@@ -43,7 +44,6 @@ import {
   Tick02Icon,
   Undo02Icon,
   SidebarLeftIcon,
-  SidebarRightIcon,
   Layers01Icon as Motion01Icon,
   Edit02Icon,
 } from "hugeicons-react";
@@ -57,7 +57,10 @@ import {
 import { SquareDashed } from "lucide-react";
 import { QuoteCanvas, type TextLayerHandle } from "@/components/editor/QuoteCanvas";
 import { LeftPanel } from "@/components/editor/LeftPanel";
-import { RightPanel } from "@/components/editor/RightPanel";
+import { ExportControls } from "@/components/editor/ExportControls";
+import { NewPostSizePicker } from "@/components/editor/NewPostSizePicker";
+import { CANVAS_PRESET_GROUP_ICONS, CustomSizeIcon } from "@/components/editor/SocialPlatformIcons";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TextSelectionToolbar } from "@/components/editor/TextSelectionToolbar";
 import { BackgroundSelectionToolbar } from "@/components/editor/BackgroundSelectionToolbar";
 import { ImageSelectionToolbar } from "@/components/editor/ImageSelectionToolbar";
@@ -111,7 +114,9 @@ import {
   withUnifiedLayersReordered,
   getUnifiedLayers,
   getArrangeEligibility,
-  CANVAS_PRESETS,
+  findCanvasPresetGroupKey,
+  groupHasExactPreset,
+  resizeEditorStateToNewSize,
   type EditorState,
   type ImageLayer,
   type MixedLayerRef,
@@ -129,7 +134,9 @@ import {
   Range,
 } from "@/components/editor/ui";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { FullScreenLogoLoader } from "@/components/FullScreenLogoLoader";
 import { ExportPreviewDialog } from "@/components/editor/ExportPreviewDialog";
+import { PostPreviewDialog } from "@/components/editor/PostPreviewDialog";
 import { Rulers, RULER_SIZE } from "@/components/editor/Rulers";
 import { useAuth } from "@/lib/auth";
 import { UserMenu } from "@/components/auth/UserMenu";
@@ -167,24 +174,41 @@ export const Route = createFileRoute("/")({
 function StudioGate() {
   const { user, isAuthenticated, isLoading } = useAuth();
 
+  // Each branch below replaces the previous one outright (React unmounts
+  // one, mounts the other — there's no way to crossfade the outgoing view
+  // against the incoming one without keeping both mounted at once), but
+  // fading each incoming view in via animate-in/fade-in — the same
+  // enter-animation utilities used for every dialog/menu/popover elsewhere
+  // in this app — turns what would otherwise be an instant, jarring pop
+  // into a soft 200ms appearance instead.
+  //
+  // isLoading covers the initial session check, login, AND logout (all
+  // three flow through the same AuthProvider flag) — so this one branch is
+  // what shows for all of them. Deliberately the same FullScreenLogoLoader
+  // used for the dark/light toggle rather than a separate skeleton
+  // treatment, so every "please wait a moment" state in the app reads as
+  // one consistent thing instead of several different loading styles.
   if (isLoading) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
-        <div className="flex flex-col items-center gap-4">
-          <img src="/logo.png" alt="Post In Seconds" className="h-14 w-auto animate-pulse" />
-          <p className="text-xs font-semibold text-muted-foreground animate-pulse">
-            Connecting to Studio Editor...
-          </p>
-        </div>
+      <div className="animate-in fade-in duration-200">
+        <FullScreenLogoLoader />
       </div>
     );
   }
 
   if (!isAuthenticated || !user) {
-    return <SignupPage />;
+    return (
+      <div className="animate-in fade-in duration-200">
+        <SignupPage />
+      </div>
+    );
   }
 
-  return <Index />;
+  return (
+    <div className="animate-in fade-in duration-200">
+      <Index />
+    </div>
+  );
 }
 
 function ZoomInput({ scale, onChange }: { scale: number; onChange: (valPercent: number) => void }) {
@@ -499,13 +523,12 @@ function DraggableFloatingLayersButton({
           ref={btnRef}
           type="button"
           onPointerDown={startDrag}
-          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${
-            isDragging
+          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${isDragging
               ? "scale-110 border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)]"
               : active
                 ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)] hover:scale-105"
                 : "border-border/80 bg-card/95 text-foreground shadow-xl hover:border-primary/60 hover:bg-card hover:shadow-2xl hover:scale-105"
-          }`}
+            }`}
           style={{ cursor: isDragging ? "grabbing" : "grab" }}
         >
           <Motion01Icon
@@ -518,11 +541,10 @@ function DraggableFloatingLayersButton({
           />
           {layerCount > 0 ? (
             <span
-              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${
-                active || isDragging
+              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${active || isDragging
                   ? "bg-background text-foreground border border-border"
                   : "bg-primary text-primary-foreground"
-              }`}
+                }`}
             >
               {layerCount}
             </span>
@@ -599,7 +621,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch {}
+    } catch { }
     toast.success(`Image saved successfully to your Gallery/Documents!`, {
       position: "bottom-center",
     });
@@ -618,7 +640,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch {}
+    } catch { }
     toast.success(`Image saved successfully to your Gallery / Downloads!`, {
       position: "bottom-center",
     });
@@ -637,7 +659,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch {}
+    } catch { }
     toast.success(`Downloaded ${filename}!`, { position: "bottom-center" });
   } catch (cacheErr) {
     console.error("Native write failed:", cacheErr);
@@ -663,12 +685,54 @@ function Index() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [busy, setBusy] = useState(false);
   const [dark, setDark] = useState(true);
+  // Full-screen logo overlay shown for the brief moment the dark/light
+  // class flip and its cascade of CSS transitions are actually happening
+  // underneath — see toggleTheme below for why this replaces trying to
+  // make every individual element's own transition perfectly in sync.
+  const [isThemeSwitching, setIsThemeSwitching] = useState(false);
+
+  // With hundreds of DOM nodes each carrying their own transition (some
+  // via the shared base-layer rule, many more via individual Tailwind
+  // `transition-all`/`transition-colors` classes on buttons/inputs
+  // app-wide), toggling .dark fans out into a large, hard-to-fully-tame
+  // number of independent CSS transitions finishing at slightly different
+  // times — measured directly at up to ~900ms of trailing settle on a
+  // normal template. Rather than chase down every element's own
+  // transition utility, this hides the whole restyle behind an opaque
+  // full-screen logo overlay: fade the overlay in, flip the theme while
+  // it's fully covering the screen (so the mismatched/staggered restyle
+  // never has a visible moment), then fade the overlay back out once it's
+  // had time to settle. The double requestAnimationFrame ensures the
+  // overlay has actually been *painted* (not just scheduled) before the
+  // theme flip underneath it happens — flipping in the same frame the
+  // overlay's own fade-in starts risks painting both at once.
+  const toggleTheme = () => {
+    setIsThemeSwitching(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setDark((d) => !d);
+        // Held long enough to read as a deliberate, smooth loading moment
+        // rather than a flash quick enough to still catch an inconsistent
+        // in-between frame — plus the overlay's own 300ms fade-out on top
+        // of this before it's actually gone.
+        setTimeout(() => setIsThemeSwitching(false), 450);
+      });
+    });
+  };
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // The interactive "Preview on LinkedIn" post-card mockup — separate from
+  // the plain previewOpen/previewUrl pair above (that one's just the raw
+  // rendered image before download).
+  const [postPreviewOpen, setPostPreviewOpen] = useState(false);
+  const [postPreviewUrl, setPostPreviewUrl] = useState<string | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
-  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(true);
+  // Desktop Export dropdown's own open state — replaced the old persistent
+  // right-hand panel (rightPanelCollapsed) entirely; mobile still uses the
+  // separate mobileExportDrawerOpen bottom sheet below.
+  const [exportPopoverOpen, setExportPopoverOpen] = useState(false);
   const isMobile = useIsMobile();
   const [mobileToolDrawerOpen, setMobileToolDrawerOpen] = useState(false);
   const [mobileToolDrawerSnap, setMobileToolDrawerSnap] = useState<number | string | null>(
@@ -699,6 +763,28 @@ function Index() {
     width: number;
     height: number;
   } | null>(null);
+  // Which platform group the target size for "Save & Start New" came from
+  // (mirrors pendingNewPostSize — see its own onClick for why this needs to
+  // survive the Save Template detour rather than living on explicitPlatformKey
+  // the whole time).
+  const [pendingPlatformKey, setPendingPlatformKey] = useState<string | null>(null);
+  // Which platform's preset the canvas was EXPLICITLY set to via the New
+  // Post dialog, if any — this is what the header's canvas-size chip shows
+  // an icon for, taking priority over findCanvasPresetGroupKey's ambiguous
+  // first-match search (several presets across platforms share identical
+  // pixel sizes — see groupHasExactPreset's comment in types.ts) as long as
+  // it's still consistent with the current canvas size; anything else that
+  // changes the canvas size (a template, a saved design, undo/redo)
+  // naturally falls back to the plain dimension lookup instead once this
+  // stops matching.
+  const [explicitPlatformKey, setExplicitPlatformKey] = useState<string | null>(null);
+  // The canvas's own width/height AND platform key the instant the New Post
+  // dialog opened — captured so a live preset click can preview its size
+  // directly on the real canvas (see previewNewPostSize below) while still
+  // being able to put both back exactly if the user backs out without
+  // starting new.
+  const preNewPostCanvasSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const preNewPostPlatformKeyRef = useRef<string | null>(null);
   const [isExportingFinal, setIsExportingFinal] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -1094,7 +1180,7 @@ function Index() {
       if (list && list.length > 0) {
         setPlatformTemplates(list);
       }
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
@@ -1480,7 +1566,7 @@ function Index() {
   }, [calculateFitScale]);
 
   const handleStartNewPost = useCallback(
-    (customSize?: { width: number; height: number }) => {
+    (customSize?: { width: number; height: number }, targetPlatformKey: string | null = null) => {
       clearActiveDraft();
       setEditingSavedQuoteTarget(null);
       setEditingTemplateTarget(null);
@@ -1496,11 +1582,76 @@ function Index() {
         exportFormat: prev.exportFormat,
         exportScale: prev.exportScale,
       }));
+      setExplicitPlatformKey(targetPlatformKey);
       fit();
       toast.success(`Started a new blank post (${targetW}×${targetH}px)!`);
     },
     [commit, fit],
   );
+
+  // The New Post dialog's "Resize Current Layout" action — unlike Start
+  // Blank/Save & Start New, this keeps every existing layer instead of
+  // discarding them: resizeEditorStateToNewSize scales each layer's own
+  // pixel-based size fields to fit the new canvas (positions are already
+  // canvas-% so they carry over for free — see its own comment in types.ts
+  // for the full reasoning).
+  const handleResizeCurrentLayout = useCallback(
+    (customSize?: { width: number; height: number }, targetPlatformKey: string | null = null) => {
+      const targetW = customSize?.width || 1200;
+      const targetH = customSize?.height || 1500;
+      // The dialog's own live preset preview (previewNewPostSize) already
+      // wrote the candidate width/height straight onto the real canvas
+      // while browsing — cheaply, without touching any layer's size — so
+      // by the time this runs, prev.width/height already equal targetW/H
+      // and can't be used as the "before" size to scale from. Reconstruct
+      // the TRUE pre-dialog size from preNewPostCanvasSizeRef instead
+      // (captured the instant the dialog opened — see openNewPostDialog).
+      const original = preNewPostCanvasSizeRef.current;
+      commit((prev) => {
+        const base = original ? { ...prev, width: original.width, height: original.height } : prev;
+        return resizeEditorStateToNewSize(base, targetW, targetH);
+      });
+      setExplicitPlatformKey(targetPlatformKey);
+      setCanvasSelection([]);
+      setIsBackgroundSelected(false);
+      fit();
+      toast.success(`Resized your design to ${targetW}×${targetH}px!`);
+    },
+    [commit, fit],
+  );
+
+  // Applies a candidate size directly to the real canvas the moment a
+  // preset is clicked in the New Post dialog — so its shape/size updates
+  // live behind the dialog instead of only after "Start Blank" is
+  // confirmed. Deliberately a raw setS, not commit()/set(): this is just
+  // browsing, not a real edit, so it shouldn't create undo/redo history —
+  // revertNewPostSizePreview below restores the exact pre-dialog size if
+  // the user backs out, and handleStartNewPost's own commit() fully
+  // supersedes it if they confirm instead.
+  const previewNewPostSize = useCallback((size: { width: number; height: number }, groupKey: string | null) => {
+    setNewPostCanvasSize(size);
+    setExplicitPlatformKey(groupKey);
+    setS((prev) => ({ ...prev, width: size.width, height: size.height }));
+  }, []);
+
+  const revertNewPostSizePreview = useCallback(() => {
+    const original = preNewPostCanvasSizeRef.current;
+    if (original) {
+      setS((prev) => ({ ...prev, width: original.width, height: original.height }));
+    }
+    setExplicitPlatformKey(preNewPostPlatformKeyRef.current);
+    preNewPostCanvasSizeRef.current = null;
+    preNewPostPlatformKeyRef.current = null;
+  }, []);
+
+  // Cancel, the dialog's own X, Escape, and outside-click all funnel through
+  // this (see the Dialog's onOpenChange below) so none of them can leave the
+  // live size preview applied to the real canvas without actually starting
+  // a new post.
+  const closeNewPostDialogWithoutStarting = useCallback(() => {
+    setNewPostConfirmOpen(false);
+    revertNewPostSizePreview();
+  }, [revertNewPostSizePreview]);
 
   const handleFullReset = useCallback(() => {
     clearActiveDraft();
@@ -1658,8 +1809,15 @@ function Index() {
       const halfStageW = stageW / 2;
       const halfStageH = stageH / 2;
 
-      const maxDeltaX = Math.max(0, halfContentW - halfStageW) + marginX;
-      const maxDeltaY = Math.max(0, halfContentH - halfStageH) + marginY;
+      // The margin is only meaningful once the canvas actually overflows the
+      // stage (i.e. genuinely zoomed in) — applying it unconditionally used
+      // to let the canvas pan by up to marginX/marginY even at the default
+      // fit-to-container zoom, where content already fits entirely on
+      // screen and there's nothing to scroll to.
+      const overflowX = Math.max(0, halfContentW - halfStageW);
+      const overflowY = Math.max(0, halfContentH - halfStageH);
+      const maxDeltaX = overflowX > 0 ? overflowX + marginX : 0;
+      const maxDeltaY = overflowY > 0 ? overflowY + marginY : 0;
 
       const minX = -maxDeltaX - rOffset;
       const maxX = maxDeltaX - rOffset;
@@ -1827,6 +1985,14 @@ function Index() {
   // that can desync from a debounce mid-gesture.
   const applyZoom = useCallback(
     (nextScaleRaw: number, focalClientX?: number, focalClientY?: number) => {
+      // "Lock canvas" freezes the view along with every layer — buttons,
+      // scroll-wheel/trackpad pinch, the zoom slider, and the typed-%
+      // input all funnel through here, so gating it once covers all of
+      // them. Deliberately NOT applied to fit() below — that recomputes
+      // the fit-to-screen scale automatically (e.g. on load/resize), not a
+      // manual zoom action, and blocking it too would leave a locked
+      // canvas stuck at a stale scale after a viewport resize.
+      if (s.locked) return;
       const stageEl = stageRef.current;
       if (!stageEl) return;
       const prevScale = scaleRef.current;
@@ -1849,7 +2015,7 @@ function Index() {
       setPan(clampPan(nextPan, nextScale, stageW, stageH));
       setScale(nextScale);
     },
-    [canvasOrigin, panForFocal, clampPan],
+    [canvasOrigin, panForFocal, clampPan, s.locked],
   );
 
   const zoomAt = useCallback(
@@ -2107,8 +2273,17 @@ function Index() {
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         if (!t1 || !t2) return;
+        // Still prevented/stopped even while locked — otherwise disabling
+        // just OUR pinch handling here would hand the gesture to the
+        // browser's own native page-pinch-zoom instead of doing nothing,
+        // which would be a worse outcome than either zooming the canvas or
+        // not zooming at all. "Lock canvas" blocks pinch-zoom specifically
+        // (see applyZoom's own comment); left scoped to just this branch,
+        // not the whole handler, so single-finger panning the viewport
+        // still works while locked.
         e.preventDefault();
         e.stopPropagation();
+        if (s.locked) return;
         const currentDist = getTouchDist(t1, t2);
         if (currentDist > 0 && initialPinchDist > 0) {
           const ratio = currentDist / initialPinchDist;
@@ -2203,7 +2378,7 @@ function Index() {
       el.removeEventListener("touchcancel", onTouchEnd);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [isMobile, canvasOrigin, panForFocal, clampPan]);
+  }, [isMobile, canvasOrigin, panForFocal, clampPan, s.locked]);
 
   // Templates and saved quotes (loaded the same way — see LeftPanel's
   // "My saved" tab) both come through here, so this is also the one place
@@ -2269,7 +2444,7 @@ function Index() {
           });
         }
       }
-    } catch {}
+    } catch { }
   }, [applyTemplate]);
 
   const handleQuickSaveTemplate = async () => {
@@ -2357,6 +2532,29 @@ function Index() {
       // Instant 1x preview render
       const url = await renderExport(1);
       setPreviewUrl(url);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Same instant 1x render as openExportPreview above, just handed to the
+  // interactive post-card mockup instead of the plain image dialog.
+  const openPostPreview = async () => {
+    if (!canvasRef.current || busy) return;
+    setCanvasSelection([]);
+    setIsBackgroundSelected(false);
+    (document.activeElement as HTMLElement | null)?.blur();
+    window.getSelection()?.removeAllRanges();
+
+    setPostPreviewUrl(null);
+    setPostPreviewOpen(true);
+    setBusy(true);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    try {
+      const url = await renderExport(1);
+      setPostPreviewUrl(url);
     } finally {
       setBusy(false);
     }
@@ -2504,7 +2702,7 @@ function Index() {
         ),
       updateLayer: (patch) =>
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, patch)),
-      snapshotSelection: () => {},
+      snapshotSelection: () => { },
       getActiveFormat: () => ({
         bold: selectedTextLayer.weight >= 700,
         italic: !!selectedTextLayer.italic,
@@ -2524,9 +2722,9 @@ function Index() {
           bulletList: false,
           numberedList: false,
         });
-        return () => {};
+        return () => { };
       },
-      startEditing: () => {},
+      startEditing: () => { },
     };
   }, [selectedTextLayer, s, set]);
 
@@ -2549,8 +2747,8 @@ function Index() {
   const multiSelectedShapeLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "shape")
       ? (canvasSelection
-          .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
-          .filter(Boolean) as ShapeLayer[])
+        .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
+        .filter(Boolean) as ShapeLayer[])
       : [];
   const isMultiShapeSelection = multiSelectedShapeLayers.length > 1;
 
@@ -2622,8 +2820,8 @@ function Index() {
   const multiSelectedImageLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "image")
       ? (canvasSelection
-          .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
-          .filter(Boolean) as ImageLayer[])
+        .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
+        .filter(Boolean) as ImageLayer[])
       : [];
   const isMultiImageSelection = multiSelectedImageLayers.length > 1;
 
@@ -2638,9 +2836,9 @@ function Index() {
   // Text layers that are part of a mixed multi-selection
   const mixedSelectedTextLayers = isMixedMultiSelection
     ? (canvasSelection
-        .filter((sel) => sel.kind === "text")
-        .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
-        .filter(Boolean) as import("@/components/editor/types").TextLayer[])
+      .filter((sel) => sel.kind === "text")
+      .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
+      .filter(Boolean) as import("@/components/editor/types").TextLayer[])
     : [];
   const mixedAllText = isMixedMultiSelection && canvasSelection.every((sel) => sel.kind === "text");
 
@@ -3049,10 +3247,10 @@ function Index() {
       >
         {/* Marquee Selection Rectangle (Canva style) */}
         {stageMarquee &&
-        Math.hypot(
-          stageMarquee.currentX - stageMarquee.startX,
-          stageMarquee.currentY - stageMarquee.startY,
-        ) > 4 ? (
+          Math.hypot(
+            stageMarquee.currentX - stageMarquee.startX,
+            stageMarquee.currentY - stageMarquee.startY,
+          ) > 4 ? (
           <div
             style={{
               position: "absolute",
@@ -3084,16 +3282,16 @@ function Index() {
             what lets that popover's own state survive the transition
             instead of resetting. */}
         {!isMobile &&
-        !stageMarquee &&
-        (canvasSelection.length === 1 ||
-          isMultiShapeSelection ||
-          isMultiImageSelection ||
-          isMixedMultiSelection ||
-          isBackgroundSelected ||
-          textDetached ||
-          imageDetached ||
-          shapeDetached ||
-          backgroundDetached) ? (
+          !stageMarquee &&
+          (canvasSelection.length === 1 ||
+            isMultiShapeSelection ||
+            isMultiImageSelection ||
+            isMixedMultiSelection ||
+            isBackgroundSelected ||
+            textDetached ||
+            imageDetached ||
+            shapeDetached ||
+            backgroundDetached) ? (
           <div
             className="pointer-events-none z-40 flex justify-center overflow-visible sticky h-0 w-full transition-[top] duration-150"
             style={{
@@ -3108,7 +3306,7 @@ function Index() {
               className="pointer-events-auto relative"
             >
               {(selectedTextLayer && selectedTextLayerHandle) ||
-              (textDetached && pinnedTextLayer && pinnedTextLayerHandle) ? (
+                (textDetached && pinnedTextLayer && pinnedTextLayerHandle) ? (
                 <TextSelectionToolbar
                   layer={(selectedTextLayer ?? pinnedTextLayer)!}
                   handle={(selectedTextLayerHandle ?? pinnedTextLayerHandle)!}
@@ -3528,6 +3726,29 @@ function Index() {
     </div>
   );
 
+  // Which platform (if any) the CURRENT canvas size matches — drives the
+  // little icon shown on the canvas-size chip below, so it reflects what
+  // you're actually working in right now rather than always a generic icon.
+  // explicitPlatformKey (the platform you actually clicked in the New Post
+  // dialog) wins ties over the plain dimension lookup, as long as it's
+  // still consistent with the current size — see its own declaration and
+  // groupHasExactPreset's comment in types.ts for why that matters.
+  const matchedPlatformKey =
+    explicitPlatformKey && groupHasExactPreset(explicitPlatformKey, s.width, s.height)
+      ? explicitPlatformKey
+      : findCanvasPresetGroupKey(s.width, s.height);
+  const MatchedPlatformIcon = matchedPlatformKey ? CANVAS_PRESET_GROUP_ICONS[matchedPlatformKey] : null;
+
+  // Shared by both the round "+" trigger and the canvas-size chip next to
+  // it — either one opens the same New Post dialog.
+  const openNewPostDialog = () => {
+    const current = { width: s.width || 1200, height: s.height || 1500 };
+    preNewPostCanvasSizeRef.current = current;
+    preNewPostPlatformKeyRef.current = matchedPlatformKey;
+    setNewPostCanvasSize(current);
+    setNewPostConfirmOpen(true);
+  };
+
   return (
     <TooltipProvider delayDuration={120}>
       <div className="flex h-screen h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground">
@@ -3544,19 +3765,39 @@ function Index() {
             />
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* 1. + Icon (New Blank Post Action) */}
+            {/* 1a. New Blank Post Action — plain round gradient trigger,
+                always visible. 1b. Canvas size chip — a separate,
+                border-only (no fill) pill next to it showing the CURRENT
+                canvas's dimensions and, if the size matches a known
+                platform preset (see matchedPlatformKey above), that
+                platform's own icon instead of a generic one. Desktop only —
+                mobile keeps just the round trigger, same as before. Both
+                open the same New Post dialog. */}
             <AppTooltip content="Start a fresh blank post with custom size">
               <button
                 type="button"
-                onClick={() => {
-                  setNewPostCanvasSize({ width: s.width || 1200, height: s.height || 1500 });
-                  setNewPostConfirmOpen(true);
-                }}
-                className="grid h-8 w-8 place-items-center rounded-full border border-border/80 bg-secondary/40 text-muted-foreground transition-all hover:border-border hover:bg-secondary hover:text-foreground active:scale-95 sm:flex sm:h-auto sm:w-auto sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs sm:font-semibold"
+                onClick={openNewPostDialog}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[image:var(--gradient-brand)] text-primary-foreground shadow-[var(--shadow-glow)] transition-all hover:opacity-90 active:scale-95"
                 title="New Post"
               >
-                <Add01Icon size={15} />
-                <span className="hidden sm:inline">New Post</span>
+                <Add01Icon size={16} />
+              </button>
+            </AppTooltip>
+            <AppTooltip content="Current canvas size > tap to change">
+              <button
+                type="button"
+                onClick={openNewPostDialog}
+                className="hidden shrink-0 items-center gap-2 rounded-full border border-border/80 bg-transparent px-3 py-1 text-foreground transition-colors hover:border-border hover:bg-secondary/40 active:scale-95 sm:flex"
+                title="Canvas size"
+              >
+                {MatchedPlatformIcon ? (
+                  <MatchedPlatformIcon size={26} />
+                ) : (
+                  <CustomSizeIcon size={18} className="text-muted-foreground" />
+                )}
+                <span className="font-mono text-xs font-bold">
+                  {s.width} x {s.height} px
+                </span>
               </button>
             </AppTooltip>
 
@@ -3573,11 +3814,10 @@ function Index() {
                   type="button"
                   onClick={handleQuickSaveTemplate}
                   disabled={isSavingTemplate}
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${
-                    saveSuccess
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${saveSuccess
                       ? "bg-emerald-500 text-white"
                       : "bg-primary text-primary-foreground hover:bg-primary/90"
-                  }`}
+                    }`}
                   title="Save changes to template"
                 >
                   <Bookmark01Icon size={13} />
@@ -3642,18 +3882,41 @@ function Index() {
                       setLeftPanelCollapsed(false);
                       window.dispatchEvent(new CustomEvent("postinseconds:open-premium"));
                     }}
-                    style={{
-                      background: dark
-                        ? "linear-gradient(#121213,#121213) padding-box, linear-gradient(180deg, #121213 50%, rgba(18,18,19,0.6) 80%, rgba(18,18,19,0)) border-box, linear-gradient(90deg, hsl(0,100%,63%), hsl(90,100%,63%), hsl(210,100%,63%), hsl(195,100%,63%), hsl(270,100%,63%)) border-box"
-                        : "linear-gradient(#ffffff,#ffffff) padding-box, linear-gradient(180deg, #ffffff 50%, rgba(255,255,255,0.6) 80%, rgba(255,255,255,0)) border-box, linear-gradient(90deg, hsl(0,100%,63%), hsl(90,100%,63%), hsl(210,100%,63%), hsl(195,100%,63%), hsl(270,100%,63%)) border-box",
-                      border: "1.5px solid transparent",
-                    }}
-                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${
-                      dark ? "text-white" : "text-zinc-900"
-                    }`}
+                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${dark ? "text-white" : "text-zinc-900"
+                      }`}
                   >
-                    <span className="tracking-tight">Premium Templates</span>
-                    <div className="flex items-center gap-1">
+                    {/* Two stacked light/dark background+border layers,
+                        crossfaded via opacity instead of animating the
+                        `background` gradient directly — gradients can't be
+                        smoothly interpolated across browsers (same reason
+                        the canvas stage backdrop uses
+                        --gradient-stage-light/dark as two static layers
+                        rather than transitioning --gradient-stage itself),
+                        so the previous dark ? lightGradient : darkGradient
+                        swap here always hard-snapped instead of
+                        transitioning despite "transition-all" being set. */}
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-full transition-opacity duration-200"
+                      style={{
+                        background:
+                          "linear-gradient(#ffffff,#ffffff) padding-box, linear-gradient(180deg, #ffffff 50%, rgba(255,255,255,0.6) 80%, rgba(255,255,255,0)) border-box, linear-gradient(90deg, hsl(0,100%,63%), hsl(90,100%,63%), hsl(210,100%,63%), hsl(195,100%,63%), hsl(270,100%,63%)) border-box",
+                        border: "1.5px solid transparent",
+                        opacity: dark ? 0 : 1,
+                      }}
+                    />
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-full transition-opacity duration-200"
+                      style={{
+                        background:
+                          "linear-gradient(#121213,#121213) padding-box, linear-gradient(180deg, #121213 50%, rgba(18,18,19,0.6) 80%, rgba(18,18,19,0)) border-box, linear-gradient(90deg, hsl(0,100%,63%), hsl(90,100%,63%), hsl(210,100%,63%), hsl(195,100%,63%), hsl(270,100%,63%)) border-box",
+                        border: "1.5px solid transparent",
+                        opacity: dark ? 1 : 0,
+                      }}
+                    />
+                    <span className="relative tracking-tight">Premium Templates</span>
+                    <div className="relative flex items-center gap-1">
                       <svg
                         viewBox="0 0 24 24"
                         fill="currentColor"
@@ -3674,7 +3937,7 @@ function Index() {
             <AppTooltip content={dark ? "Switch to Light mode" : "Switch to Dark mode"}>
               <button
                 type="button"
-                onClick={() => setDark((d) => !d)}
+                onClick={toggleTheme}
                 className="grid h-8 w-8 place-items-center rounded-full border border-border/80 bg-secondary/40 text-foreground shadow-sm transition-all hover:bg-secondary active:scale-95 sm:h-auto sm:w-auto sm:px-2.5 sm:py-2"
                 title={dark ? "Switch to Light mode" : "Switch to Dark mode"}
               >
@@ -3682,24 +3945,57 @@ function Index() {
               </button>
             </AppTooltip>
 
-            {/* 4. Export Icon */}
-            <AppTooltip content="Export & Download options">
-              <button
-                type="button"
-                onClick={() => {
-                  if (isMobile) {
-                    setMobileExportDrawerOpen(true);
-                  } else {
-                    setRightPanelCollapsed((prev) => !prev);
-                  }
-                }}
-                className="grid h-8 w-8 place-items-center rounded-full bg-[image:var(--gradient-brand)] text-primary-foreground shadow-[var(--shadow-glow)] transition-all hover:opacity-90 active:scale-95 sm:flex sm:h-auto sm:w-auto sm:gap-1.5 sm:px-3.5 sm:py-1.5 sm:text-xs sm:font-bold"
-                title="Export"
-              >
-                <Download01Icon size={15} />
-                <span className="hidden sm:inline">Export</span>
-              </button>
-            </AppTooltip>
+            {/* 4. Export Icon — a plain button on mobile (opens the bottom
+                Drawer) but a Popover trigger on desktop, so the export
+                controls show as a nice animated dropdown instead of the
+                old persistent right-hand panel. */}
+            {isMobile ? (
+              <AppTooltip content="Export & Download options">
+                <button
+                  type="button"
+                  onClick={() => setMobileExportDrawerOpen(true)}
+                  className="grid h-8 w-8 place-items-center rounded-full bg-[image:var(--gradient-brand)] text-primary-foreground shadow-[var(--shadow-glow)] transition-all hover:opacity-90 active:scale-95 sm:flex sm:h-auto sm:w-auto sm:gap-1.5 sm:px-3.5 sm:py-1.5 sm:text-xs sm:font-bold"
+                  title="Export"
+                >
+                  <Download01Icon size={15} />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
+              </AppTooltip>
+            ) : (
+              <Popover open={exportPopoverOpen} onOpenChange={setExportPopoverOpen}>
+                <AppTooltip content="Export & Download options">
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="grid h-8 w-8 place-items-center rounded-full bg-[image:var(--gradient-brand)] text-primary-foreground shadow-[var(--shadow-glow)] transition-all hover:opacity-90 active:scale-95 sm:flex sm:h-auto sm:w-auto sm:gap-1.5 sm:px-3.5 sm:py-1.5 sm:text-xs sm:font-bold"
+                      title="Export"
+                    >
+                      <Download01Icon size={15} />
+                      <span className="hidden sm:inline">Export</span>
+                    </button>
+                  </PopoverTrigger>
+                </AppTooltip>
+                <PopoverContent
+                  align="end"
+                  sideOffset={10}
+                  className="w-80 rounded-2xl border-border/80 bg-card/95 p-4 shadow-2xl backdrop-blur-xl"
+                >
+                  <ExportControls
+                    s={s}
+                    set={set}
+                    busy={busy}
+                    onDownload={() => {
+                      setExportPopoverOpen(false);
+                      openExportPreview();
+                    }}
+                    onPreview={() => {
+                      setExportPopoverOpen(false);
+                      openPostPreview();
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            )}
 
             {/* 5. User Profile Image Avatar */}
             <UserMenu />
@@ -3742,11 +4038,11 @@ function Index() {
 
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
             {selectedTextLayer ||
-            selectedImageLayer ||
-            selectedShapeLayer ||
-            isMultiShapeSelection ||
-            isMultiImageSelection ||
-            isMixedMultiSelection ? (
+              selectedImageLayer ||
+              selectedShapeLayer ||
+              isMultiShapeSelection ||
+              isMultiImageSelection ||
+              isMixedMultiSelection ? (
               <div
                 className="pointer-events-none fixed right-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
                 style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
@@ -3755,18 +4051,18 @@ function Index() {
                 <AppTooltip
                   content={
                     selectedTextLayer?.locked ||
-                    selectedImageLayer?.locked ||
-                    selectedShapeLayer?.locked ||
-                    (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                    (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
-                    (isMixedMultiSelection &&
-                      canvasSelection.every((sel) => {
-                        if (sel.kind === "text")
-                          return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                        if (sel.kind === "image")
-                          return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                        return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                      }))
+                      selectedImageLayer?.locked ||
+                      selectedShapeLayer?.locked ||
+                      (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                      (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                      (isMixedMultiSelection &&
+                        canvasSelection.every((sel) => {
+                          if (sel.kind === "text")
+                            return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                          if (sel.kind === "image")
+                            return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                        }))
                       ? "Unlock Layer"
                       : "Lock Layer"
                   }
@@ -3857,6 +4153,23 @@ function Index() {
                     )}
                     title={
                       selectedTextLayer?.locked ||
+                        selectedImageLayer?.locked ||
+                        selectedShapeLayer?.locked ||
+                        (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
+                        (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
+                        (isMixedMultiSelection &&
+                          canvasSelection.every((sel) => {
+                            if (sel.kind === "text")
+                              return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                            if (sel.kind === "image")
+                              return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                          }))
+                        ? "Unlock Layer"
+                        : "Lock Layer"
+                    }
+                  >
+                    {selectedTextLayer?.locked ||
                       selectedImageLayer?.locked ||
                       selectedShapeLayer?.locked ||
                       (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
@@ -3868,24 +4181,7 @@ function Index() {
                           if (sel.kind === "image")
                             return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                           return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                        }))
-                        ? "Unlock Layer"
-                        : "Lock Layer"
-                    }
-                  >
-                    {selectedTextLayer?.locked ||
-                    selectedImageLayer?.locked ||
-                    selectedShapeLayer?.locked ||
-                    (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                    (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
-                    (isMixedMultiSelection &&
-                      canvasSelection.every((sel) => {
-                        if (sel.kind === "text")
-                          return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                        if (sel.kind === "image")
-                          return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                        return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                      })) ? (
+                        })) ? (
                       <SquareLock02Icon size={14} />
                     ) : (
                       <SquareUnlock02Icon size={14} />
@@ -3965,284 +4261,284 @@ function Index() {
 
             {typeof document !== "undefined"
               ? createPortal(
-                  !(
-                    selectedTextLayer ||
-                    selectedImageLayer ||
-                    selectedShapeLayer ||
-                    isMultiShapeSelection ||
-                    isMultiImageSelection ||
-                    isMixedMultiSelection ||
-                    isBackgroundSelected
-                  ) ? (
-                    <MobileBottomTabBar
-                      activeTab={tab}
-                      isDrawerOpen={mobileToolDrawerOpen}
-                      onTabChange={(id) => {
-                        if (id === tab && mobileToolDrawerOpen) {
-                          setMobileToolDrawerOpen(false);
-                        } else {
-                          setTab(id);
-                          setMobileToolDrawerOpen(true);
-                        }
+                !(
+                  selectedTextLayer ||
+                  selectedImageLayer ||
+                  selectedShapeLayer ||
+                  isMultiShapeSelection ||
+                  isMultiImageSelection ||
+                  isMixedMultiSelection ||
+                  isBackgroundSelected
+                ) ? (
+                  <MobileBottomTabBar
+                    activeTab={tab}
+                    isDrawerOpen={mobileToolDrawerOpen}
+                    onTabChange={(id) => {
+                      if (id === tab && mobileToolDrawerOpen) {
+                        setMobileToolDrawerOpen(false);
+                      } else {
+                        setTab(id);
+                        setMobileToolDrawerOpen(true);
+                      }
+                    }}
+                  />
+                ) : (
+                  <div
+                    data-nopan=""
+                    data-keep-text-editing=""
+                    className="fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl pointer-events-auto"
+                    style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+                  >
+                    {/* Absolute solid Tick02Icon button on far left */}
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.currentTarget.blur();
+                        setCanvasSelection([]);
+                        setIsBackgroundSelected(false);
                       }}
-                    />
-                  ) : (
-                    <div
-                      data-nopan=""
-                      data-keep-text-editing=""
-                      className="fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl pointer-events-auto"
-                      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
+                      title="Done (Deselect)"
                     >
-                      {/* Absolute solid Tick02Icon button on far left */}
-                      <button
-                        type="button"
-                        onPointerDown={(e) => e.preventDefault()}
-                        onClick={(e) => {
-                          e.currentTarget.blur();
-                          setCanvasSelection([]);
-                          setIsBackgroundSelected(false);
-                        }}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
-                        title="Done (Deselect)"
-                      >
-                        <Tick02Icon size={16} />
-                      </button>
+                      <Tick02Icon size={16} />
+                    </button>
 
-                      {/* Left & Right gradient edge fades */}
-                      <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
-                      <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
+                    {/* Left & Right gradient edge fades */}
+                    <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
+                    <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
 
-                      {/* Scrollable toolbar items with pl-14 pr-3 */}
-                      <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
-                        {selectedTextLayer && selectedTextLayerHandle ? (
-                          <TextSelectionToolbar
-                            layer={selectedTextLayer}
-                            handle={selectedTextLayerHandle}
-                            onArrange={(dir) => handleSingleArrange(selectedTextLayer.id, dir)}
-                            canArrange={getArrangeEligibility(unifiedLayers, selectedTextLayer.id)}
-                            onAnyPopoverOpenChange={(open) =>
-                              handlePinnedPopoverChange("text", selectedTextLayer.id, open)
-                            }
-                            onOpenEffectsTab={() => {
-                              setTab("text");
-                              setTextSubTab("effects");
-                              setMobileToolDrawerOpen(true);
-                            }}
-                          />
-                        ) : selectedImageLayer ? (
-                          <ImageSelectionToolbar
-                            layer={selectedImageLayer}
-                            onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
-                            canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
-                            onAnyPopoverOpenChange={(open) =>
-                              handlePinnedPopoverChange("image", selectedImageLayer.id, open)
-                            }
-                            onUpdate={(patch) =>
-                              set("images", (_, prevS) =>
-                                withImageUpdated(prevS, selectedImageLayer.id, patch),
-                              )
-                            }
-                            onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
-                            onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
-                          />
-                        ) : selectedShapeLayer ? (
-                          <ShapeSelectionToolbar
-                            layer={selectedShapeLayer}
-                            onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
-                            canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
-                            onAnyPopoverOpenChange={(open) =>
-                              handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
-                            }
-                            onUpdate={(patch) =>
-                              set("shapes", (_, prevS) =>
-                                withShapeUpdated(prevS, selectedShapeLayer.id, patch),
-                              )
-                            }
-                            onDuplicate={() => {
-                              const dup = withShapeDuplicated(s, selectedShapeLayer.id);
-                              set("shapes", dup.list);
-                              setCanvasSelection([{ kind: "shape", id: dup.newId }]);
-                            }}
-                            onDelete={() => {
-                              set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
-                              setCanvasSelection([]);
-                            }}
-                            onToggleLock={() =>
-                              set(
-                                "shapes",
-                                withShapeUpdated(s, selectedShapeLayer.id, {
-                                  locked: !selectedShapeLayer.locked,
-                                }),
-                              )
-                            }
-                          />
-                        ) : isMultiShapeSelection ? (
-                          <MultiShapeSelectionToolbar
-                            layers={multiSelectedShapeLayers}
-                            canvasWidth={s.width}
-                            canvasHeight={s.height}
-                            onAnyPopoverOpenChange={(open) =>
-                              handlePinnedPopoverChange("shape", "multi-shape", open)
-                            }
-                            onArrange={handleShapeArrange}
-                            canArrange={getArrangeEligibility(
-                              unifiedLayers,
-                              multiSelectedShapeLayers.map((l) => l.id),
-                            )}
-                            onAlign={handleShapeAlign}
-                            onSpaceEvenly={handleShapeSpaceEvenly}
-                            onShiftGroup={handleShapeShiftGroup}
-                            onUpdateAll={(patch) =>
-                              set("shapes", (_, prev) =>
-                                withShapesUpdated(
-                                  prev,
-                                  multiSelectedShapeLayers.map((l) => l.id),
-                                  patch,
-                                ),
-                              )
-                            }
-                            onToggleLockAll={() => {
-                              const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                              set("shapes", (_, prev) =>
-                                withShapesLockSet(
-                                  prev,
-                                  multiSelectedShapeLayers.map((l) => l.id),
-                                  !allLocked,
-                                ),
-                              );
-                            }}
-                            onDeleteAll={() => {
-                              commit((prev) => {
-                                const result = withMultipleLayersRemoved(prev, canvasSelection);
-                                return { ...prev, ...result };
-                              });
-                              setCanvasSelection([]);
-                            }}
-                          />
-                        ) : isMultiImageSelection ? (
-                          <MultiImageSelectionToolbar
-                            layers={multiSelectedImageLayers}
-                            canvasWidth={s.width}
-                            canvasHeight={s.height}
-                            onAnyPopoverOpenChange={(open) =>
-                              handlePinnedPopoverChange("image", "multi-image", open)
-                            }
-                            onArrange={handleImageArrange}
-                            canArrange={getArrangeEligibility(
-                              unifiedLayers,
-                              multiSelectedImageLayers.map((l) => l.id),
-                            )}
-                            onAlign={handleImageAlign}
-                            onSpaceEvenly={handleImageSpaceEvenly}
-                            onShiftGroup={handleImageShiftGroup}
-                            onUpdateAll={(patch) =>
-                              set("images", (_, prev) =>
-                                withImagesUpdated(
-                                  prev,
-                                  multiSelectedImageLayers.map((l) => l.id),
-                                  patch,
-                                ),
-                              )
-                            }
-                            onToggleLockAll={() => {
-                              const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                              set("images", (_, prev) =>
-                                withImagesLockSet(
-                                  prev,
-                                  multiSelectedImageLayers.map((l) => l.id),
-                                  !allLocked,
-                                ),
-                              );
-                            }}
-                            onDeleteAll={() => {
-                              commit((prev) => {
-                                const result = withMultipleLayersRemoved(prev, canvasSelection);
-                                return { ...prev, ...result };
-                              });
-                              setCanvasSelection([]);
-                            }}
-                          />
-                        ) : isMixedMultiSelection ? (
-                          <MultiMixedSelectionToolbar
-                            selectedIds={canvasSelection as MixedLayerRef[]}
-                            textLayers={mixedSelectedTextLayers}
-                            allText={mixedAllText}
-                            canvasWidth={s.width}
-                            canvasHeight={s.height}
-                            onAlign={handleMixedAlign}
-                            onSpaceEvenly={handleMixedSpaceEvenly}
-                            onArrange={handleMixedArrange}
-                            canArrange={getArrangeEligibility(
-                              unifiedLayers,
-                              canvasSelection.map((l) => l.id),
-                            )}
-                            onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
-                            onAnyPopoverOpenChange={(open) =>
-                              handlePinnedPopoverChange("text", "multi-mixed", open)
-                            }
-                            onToggleLockAll={() => {
-                              const allLocked = canvasSelection.every((sel) => {
-                                if (sel.kind === "text")
-                                  return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                                if (sel.kind === "image")
-                                  return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                                return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                              });
-                              const textIds = canvasSelection
-                                .filter((l) => l.kind === "text")
-                                .map((l) => l.id);
-                              const imageIds = canvasSelection
-                                .filter((l) => l.kind === "image")
-                                .map((l) => l.id);
-                              const shapeIds = canvasSelection
-                                .filter((l) => l.kind === "shape")
-                                .map((l) => l.id);
-                              if (textIds.length)
-                                set("texts", (_, prev) =>
-                                  withTextsLockSet(prev, textIds, !allLocked),
-                                );
-                              if (imageIds.length)
-                                set("images", (_, prev) =>
-                                  withImagesLockSet(prev, imageIds, !allLocked),
-                                );
-                              if (shapeIds.length)
-                                set("shapes", (_, prev) =>
-                                  withShapesLockSet(prev, shapeIds, !allLocked),
-                                );
-                            }}
-                            allLocked={canvasSelection.every((sel) => {
+                    {/* Scrollable toolbar items with pl-14 pr-3 */}
+                    <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
+                      {selectedTextLayer && selectedTextLayerHandle ? (
+                        <TextSelectionToolbar
+                          layer={selectedTextLayer}
+                          handle={selectedTextLayerHandle}
+                          onArrange={(dir) => handleSingleArrange(selectedTextLayer.id, dir)}
+                          canArrange={getArrangeEligibility(unifiedLayers, selectedTextLayer.id)}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("text", selectedTextLayer.id, open)
+                          }
+                          onOpenEffectsTab={() => {
+                            setTab("text");
+                            setTextSubTab("effects");
+                            setMobileToolDrawerOpen(true);
+                          }}
+                        />
+                      ) : selectedImageLayer ? (
+                        <ImageSelectionToolbar
+                          layer={selectedImageLayer}
+                          onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
+                          canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("image", selectedImageLayer.id, open)
+                          }
+                          onUpdate={(patch) =>
+                            set("images", (_, prevS) =>
+                              withImageUpdated(prevS, selectedImageLayer.id, patch),
+                            )
+                          }
+                          onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
+                          onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
+                        />
+                      ) : selectedShapeLayer ? (
+                        <ShapeSelectionToolbar
+                          layer={selectedShapeLayer}
+                          onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
+                          canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
+                          }
+                          onUpdate={(patch) =>
+                            set("shapes", (_, prevS) =>
+                              withShapeUpdated(prevS, selectedShapeLayer.id, patch),
+                            )
+                          }
+                          onDuplicate={() => {
+                            const dup = withShapeDuplicated(s, selectedShapeLayer.id);
+                            set("shapes", dup.list);
+                            setCanvasSelection([{ kind: "shape", id: dup.newId }]);
+                          }}
+                          onDelete={() => {
+                            set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                            setCanvasSelection([]);
+                          }}
+                          onToggleLock={() =>
+                            set(
+                              "shapes",
+                              withShapeUpdated(s, selectedShapeLayer.id, {
+                                locked: !selectedShapeLayer.locked,
+                              }),
+                            )
+                          }
+                        />
+                      ) : isMultiShapeSelection ? (
+                        <MultiShapeSelectionToolbar
+                          layers={multiSelectedShapeLayers}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("shape", "multi-shape", open)
+                          }
+                          onArrange={handleShapeArrange}
+                          canArrange={getArrangeEligibility(
+                            unifiedLayers,
+                            multiSelectedShapeLayers.map((l) => l.id),
+                          )}
+                          onAlign={handleShapeAlign}
+                          onSpaceEvenly={handleShapeSpaceEvenly}
+                          onShiftGroup={handleShapeShiftGroup}
+                          onUpdateAll={(patch) =>
+                            set("shapes", (_, prev) =>
+                              withShapesUpdated(
+                                prev,
+                                multiSelectedShapeLayers.map((l) => l.id),
+                                patch,
+                              ),
+                            )
+                          }
+                          onToggleLockAll={() => {
+                            const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
+                            set("shapes", (_, prev) =>
+                              withShapesLockSet(
+                                prev,
+                                multiSelectedShapeLayers.map((l) => l.id),
+                                !allLocked,
+                              ),
+                            );
+                          }}
+                          onDeleteAll={() => {
+                            commit((prev) => {
+                              const result = withMultipleLayersRemoved(prev, canvasSelection);
+                              return { ...prev, ...result };
+                            });
+                            setCanvasSelection([]);
+                          }}
+                        />
+                      ) : isMultiImageSelection ? (
+                        <MultiImageSelectionToolbar
+                          layers={multiSelectedImageLayers}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("image", "multi-image", open)
+                          }
+                          onArrange={handleImageArrange}
+                          canArrange={getArrangeEligibility(
+                            unifiedLayers,
+                            multiSelectedImageLayers.map((l) => l.id),
+                          )}
+                          onAlign={handleImageAlign}
+                          onSpaceEvenly={handleImageSpaceEvenly}
+                          onShiftGroup={handleImageShiftGroup}
+                          onUpdateAll={(patch) =>
+                            set("images", (_, prev) =>
+                              withImagesUpdated(
+                                prev,
+                                multiSelectedImageLayers.map((l) => l.id),
+                                patch,
+                              ),
+                            )
+                          }
+                          onToggleLockAll={() => {
+                            const allLocked = multiSelectedImageLayers.every((l) => l.locked);
+                            set("images", (_, prev) =>
+                              withImagesLockSet(
+                                prev,
+                                multiSelectedImageLayers.map((l) => l.id),
+                                !allLocked,
+                              ),
+                            );
+                          }}
+                          onDeleteAll={() => {
+                            commit((prev) => {
+                              const result = withMultipleLayersRemoved(prev, canvasSelection);
+                              return { ...prev, ...result };
+                            });
+                            setCanvasSelection([]);
+                          }}
+                        />
+                      ) : isMixedMultiSelection ? (
+                        <MultiMixedSelectionToolbar
+                          selectedIds={canvasSelection as MixedLayerRef[]}
+                          textLayers={mixedSelectedTextLayers}
+                          allText={mixedAllText}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
+                          onAlign={handleMixedAlign}
+                          onSpaceEvenly={handleMixedSpaceEvenly}
+                          onArrange={handleMixedArrange}
+                          canArrange={getArrangeEligibility(
+                            unifiedLayers,
+                            canvasSelection.map((l) => l.id),
+                          )}
+                          onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("text", "multi-mixed", open)
+                          }
+                          onToggleLockAll={() => {
+                            const allLocked = canvasSelection.every((sel) => {
                               if (sel.kind === "text")
                                 return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
                               if (sel.kind === "image")
                                 return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                               return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                            })}
-                            onDeleteAll={() => {
-                              commit((prev) => {
-                                const result = withMultipleLayersRemoved(prev, canvasSelection);
-                                return { ...prev, ...result };
-                              });
-                              setCanvasSelection([]);
-                            }}
-                          />
-                        ) : isBackgroundSelected ? (
-                          <BackgroundSelectionToolbar
-                            s={s}
-                            set={set}
-                            onAnyPopoverOpenChange={(open) =>
-                              handlePinnedPopoverChange("background", "background", open)
-                            }
-                            onOpenBackgroundTab={() => {
-                              setTab("background");
-                              setMobileToolDrawerOpen(true);
-                            }}
-                          />
-                        ) : null}
-                      </div>
+                            });
+                            const textIds = canvasSelection
+                              .filter((l) => l.kind === "text")
+                              .map((l) => l.id);
+                            const imageIds = canvasSelection
+                              .filter((l) => l.kind === "image")
+                              .map((l) => l.id);
+                            const shapeIds = canvasSelection
+                              .filter((l) => l.kind === "shape")
+                              .map((l) => l.id);
+                            if (textIds.length)
+                              set("texts", (_, prev) =>
+                                withTextsLockSet(prev, textIds, !allLocked),
+                              );
+                            if (imageIds.length)
+                              set("images", (_, prev) =>
+                                withImagesLockSet(prev, imageIds, !allLocked),
+                              );
+                            if (shapeIds.length)
+                              set("shapes", (_, prev) =>
+                                withShapesLockSet(prev, shapeIds, !allLocked),
+                              );
+                          }}
+                          allLocked={canvasSelection.every((sel) => {
+                            if (sel.kind === "text")
+                              return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                            if (sel.kind === "image")
+                              return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                          })}
+                          onDeleteAll={() => {
+                            commit((prev) => {
+                              const result = withMultipleLayersRemoved(prev, canvasSelection);
+                              return { ...prev, ...result };
+                            });
+                            setCanvasSelection([]);
+                          }}
+                        />
+                      ) : isBackgroundSelected ? (
+                        <BackgroundSelectionToolbar
+                          s={s}
+                          set={set}
+                          onAnyPopoverOpenChange={(open) =>
+                            handlePinnedPopoverChange("background", "background", open)
+                          }
+                          onOpenBackgroundTab={() => {
+                            setTab("background");
+                            setMobileToolDrawerOpen(true);
+                          }}
+                        />
+                      ) : null}
                     </div>
-                  ),
-                  document.body,
-                )
+                  </div>
+                ),
+                document.body,
+              )
               : null}
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
@@ -4390,7 +4686,8 @@ function Index() {
             </Drawer>
 
             {/* Export drawer — the header's Export button (md:hidden) opens
-                this; hosts the exact same RightPanel used on desktop. */}
+                this; hosts the same ExportControls used in the desktop
+                dropdown. */}
             <Drawer open={mobileExportDrawerOpen} onOpenChange={setMobileExportDrawerOpen}>
               <DrawerContent className="mt-0 flex max-h-[85vh] flex-col rounded-t-2xl">
                 <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-3">
@@ -4403,11 +4700,15 @@ function Index() {
                   className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4"
                   style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 40px)" }}
                 >
-                  <RightPanel
+                  <ExportControls
                     s={s}
                     set={set}
                     onDownload={() => {
                       openExportPreview();
+                      setMobileExportDrawerOpen(false);
+                    }}
+                    onPreview={() => {
+                      openPostPreview();
                       setMobileExportDrawerOpen(false);
                     }}
                     busy={busy}
@@ -4451,6 +4752,7 @@ function Index() {
             </nav>
 
             <aside
+              data-scrollbar="hover"
               className={cn(
                 "shrink-0 space-y-4 overflow-y-auto border-r border-border transition-all duration-300 ease-in-out",
                 leftPanelCollapsed
@@ -4520,35 +4822,12 @@ function Index() {
                       {s.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
                     </Chip>
                   </AppTooltip>
-                  <AppTooltip content="Clear everything — blank canvas, all layers removed">
-                    <Chip
-                      onClick={() =>
-                        commit((prev) => ({
-                          ...INITIAL_STATE,
-                          width: prev.width || 1200,
-                          height: prev.height || 1500,
-                          exportFormat: prev.exportFormat,
-                          exportScale: prev.exportScale,
-                          texts: [],
-                          shapes: [],
-                          images: [],
-                          quote: "",
-                          name: "",
-                          tagline: "",
-                          bgImage: null,
-                        }))
-                      }
-                      className="flex h-7 w-7 items-center justify-center p-0"
-                    >
-                      <Delete02Icon size={13} />
-                    </Chip>
-                  </AppTooltip>
                   <AppTooltip content="Clear canvas and start from scratch">
                     <Chip
                       onClick={() => setResetCanvasConfirmOpen(true)}
-                      className="flex h-7 items-center gap-1 px-2 py-0 text-xs"
+                      className="flex h-7 items-center gap-1 rounded-full border-destructive/30 bg-gradient-to-b from-destructive/10 to-destructive/5 px-2 py-0 text-xs text-destructive hover:border-destructive/50 hover:from-destructive/15 hover:to-destructive/10 hover:text-destructive"
                     >
-                      <ReloadIcon size={12} /> Reset
+                      <CleanIcon size={16} /> Reset
                     </Chip>
                   </AppTooltip>
 
@@ -4580,7 +4859,7 @@ function Index() {
                       onClick={() => setSaveTemplateOpen(true)}
                       className="mr-1 flex h-7 items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0 text-xs font-bold text-amber-500 transition-all hover:bg-amber-500/20 active:scale-95"
                     >
-                      <AllBookmarkIcon size={13} />
+                      <AllBookmarkIcon size={16} />
                       <span>Save Template</span>
                     </button>
                   </AppTooltip>
@@ -4640,43 +4919,12 @@ function Index() {
                   <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] text-muted-foreground">
                     {s.width} × {s.height}px
                   </span>
-                  <div className="h-4 w-px bg-border/60 mx-0.5" />
-                  <AppTooltip
-                    content={
-                      rightPanelCollapsed
-                        ? "Expand Right Panel (Export & Canvas Size)"
-                        : "Collapse Right Panel"
-                    }
-                  >
-                    <Chip
-                      onClick={() => setRightPanelCollapsed((c) => !c)}
-                      active={!rightPanelCollapsed}
-                      className="flex h-7 w-7 items-center justify-center p-0"
-                    >
-                      <SidebarRightIcon size={14} />
-                    </Chip>
-                  </AppTooltip>
                 </div>
               </div>
 
               {canvasStage}
             </main>
 
-            <aside
-              className={cn(
-                "shrink-0 space-y-3 overflow-y-auto border-l border-border transition-all duration-300 ease-in-out",
-                rightPanelCollapsed
-                  ? "w-0 p-0 overflow-hidden border-l-0 opacity-0 pointer-events-none"
-                  : "w-[400px] p-4 opacity-100",
-              )}
-            >
-              <RightPanel s={s} set={set} onDownload={openExportPreview} busy={busy} />
-            </aside>
-
-            {/* Sibling of the right aside, not a child of it — position:fixed
-              still inherited the aside's opacity-0/pointer-events-none when
-              rightPanelCollapsed, since fixed positioning only escapes
-              layout, not the CSS cascade. */}
             <DraggableFloatingLayersButton
               active={tab === "layers"}
               layerCount={
@@ -4690,6 +4938,24 @@ function Index() {
           </div>
         )}
 
+        {/* Full-screen mask for the dark/light toggle — see toggleTheme's
+            own comment above for why this exists. Deliberately opaque
+            (bg-background, no backdrop-blur/transparency) so nothing of
+            the restyle happening underneath can show through. Always
+            mounted (not conditionally rendered) so opacity can transition
+            smoothly both in AND out via plain CSS — a conditionally
+            rendered element only gets the enter animation for free;
+            unmounting it is an instant cut with no fade-out at all.
+            pointer-events-none while hidden keeps it from silently
+            intercepting clicks meant for the real UI underneath. */}
+        <FullScreenLogoLoader
+          aria-hidden={!isThemeSwitching}
+          className={cn(
+            "transition-opacity duration-300 ease-out",
+            isThemeSwitching ? "opacity-100" : "pointer-events-none opacity-0",
+          )}
+        />
+
         <GoogleLoginDialog />
         <SaveTemplateDialog
           open={saveTemplateOpen}
@@ -4697,13 +4963,15 @@ function Index() {
             setSaveTemplateOpen(false);
             setSaveAndNewPending(false);
             setPendingNewPostSize(null);
+            setPendingPlatformKey(null);
           }}
           onSaved={() => {
             if (saveAndNewPending) {
               const targetSize = pendingNewPostSize || newPostCanvasSize;
               setSaveAndNewPending(false);
               setPendingNewPostSize(null);
-              handleStartNewPost(targetSize);
+              handleStartNewPost(targetSize, pendingPlatformKey);
+              setPendingPlatformKey(null);
             }
           }}
           s={s}
@@ -4718,6 +4986,18 @@ function Index() {
           s={s}
           onConfirm={confirmDownload}
           isExporting={isExportingFinal}
+        />
+        <PostPreviewDialog
+          open={postPreviewOpen}
+          onClose={() => {
+            setPostPreviewOpen(false);
+            setPostPreviewUrl(null);
+          }}
+          imageUrl={postPreviewUrl}
+          canvasWidth={s.width}
+          canvasHeight={s.height}
+          userName={user?.name || "You"}
+          userAvatar={user?.avatar || "/defult-img.jpg"}
         />
 
         {croppingImageLayer ? (
@@ -4745,8 +5025,11 @@ function Index() {
         ) : null}
 
         {/* 1. Start New Blank Design Dialog (with Save Prompt & Canvas Size Options) */}
-        <Dialog open={newPostConfirmOpen} onOpenChange={setNewPostConfirmOpen}>
-          <DialogContent className="sm:max-w-[480px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
+        <Dialog
+          open={newPostConfirmOpen}
+          onOpenChange={(open) => (open ? setNewPostConfirmOpen(true) : closeNewPostDialogWithoutStarting())}
+        >
+          <DialogContent className="sm:max-w-[960px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
             <DialogHeader>
               <div className="flex items-center gap-3">
                 <img
@@ -4766,101 +5049,13 @@ function Index() {
               </div>
             </DialogHeader>
 
-            {/* Canvas Size Selection for New Post */}
-            <div className="mt-3.5 space-y-3 rounded-xl border border-border/80 bg-secondary/30 p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  Choose Canvas Size
-                </span>
-                <span className="font-mono text-[11px] font-semibold text-primary">
-                  {newPostCanvasSize.width} × {newPostCanvasSize.height}px
-                </span>
-              </div>
-
-              {/* Presets Grid */}
-              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-                {CANVAS_PRESETS.map((p) => {
-                  const isSelected =
-                    newPostCanvasSize.width === p.w && newPostCanvasSize.height === p.h;
-                  return (
-                    <button
-                      key={p.label}
-                      type="button"
-                      onClick={() => setNewPostCanvasSize({ width: p.w, height: p.h })}
-                      className={cn(
-                        "flex flex-col items-center justify-center rounded-lg border py-2 px-1 text-center transition-all cursor-pointer",
-                        isSelected
-                          ? "border-primary bg-primary text-primary-foreground shadow-sm scale-100 font-bold"
-                          : "border-border/70 bg-card text-foreground hover:border-primary/50 hover:bg-secondary/60 text-xs",
-                      )}
-                    >
-                      <span className="text-xs font-semibold">{p.label}</span>
-                      <span className="text-[9px] opacity-75 font-mono mt-0.5">
-                        {p.w === p.h ? "Square" : p.w < p.h ? "Portrait" : "Landscape"}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Custom Dimensions Input Box */}
-              <div className="pt-2 border-t border-border/60">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    Custom Dimensions
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">Min 200px • Max 6000px</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="relative flex items-center">
-                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">
-                      W:
-                    </span>
-                    <input
-                      type="number"
-                      min={200}
-                      max={6000}
-                      value={newPostCanvasSize.width || ""}
-                      onChange={(e) => {
-                        const val = Math.max(1, Math.min(8000, Number(e.target.value) || 0));
-                        setNewPostCanvasSize((prev) => ({ ...prev, width: val }));
-                      }}
-                      className="h-8 w-full rounded-lg border border-border/80 bg-background pl-8 pr-7 text-xs font-mono font-medium text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
-                      placeholder="1200"
-                    />
-                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">
-                      px
-                    </span>
-                  </div>
-                  <div className="relative flex items-center">
-                    <span className="absolute left-2.5 text-[11px] font-bold text-muted-foreground/70">
-                      H:
-                    </span>
-                    <input
-                      type="number"
-                      min={200}
-                      max={6000}
-                      value={newPostCanvasSize.height || ""}
-                      onChange={(e) => {
-                        const val = Math.max(1, Math.min(8000, Number(e.target.value) || 0));
-                        setNewPostCanvasSize((prev) => ({ ...prev, height: val }));
-                      }}
-                      className="h-8 w-full rounded-lg border border-border/80 bg-background pl-8 pr-7 text-xs font-mono font-medium text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-xs"
-                      placeholder="1500"
-                    />
-                    <span className="pointer-events-none absolute right-2.5 text-[10px] text-muted-foreground">
-                      px
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <NewPostSizePicker value={newPostCanvasSize} onChange={previewNewPostSize} />
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setNewPostConfirmOpen(false)}
+                  onClick={closeNewPostDialogWithoutStarting}
                   className="rounded-xl border border-border px-3.5 py-2 text-[11px] font-bold uppercase tracking-[1px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground active:scale-95"
                 >
                   Cancel
@@ -4868,28 +5063,52 @@ function Index() {
                 <button
                   type="button"
                   onClick={() => {
+                    // The template about to be saved is the ORIGINAL design,
+                    // not whatever size was last live-previewed while
+                    // browsing presets — put the canvas back first so
+                    // SaveTemplateDialog captures/stores the right thing.
+                    // The chosen target size/platform themselves live on in
+                    // newPostCanvasSize/pendingNewPostSize and
+                    // pendingPlatformKey regardless (captured BEFORE the
+                    // revert, which would otherwise stomp
+                    // explicitPlatformKey back to its pre-dialog value), and
+                    // still get applied below once the save completes.
+                    setPendingPlatformKey(explicitPlatformKey);
+                    revertNewPostSizePreview();
                     setNewPostConfirmOpen(false);
                     setPendingNewPostSize(newPostCanvasSize);
                     setSaveAndNewPending(true);
                     setSaveTemplateOpen(true);
                   }}
-                  className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-primary-foreground shadow-md transition-all hover:bg-primary/90 active:scale-95"
+                  className="flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-primary shadow-sm transition-all hover:bg-primary/20 active:scale-95"
                 >
                   <Bookmark01Icon size={14} />
                   <span>Save & Start New</span>
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setNewPostConfirmOpen(false);
-                  handleStartNewPost(newPostCanvasSize);
-                }}
-                className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] shadow-md transition-all active:scale-95"
-              >
-                <span>Start Blank</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewPostConfirmOpen(false);
+                    handleResizeCurrentLayout(newPostCanvasSize, explicitPlatformKey);
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-amber-500 shadow-sm transition-all hover:bg-amber-500/20 active:scale-95"
+                >
+                  <span>Resize Current Layout</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewPostConfirmOpen(false);
+                    handleStartNewPost(newPostCanvasSize, explicitPlatformKey);
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-emerald-500 shadow-sm transition-all hover:bg-emerald-500/20 active:scale-95"
+                >
+                  <span>Start Blank Canvas</span>
+                </button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -4900,7 +5119,7 @@ function Index() {
             <DialogHeader>
               <div className="flex items-center gap-3">
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive shadow-sm">
-                  <ReloadIcon size={20} />
+                  <CleanIcon size={20} />
                 </span>
                 <div>
                   <DialogTitle className="text-base font-bold text-foreground">
@@ -4934,7 +5153,7 @@ function Index() {
                 }}
                 className="flex items-center gap-1.5 rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground shadow-md transition-all hover:bg-destructive/90 active:scale-95"
               >
-                <ReloadIcon size={14} />
+                <CleanIcon size={14} />
                 <span>Reset Everything</span>
               </button>
             </div>

@@ -11,8 +11,6 @@ import {
   SquareLock02Icon,
   SquareUnlock02Icon,
   Image01Icon,
-  ArrowUp01Icon,
-  ArrowDown01Icon,
   TextAlignLeftIcon,
   TextAlignCenterIcon,
   TextAlignRightIcon,
@@ -69,6 +67,7 @@ import {
   shapeCss,
   shapeFillStyle,
   shapeSupportsRadius,
+  withImageDuplicated,
   withImageRemoved,
   withImageReordered,
   withImageUpdated,
@@ -2041,8 +2040,6 @@ export function LeftPanel({
                 ) : null}
                 {displayLayers.map(({ kind, id }, panelIdx) => {
                   const selected = isLayerSelected(kind, id);
-                  const isTop = panelIdx === 0;
-                  const isBottom = panelIdx === displayLayers.length - 1;
 
                   if (kind === "text") {
                     const t = textLayers.find((item) => item.id === id);
@@ -2108,21 +2105,15 @@ export function LeftPanel({
                         >
                           <button
                             type="button"
-                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, t.id, "up").layerOrder)}
-                            disabled={isTop}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                            title="Move up (Sort up)"
+                            onClick={() => {
+                              const { list, newId } = withTextDuplicated(s, t.id);
+                              set("texts", list);
+                              onSelectLayer?.({ kind: "text", id: newId });
+                            }}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            title="Duplicate text layer"
                           >
-                            <ArrowUp01Icon size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, t.id, "down").layerOrder)}
-                            disabled={isBottom}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                            title="Move down (Sort down)"
-                          >
-                            <ArrowDown01Icon size={13} />
+                            <Copy01Icon size={13} />
                           </button>
                           <button
                             type="button"
@@ -2224,21 +2215,15 @@ export function LeftPanel({
                         >
                           <button
                             type="button"
-                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, img.id, "up").layerOrder)}
-                            disabled={isTop}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                            title="Move up (Sort up)"
+                            onClick={() => {
+                              const { list, newId } = withImageDuplicated(s, img.id);
+                              set("images", list);
+                              onSelectLayer?.({ kind: "image", id: newId });
+                            }}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            title="Duplicate image layer"
                           >
-                            <ArrowUp01Icon size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, img.id, "down").layerOrder)}
-                            disabled={isBottom}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                            title="Move down (Sort down)"
-                          >
-                            <ArrowDown01Icon size={13} />
+                            <Copy01Icon size={13} />
                           </button>
                           <button
                             type="button"
@@ -2349,21 +2334,15 @@ export function LeftPanel({
                         >
                           <button
                             type="button"
-                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, sh.id, "up").layerOrder)}
-                            disabled={isTop}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                            title="Move up (Sort up)"
+                            onClick={() => {
+                              const { list, newId } = withShapeDuplicated(s, sh.id);
+                              set("shapes", list);
+                              onSelectLayer?.({ kind: "shape", id: newId });
+                            }}
+                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                            title="Duplicate shape layer"
                           >
-                            <ArrowUp01Icon size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => set("layerOrder", withUnifiedLayerReordered(s, sh.id, "down").layerOrder)}
-                            disabled={isBottom}
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-20"
-                            title="Move down (Sort down)"
-                          >
-                            <ArrowDown01Icon size={13} />
+                            <Copy01Icon size={13} />
                           </button>
                           <button
                             type="button"

@@ -3,17 +3,18 @@ import {
   Outlet,
   Link,
   createRootRouteWithContext,
-  useRouter,
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { StatusBar } from "@capacitor/status-bar";
+import { Alert02Icon, ReloadIcon } from "hugeicons-react";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "../components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
+import { OfflineGate } from "@/components/OfflineScreen";
 
 function NotFoundComponent() {
   return (
@@ -37,35 +38,39 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error }: { error: Error; reset: () => void }) {
   console.error(error);
-  const router = useRouter();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+      <div className="max-w-md text-center animate-in fade-in zoom-in-95 duration-500">
+        {/* Gently bobbing icon badge — friendly rather than alarming, since
+            this is usually just a transient hiccup a refresh clears up. */}
+        <div
+          className="mx-auto mb-6 grid h-20 w-20 place-items-center rounded-3xl bg-[image:var(--gradient-brand)] shadow-[var(--shadow-glow)] animate-bounce"
+          style={{ animationDuration: "2.2s" }}
+        >
+          <Alert02Icon size={34} className="text-white" />
+        </div>
+        <h1 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">
+          Oops, this page took a tumble
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          Something went wrong loading this page. It's usually just a passing
+          hiccup, a quick refresh sorts it right out.
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <div className="mt-8">
           <button
-            onClick={() => {
-              router.invalidate();
-              reset();
-            }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            type="button"
+            onClick={() => window.location.reload()}
+            className="group inline-flex items-center gap-2 rounded-2xl bg-[image:var(--gradient-brand)] px-6 py-3 text-sm font-bold text-white shadow-[var(--shadow-glow)] transition-transform hover:scale-105 active:scale-95"
           >
-            Try again
+            <ReloadIcon
+              size={16}
+              className="transition-transform duration-500 group-hover:rotate-180"
+            />
+            Refresh Page
           </button>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            Go home
-          </a>
         </div>
       </div>
     </div>
@@ -128,15 +133,17 @@ function RootComponent() {
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-    StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+    StatusBar.setOverlaysWebView({ overlay: false }).catch(() => { });
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <Outlet />
-        <Toaster position="top-center" richColors />
-      </AuthProvider>
+      <OfflineGate>
+        <AuthProvider>
+          <Outlet />
+          <Toaster position="top-center" richColors />
+        </AuthProvider>
+      </OfflineGate>
     </QueryClientProvider>
   );
 }

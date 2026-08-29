@@ -108,14 +108,96 @@ export function isCanvasBackgroundDark(bg?: string): boolean {
 
 export type CanvasPreset = { label: string; w: number; h: number };
 
-export const CANVAS_PRESETS: CanvasPreset[] = [
-  { label: "1:1", w: 1200, h: 1200 },
-  { label: "4:5", w: 1200, h: 1500 },
-  { label: "5:4", w: 1500, h: 1200 },
-  { label: "3:4", w: 1200, h: 1600 },
-  { label: "9:16", w: 1080, h: 1920 },
-  { label: "16:9", w: 1920, h: 1080 },
+export type CanvasPresetGroup = {
+  key: string;
+  label: string;
+  presets: CanvasPreset[];
+};
+
+// Presets grouped by platform, shown in the New Post size picker
+// (NewPostSizePicker.tsx). `key` matches CANVAS_PRESET_GROUP_ICONS in
+// SocialPlatformIcons.tsx so each group can show its brand badge.
+export const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
+  {
+    key: "linkedin",
+    label: "LinkedIn",
+    presets: [
+      // Feed matches the app's own default blank-canvas size (see
+      // newPostCanvasSize's initial state in index.tsx), so it's the one
+      // that shows pre-selected when the New Post dialog first opens.
+      { label: "Feed", w: 1200, h: 1500 },
+      { label: "Cover Photo (Business)", w: 2256, h: 382 },
+      { label: "Cover Photo (Personal)", w: 1584, h: 396 },
+      { label: "Celebration Post", w: 2100, h: 1200 },
+    ],
+  },
+  {
+    key: "facebook",
+    label: "Facebook",
+    presets: [
+      { label: "News Feed", w: 1200, h: 1200 },
+      { label: "Stories", w: 1080, h: 1920 },
+      { label: "Cover Photo", w: 1660, h: 624 },
+      { label: "Open Graph", w: 2400, h: 1260 },
+    ],
+  },
+  {
+    key: "instagram",
+    label: "Instagram",
+    presets: [
+      { label: "Feed - Square", w: 1080, h: 1080 },
+      { label: "Feed - Portrait", w: 1080, h: 1350 },
+      { label: "Stories", w: 1080, h: 1920 },
+      { label: "Reels", w: 1080, h: 1920 },
+    ],
+  },
+  {
+    key: "twitter",
+    label: "Twitter",
+    presets: [
+      { label: "One Image", w: 2400, h: 1350 },
+      { label: "Two Images", w: 2800, h: 3200 },
+      { label: "Cover Photo", w: 2400, h: 800 },
+      { label: "Open Graph", w: 2400, h: 1260 },
+    ],
+  },
+  {
+    key: "youtube",
+    label: "YouTube",
+    presets: [{ label: "Video Thumbnail", w: 1280, h: 720 }],
+  },
 ];
+
+// Matches a canvas's current width/height back to the platform preset it
+// came from (if any) — e.g. so the header's New Post button can show that
+// platform's own icon for the size you're currently working in. Returns
+// the group's `key` (matches CANVAS_PRESET_GROUP_ICONS in
+// SocialPlatformIcons.tsx) or null for a custom/unmatched size. Several
+// presets across different groups share the exact same pixel size (e.g.
+// Instagram/LinkedIn/Facebook Stories are all 1080×1920), so on its own
+// this just returns whichever group happens to come first — see
+// groupHasExactPreset below for how index.tsx breaks that tie in favor of
+// whichever specific preset was actually clicked.
+export function findCanvasPresetGroupKey(width: number, height: number): string | null {
+  for (const group of CANVAS_PRESET_GROUPS) {
+    if (group.presets.some((p) => p.w === width && p.h === height)) return group.key;
+  }
+  return null;
+}
+
+// True if `groupKey` has a preset matching width/height exactly. Used to
+// validate a remembered "explicitly selected platform" against the CURRENT
+// canvas size — e.g. the header keeps showing Instagram's icon after you
+// pick Instagram Reels (even though LinkedIn/Facebook Stories share that
+// same 1080×1920 size and would otherwise win findCanvasPresetGroupKey's
+// first-match search), but automatically stops trusting that memory the
+// moment something else (a template, a saved design, undo/redo) changes
+// the canvas to a size Instagram Reels no longer matches.
+export function groupHasExactPreset(groupKey: string, width: number, height: number): boolean {
+  const group = CANVAS_PRESET_GROUPS.find((g) => g.key === groupKey);
+  if (!group) return false;
+  return group.presets.some((p) => p.w === width && p.h === height);
+}
 
 export const GRADIENTS = [
   { label: "Violet Dusk", value: "linear-gradient(180deg, #0b0616 0%, #6d28d9 60%, #7c3aed 100%)" },
@@ -2040,6 +2122,85 @@ export function migrateLegacyContentToLayers(s: EditorState): EditorState {
     name: "",
     tagline: "",
     layersInitialized: true,
+  };
+}
+
+// Applies the CURRENT design to a new canvas size, instead of discarding it
+// for a blank canvas (see handleStartNewPost's "Start Blank" in index.tsx) —
+// the New Post dialog's "Resize" action.
+//
+// Every layer's own x/y is already canvas-% (see ImageLayer/TextLayer/
+// ShapeLayer's own comments), so repositioning is automatic — an element at
+// 50%/50% stays centered no matter what the new width/height are. What
+// isn't automatic is each layer's absolute-pixel SIZE fields (font size,
+// image/shape width, radius, shadow spread, ...): left alone, a 400px-wide
+// image would look enormous on a resize down to a small square, or tiny on
+// a resize up to a big canvas. Everything below scales those by one uniform
+// factor — Math.min() of the width/height ratios, so every element keeps
+// its own aspect ratio and the whole layout shrinks/grows together rather
+// than one axis stretching more than the other.
+//
+// Deliberately only touches images/texts/shapes plus width/height —
+// QuoteCanvas renders exclusively from those three arrays (confirmed: none
+// of the legacy quote/box/decorative top-level fields like quoteSize,
+// boxWidth, topButtonSize, dotsSize etc. are read anywhere in
+// QuoteCanvas.tsx any more, only kept around for migrateLegacyContentToLayers
+// above to convert old saved designs on load), so scaling them too would be
+// dead work with real risk of guessing a field's unit wrong.
+export function resizeEditorStateToNewSize(
+  s: EditorState,
+  newWidth: number,
+  newHeight: number,
+): EditorState {
+  const oldWidth = s.width || newWidth;
+  const oldHeight = s.height || newHeight;
+  if (oldWidth === newWidth && oldHeight === newHeight) return s;
+
+  const scale = Math.min(newWidth / oldWidth, newHeight / oldHeight);
+  const scalePx = (n: number) => Math.round(n * scale);
+  const scaleOptPx = (n: number | undefined) => (n === undefined ? n : scalePx(n));
+
+  const images = getImageLayers(s).map((img) => ({
+    ...img,
+    size: scalePx(img.size),
+    height: scaleOptPx(img.height),
+    radius: scalePx(img.radius),
+    shadowBlur: scalePx(img.shadowBlur),
+    shadowX: scaleOptPx(img.shadowX),
+    shadowY: scaleOptPx(img.shadowY),
+    shadowSpread: scaleOptPx(img.shadowSpread),
+  }));
+
+  const texts = getTextLayers(s).map((t) => ({
+    ...t,
+    size: scalePx(t.size),
+    width: scaleOptPx(t.width),
+    minHeight: scaleOptPx(t.minHeight),
+  }));
+
+  const shapes = getShapeLayers(s).map((sh) => ({
+    ...sh,
+    size: scalePx(sh.size),
+    height: scaleOptPx(sh.height),
+    radius: scalePx(sh.radius),
+    shadowBlur: scalePx(sh.shadowBlur),
+    strokeWidth: scaleOptPx(sh.strokeWidth),
+    shadowX: scaleOptPx(sh.shadowX),
+    shadowY: scaleOptPx(sh.shadowY),
+    shadowSpread: scaleOptPx(sh.shadowSpread),
+  }));
+
+  return {
+    ...s,
+    width: newWidth,
+    height: newHeight,
+    images,
+    texts,
+    shapes,
+    // exactOptionalPropertyTypes: only include when actually set, since
+    // explicitly assigning `undefined` here differs from the key being
+    // absent altogether.
+    ...(s.canvasRadius !== undefined ? { canvasRadius: scalePx(s.canvasRadius) } : {}),
   };
 }
 

@@ -43,6 +43,13 @@ import { getTextEffectStyle } from "./textEffects";
 import { LineShapeSvg } from "./LineShapeSvg";
 import type { EditorState, ImageLayer, ShapeLayer, TextLayer } from "./types";
 
+// How far the Canva-style margin guide is inset from each canvas edge, as a
+// percent of canvas width/height. Shared between the overlay's own inline
+// position (right below) and calculateAlignmentSnap's margin-boundary snap
+// further down, so the line you actually see and the line elements snap to
+// can never drift apart.
+const MARGIN_INSET_PCT = 8;
+
 export type RichFormatCmd = "bold" | "italic" | "underline" | "strike" | "uppercase" | "bulletList" | "numberedList";
 
 export type LiveTextFormat = {
@@ -265,6 +272,12 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
   // genuinely stable while still always acting on the latest state.
   const sRef = useRef(s);
   sRef.current = s;
+  // Same reasoning as sRef above, for `showMargins` — read from a ref so
+  // updateGroupDrag/the keyboard-nudge handler below don't need it in their
+  // own dependency arrays just to decide whether margin-boundary snapping
+  // is live.
+  const showMarginsRef = useRef(showMargins);
+  showMarginsRef.current = showMargins;
   // Same reasoning as sRef above, for `scale`: updateGroupDrag closed over
   // it directly and listed it as a dependency, so it got a new identity on
   // every single zoom-gesture frame — which, threaded down as every layer's
@@ -298,6 +311,10 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
       g.edgeRight ||
       g.edgeTop ||
       g.edgeBottom ||
+      g.marginLeft ||
+      g.marginRight ||
+      g.marginTop ||
+      g.marginBottom ||
       g.lines?.some((line) => line.distancePx === undefined)
     );
     if (isSnapped && !wasSnappedRef.current) {
@@ -536,6 +553,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
             height: groupHeight,
             s,
             otherElements,
+            showMargins: showMarginsRef.current,
           });
 
         // Back out the snap offset from the raw displacement so all items move
@@ -725,6 +743,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
               height: targetEl.height,
               s: currentS,
               otherElements,
+              showMargins: showMarginsRef.current,
             });
             handleGuidesChangeRef.current(snapGuides);
           }
@@ -895,6 +914,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGuides={handleGuidesChange}
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
+                showMargins={showMargins}
               />
             );
           }
@@ -920,6 +940,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 onGuides={handleGuidesChange}
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
+                showMargins={showMargins}
               />
             );
           }
@@ -946,6 +967,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 registerHandle={registerTextLayerHandle}
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
+                showMargins={showMargins}
               />
             );
           }
@@ -1792,23 +1814,42 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
         </div>
       ) : null}
 
-      {/* Canva-Style Margin Guide Overlay */}
-      {showMargins && interactive ? (
-        <div
-          data-margin-guide="true"
-          className="pointer-events-none absolute z-[50]"
-          style={{
-            position: "absolute",
-            left: "8%",
-            top: "8%",
-            right: "8%",
-            bottom: "8%",
-            border: "1px dashed rgba(120, 130, 150, 0.75)",
-            boxSizing: "border-box",
-            borderRadius: Math.max(0, (s.canvasRadius ?? 0) * 0.8),
-          }}
-        />
-      ) : null}
+      {/* Canva-Style Margin Guide Overlay — dashed and muted by default;
+          the moment any edge of the dragged/nudged item touches the margin
+          boundary (guides.marginLeft/Right/Top/Bottom, set by
+          calculateAlignmentSnap's margin-boundary check), the whole box
+          switches to one solid highlighted rectangle instead of just the
+          touched side lighting up, matching how a Canva-style margin guide
+          reads as a single unit rather than 4 independent lines. */}
+      {showMargins && interactive
+        ? (() => {
+            const marginTouched = !!(
+              guides.marginLeft ||
+              guides.marginRight ||
+              guides.marginTop ||
+              guides.marginBottom
+            );
+            return (
+              <div
+                data-margin-guide="true"
+                className="pointer-events-none absolute z-[50]"
+                style={{
+                  position: "absolute",
+                  left: `${MARGIN_INSET_PCT}%`,
+                  top: `${MARGIN_INSET_PCT}%`,
+                  right: `${MARGIN_INSET_PCT}%`,
+                  bottom: `${MARGIN_INSET_PCT}%`,
+                  border: marginTouched
+                    ? "2px solid #ec4899"
+                    : "1px dashed rgba(120, 130, 150, 0.75)",
+                  boxSizing: "border-box",
+                  borderRadius: Math.max(0, (s.canvasRadius ?? 0) * 0.8),
+                  transition: "border-color 120ms ease",
+                }}
+              />
+            );
+          })()
+        : null}
     </div>
   );
 });
@@ -1834,6 +1875,14 @@ export type GuidesState = {
   edgeRight?: boolean;
   edgeTop?: boolean;
   edgeBottom?: boolean;
+  // Set when a layer's edge snaps flush with the margin guide (the dashed
+  // safe-area box, MARGIN_INSET_PCT in from each canvas edge) rather than
+  // the canvas's own outer edge — same idea as edgeLeft/etc. above, one
+  // guide line inward.
+  marginLeft?: boolean;
+  marginRight?: boolean;
+  marginTop?: boolean;
+  marginBottom?: boolean;
   xPct?: number;
   yPct?: number;
   lines?: AlignmentGuideLine[];
@@ -1928,6 +1977,7 @@ function calculateAlignmentSnap({
   height,
   s,
   otherElements,
+  showMargins,
 }: {
   currentId: string;
   rawX: number;
@@ -1936,6 +1986,10 @@ function calculateAlignmentSnap({
   height: number;
   s: EditorState;
   otherElements?: ElementBounds[];
+  // Whether the margin guide overlay is currently visible — margin-boundary
+  // snapping (below) only participates when it is, since snapping to a
+  // line the user can't see would just be confusing.
+  showMargins?: boolean;
 }): { nextX: number; nextY: number; guides: GuidesState } {
   const canvasW = s.width;
   const canvasH = s.height;
@@ -1952,6 +2006,10 @@ function calculateAlignmentSnap({
   let showEdgeRight = false;
   let showEdgeTop = false;
   let showEdgeBottom = false;
+  let showMarginLeft = false;
+  let showMarginRight = false;
+  let showMarginTop = false;
+  let showMarginBottom = false;
   const lines: AlignmentGuideLine[] = [];
 
   // 1. Canvas Center X & Y
@@ -1984,6 +2042,32 @@ function calculateAlignmentSnap({
   if (Math.abs(currCenterY + halfH - canvasH) <= snapPx) {
     currCenterY = canvasH - halfH;
     showEdgeBottom = true;
+  }
+
+  // 2b. Margin Guide Boundary Snapping — same idea as the outer-edge snap
+  // just above, but at the inset boundary the margin overlay actually
+  // draws (MARGIN_INSET_PCT in from each side) rather than the canvas's
+  // own edge, so an element's edge can snap flush with that guide too.
+  if (showMargins) {
+    const marginInsetX = (MARGIN_INSET_PCT / 100) * canvasW;
+    const marginInsetY = (MARGIN_INSET_PCT / 100) * canvasH;
+
+    if (Math.abs(currCenterX - halfW - marginInsetX) <= snapPx) {
+      currCenterX = marginInsetX + halfW;
+      showMarginLeft = true;
+    }
+    if (Math.abs(currCenterX + halfW - (canvasW - marginInsetX)) <= snapPx) {
+      currCenterX = canvasW - marginInsetX - halfW;
+      showMarginRight = true;
+    }
+    if (Math.abs(currCenterY - halfH - marginInsetY) <= snapPx) {
+      currCenterY = marginInsetY + halfH;
+      showMarginTop = true;
+    }
+    if (Math.abs(currCenterY + halfH - (canvasH - marginInsetY)) <= snapPx) {
+      currCenterY = canvasH - marginInsetY - halfH;
+      showMarginBottom = true;
+    }
   }
 
   // 3. Element-to-Element Snapping
@@ -2235,6 +2319,10 @@ function calculateAlignmentSnap({
       edgeRight: showEdgeRight,
       edgeTop: showEdgeTop,
       edgeBottom: showEdgeBottom,
+      marginLeft: showMarginLeft,
+      marginRight: showMarginRight,
+      marginTop: showMarginTop,
+      marginBottom: showMarginBottom,
       xPct: 50,
       yPct: 50,
       lines,
@@ -3145,6 +3233,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   registerHandle,
   controlsOverlayEl,
   suppressDragRef,
+  showMargins = false,
 }: {
   t: TextLayer;
   index: number;
@@ -3168,6 +3257,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   registerHandle?: ((id: string, handle: TextLayerHandle | null) => void) | undefined;
   controlsOverlayEl?: HTMLDivElement | null;
   suppressDragRef?: React.RefObject<boolean> | undefined;
+  showMargins?: boolean;
 }) {
   const dragRef = useRef<{
     px: number;
@@ -3439,6 +3529,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         height,
         s: sRef.current,
         otherElements,
+        showMargins,
       });
       onGuides(snapGuides);
       set?.(
@@ -4116,6 +4207,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                 height,
                 s: sRef.current,
                 otherElements,
+                showMargins,
               });
               onGuides(snapGuides);
               set?.(
@@ -4490,6 +4582,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                               height: containerRef.current?.offsetHeight ?? t.size * 1.3,
                               s: sRef.current,
                               otherElements: getAllCanvasElements(sRef.current),
+                              showMargins,
                             }).guides,
                           );
                         } else {
@@ -4517,6 +4610,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                               height: containerRef.current?.offsetHeight ?? t.size * 1.3,
                               s: sRef.current,
                               otherElements: getAllCanvasElements(sRef.current),
+                              showMargins,
                             }).guides,
                           );
                         }
@@ -4630,6 +4724,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   onGuides,
   controlsOverlayEl,
   suppressDragRef,
+  showMargins = false,
 }: {
   img: ImageLayer;
   index: number;
@@ -4652,6 +4747,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   onGuides: (g: GuidesState) => void;
   controlsOverlayEl?: HTMLDivElement | null;
   suppressDragRef?: React.RefObject<boolean> | undefined;
+  showMargins?: boolean;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -4826,6 +4922,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
           height,
           s: sRef.current,
           otherElements,
+          showMargins,
         });
         onGuides(snapGuides);
         set?.(
@@ -5039,6 +5136,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                               height: h2,
                               s: sRef.current,
                               otherElements: getAllCanvasElements(sRef.current),
+                              showMargins,
                             }).guides,
                           );
                         };
@@ -5181,6 +5279,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   onGuides,
   controlsOverlayEl,
   suppressDragRef,
+  showMargins = false,
 }: {
   shape: ShapeLayer;
   index: number;
@@ -5203,6 +5302,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   onGuides: (g: GuidesState) => void;
   controlsOverlayEl?: HTMLDivElement | null;
   suppressDragRef?: React.RefObject<boolean> | undefined;
+  showMargins?: boolean;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -5385,6 +5485,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
           height,
           s: sRef.current,
           otherElements,
+          showMargins,
         });
         onGuides(snapGuides);
         set?.(
@@ -5867,6 +5968,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                                 height: h2,
                                 s: sRef.current,
                                 otherElements: getAllCanvasElements(sRef.current),
+                                showMargins,
                               }).guides,
                             );
                           };

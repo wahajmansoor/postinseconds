@@ -85,9 +85,6 @@ export function TemplatePreview({ template, width, onClick, showLabel = true }: 
             <QuoteCanvas s={state} />
           </div>
         )}
-
-        {/* Subtle inner ring — looks clean on both dark and light templates */}
-        <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)]" />
       </div>
 
       {/* Label — always readable; sits on bg-card below the thumbnail */}
