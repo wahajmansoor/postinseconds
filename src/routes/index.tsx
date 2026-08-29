@@ -4292,7 +4292,7 @@ function Index() {
               {canvasStage}
             </div>
 
-            {typeof document !== "undefined"
+            {typeof document !== "undefined" && !postPreviewOpen && !profilePreviewOpen
               ? createPortal(
                 !(
                   selectedTextLayer ||
@@ -4962,16 +4962,18 @@ function Index() {
               {canvasStage}
             </main>
 
-            <DraggableFloatingLayersButton
-              active={tab === "layers"}
-              layerCount={
-                getTextLayers(s).length + getImageLayers(s).length + getShapeLayers(s).length
-              }
-              onClick={() => {
-                setTab("layers");
-                setLeftPanelCollapsed(false);
-              }}
-            />
+            {!postPreviewOpen && !profilePreviewOpen ? (
+              <DraggableFloatingLayersButton
+                active={tab === "layers"}
+                layerCount={
+                  getTextLayers(s).length + getImageLayers(s).length + getShapeLayers(s).length
+                }
+                onClick={() => {
+                  setTab("layers");
+                  setLeftPanelCollapsed(false);
+                }}
+              />
+            ) : null}
           </div>
         )}
 
