@@ -1,0 +1,58 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+
+# Cancel a still-running deploy if a newer push to main lands before it
+# finishes, so two prod deploys never race each other.
+concurrency:
+  group: vercel-production-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # vercel pull needs VERCEL_ORG_ID/VERCEL_PROJECT_ID (above) to link to
+      # the right project non-interactively — without them it has no TTY to
+      # prompt in CI and just fails.
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
+
+      # Building via the Vercel CLI itself (not `npm run build` + `vercel
+      # deploy`) is what lets this run as a token-authenticated API deploy
+      # instead of going through Vercel's GitHub Git integration — which is
+      # exactly the path that was hitting the "commit author doesn't have
+      # contributing access" block on a private repo under a Hobby-plan
+      # team. This workflow bypasses that check entirely.
+      - name: Build Project Artifacts
+        run: vercel build --prod --token=$VERCEL_TOKEN
+
+      - name: Deploy Project Artifacts to Vercel
+        run: vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN
