@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Add01Icon,
@@ -102,6 +102,10 @@ export function PostPreviewDialog({
   // "fitted to the stage" currently sits — see the effect below for why
   // both need to move together instead of zoom just starting at a fixed 1.
   const [{ zoom, minZoom }, setZoomState] = useState({ zoom: 1, minZoom: 1 });
+  // Gates the card's visibility until the very first fit measurement has
+  // actually landed — see the effect below for why an unfitted flash was
+  // possible without it.
+  const [hasFit, setHasFit] = useState(false);
   const [caption, setCaption] = useState("");
   const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
   // Which reaction is currently "picked" on the Like button, and whether
@@ -111,6 +115,15 @@ export function PostPreviewDialog({
   const [selectedReaction, setSelectedReaction] = useState<ReactionKey | null>(null);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const stageRef = useRef<HTMLDivElement>(null);
+  // "Latest value" refs for the pinch-gesture effect below, which only
+  // depends on [open] (it shouldn't tear down/rebuild its touch listeners
+  // on every zoom tick) but still needs the CURRENT zoom/minZoom inside
+  // long-lived event handlers rather than whatever they were when the
+  // effect was set up.
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  const minZoomRef = useRef(minZoom);
+  minZoomRef.current = minZoom;
 
   // Auto-fit the card to whatever width the stage actually has. The card is
   // a fixed 524px-wide real-pixel replica (see CARD_WIDTH), and the old
@@ -120,28 +133,131 @@ export function PostPreviewDialog({
   // preview in the app. Resets to fit every time the dialog opens, then
   // keeps tracking the fit on resize/orientation change for as long as the
   // user hasn't manually zoomed in past it.
-  useEffect(() => {
+  //
+  // Two things fixed here that caused a visible "card too wide, clipped
+  // off the right edge" flash on mobile while the image was still loading:
+  // 1. useLayoutEffect (not useEffect) — useEffect runs AFTER the browser
+  //    paints, so the very first frame rendered at the initial {zoom:1}
+  //    default (the card's real, unfit 524px width) before this ever got a
+  //    chance to shrink it down. Measuring/applying synchronously before
+  //    paint means the first frame already shows the fitted size.
+  // 2. Only ResizeObserver's own callback drives the fit now — the old
+  //    code ALSO called applyFit(el.clientWidth) once up front, but
+  //    clientWidth includes this stage's own padding (p-4/p-10) while
+  //    ResizeObserver's contentRect excludes it, so that first call
+  //    computed a fit against a too-generous width and rendered the card
+  //    slightly too big — exactly the clipped-edge look reported.
+  //    ResizeObserver already reports an initial measurement the moment
+  //    observation starts, using the correct (content-box) width, so the
+  //    separate manual call was both redundant and the actual bug.
+  useLayoutEffect(() => {
     if (!open) return;
     const el = stageRef.current;
     if (!el) return;
 
     let firstRun = true;
     const applyFit = (width: number) => {
-      const fit = Math.max(0.15, Math.min(1, width / CARD_WIDTH));
+      // 0.98: a couple % of slack on top of the exact ratio, so a stray
+      // few px from scrollbar-gutter reservation or sub-pixel rounding —
+      // whichever was still landing the card a hair over 100% and getting
+      // its right edge clipped by "safe center"'s overflow fallback —
+      // never quite reaches the edge again.
+      const fit = Math.max(0.15, Math.min(1, (width / CARD_WIDTH) * 0.98));
       setZoomState((prev) => ({
         minZoom: fit,
         zoom: firstRun || prev.zoom <= prev.minZoom + 0.001 ? fit : Math.max(fit, prev.zoom),
       }));
+      setHasFit(true);
       firstRun = false;
     };
+    // clientWidth minus this element's OWN computed padding, not
+    // entry.contentRect — re-measured the same way on every call (the
+    // synchronous one below AND every ResizeObserver firing) so there's
+    // exactly one source of truth for "available width" instead of two
+    // box-model interpretations that could disagree.
+    const measure = () => {
+      const style = window.getComputedStyle(el);
+      const paddingX = parseFloat(style.paddingLeft || "0") + parseFloat(style.paddingRight || "0");
+      applyFit(el.clientWidth - paddingX);
+    };
 
-    applyFit(el.clientWidth);
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) applyFit(entry.contentRect.width);
-    });
+    measure();
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
+  }, [open]);
+
+  // Explicitly recenters the stage's own scroll position every time zoom
+  // changes (the very first fit above, and every manual +/- click) —
+  // `justify-content: safe center`'s browser fallback for a card that
+  // still doesn't fully fit doesn't reliably land on a centered scroll
+  // position on its own, which was showing up as the card sitting shifted
+  // toward the right on load, only re-centering once manually dragged.
+  // Runs in its own effect (not inlined into the one above) because it
+  // needs to read scrollWidth/scrollHeight AFTER the DOM has already
+  // re-rendered at the new zoom, not in the same tick zoom was requested.
+  useLayoutEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+    el.scrollTop = (el.scrollHeight - el.clientHeight) / 2;
+  }, [zoom]);
+
+  // Two-finger pinch-to-zoom on the stage, replacing the +/- buttons on
+  // mobile (hidden below sm: — see the zoom-controls div's own comment).
+  // Native browser pinch-zoom is disabled app-wide (see the viewport meta
+  // in __root.tsx), so this hand-rolls it: track the distance between the
+  // two touches at gesture start, scale zoom by however that distance
+  // changes as fingers move apart/together. Registered via a native
+  // (non-React-synthetic) listener with { passive: false } specifically
+  // for touchmove — React attaches touch handlers as passive by default
+  // for scroll performance, which silently no-ops preventDefault() and
+  // would let the page fight the gesture (e.g. the stage's own one-finger
+  // drag-scroll briefly reading the second finger as a scroll too).
+  useEffect(() => {
+    if (!open) return;
+    const el = stageRef.current;
+    if (!el) return;
+
+    let pinchStartDistance: number | null = null;
+    let pinchStartZoom = 1;
+
+    const distanceBetween = (touches: TouchList) => {
+      const t1 = touches[0];
+      const t2 = touches[1];
+      if (!t1 || !t2) return 0;
+      return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchStartDistance = distanceBetween(e.touches);
+        pinchStartZoom = zoomRef.current;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || pinchStartDistance === null) return;
+      e.preventDefault();
+      const ratio = distanceBetween(e.touches) / pinchStartDistance;
+      const nextZoom = Math.min(2, Math.max(minZoomRef.current, pinchStartZoom * ratio));
+      setZoomState((prev) => ({ ...prev, zoom: Number(nextZoom.toFixed(2)) }));
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) pinchStartDistance = null;
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
   }, [open]);
 
   if (!open || typeof document === "undefined") return null;
@@ -287,17 +403,31 @@ export function PostPreviewDialog({
           plain flex `center` on a scrollable container has a well-known gap
           where content taller/wider than the viewport can't actually be
           scrolled to its full extent (the browser only scrolls far enough
-          to keep it centered, clipping the far edge with no room for this
-          padding at all) — "safe" falls back to start-alignment once
-          content overflows, so zooming in still lets you scroll to see the
-          complete card with this padding intact as real margin above and
-          below it, not just when it happens to already fit. */}
+          to keep it centered) — "safe" falls back to start-alignment once
+          content overflows, so zooming in still lets you scroll toward the
+          complete card instead of the far edge just being unreachable.
+          No padding on this container itself, though — that's a second,
+          separate well-known gap: a centered/overflowing flex container's
+          OWN padding on the trailing edge is what browsers actually drop
+          from the scrollable area (the exact "no room to see the rest even
+          though there's padding" symptom this was hit by after zooming
+          in). The margin that makes the visible gap above/below the card
+          lives on the scaled card wrapper itself below instead — margin
+          that's part of the scrolled CONTENT's own box is always included
+          in scrollHeight/scrollWidth, sidestepping that container-padding
+          bug entirely. */}
       <div
         ref={stageRef}
-        className="relative flex flex-1 [align-items:safe_center] [justify-content:safe_center] overflow-auto bg-secondary/30 p-4 sm:p-10"
+        className="relative flex flex-1 [align-items:safe_center] [justify-content:safe_center] overflow-auto bg-secondary/30"
       >
-        {/* Zoom controls */}
-        <div className="absolute right-6 top-6 flex items-center gap-1 rounded-full border border-border bg-card p-1 shadow-sm">
+        {/* Zoom controls — desktop only now (hidden sm:flex). Mobile uses
+            real two-finger pinch instead (see the touch-listener effect
+            above) rather than this +/- pill. Desktop keeps it fixed to
+            the bottom-right of the actual viewport (not the stage's own
+            box, and not scroll-coupled the way `absolute` was — see that
+            same fix's own comment history above for why `fixed` matters
+            here). */}
+        <div className="hidden sm:flex sm:fixed sm:bottom-6 sm:right-6 items-center gap-1 rounded-full border border-border bg-card p-1 shadow-sm">
           <button
             type="button"
             disabled={zoom <= minZoom}
@@ -316,7 +446,27 @@ export function PostPreviewDialog({
           </button>
         </div>
 
-        <div style={{ transform: `scale(${zoom})` }} className="transition-transform">
+        {/* m-4 sm:m-10 on this OUTER, non-transformed div — not combined
+            onto the scaled div itself. Margin lives here specifically so
+            it stays a plain, well-behaved box for scrollWidth/scrollHeight
+            purposes: margin on an element that ALSO carries transform:
+            scale() runs into the same "ink overflow" special-casing that
+            makes zoomed content scrollable in the first place, and at
+            higher zoom that combination was producing wildly wrong
+            scrollable bounds — the card rendering tiny and adrift in a
+            mostly-empty stage at 2x instead of just filling more of the
+            screen. Keeping margin and transform on two separate elements
+            avoids that interaction entirely. */}
+        <div className="m-4 sm:m-10">
+        {/* opacity gate: belt-and-suspenders alongside the layout-effect
+            fix above — hides the card until the very first real fit has
+            landed, so even a browser that delivers ResizeObserver's
+            initial callback a frame later than expected never shows the
+            unfit, clipped-off-the-edge size instead of just a blank beat. */}
+        <div
+          style={{ transform: `scale(${zoom})`, opacity: hasFit ? 1 : 0 }}
+          className="transition-all"
+        >
           {/* The LinkedIn post-card mockup itself. No overflow-hidden here
               (even though it's rounded) — the reaction picker needs to
               float above the Like button without getting clipped, and
@@ -496,6 +646,7 @@ export function PostPreviewDialog({
               </div>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>,

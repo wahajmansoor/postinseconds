@@ -4050,37 +4050,63 @@ function Index() {
 
         {isMobile ? (
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-            {/* Floating Undo & Redo pill on top-left (top-16 left-3) — shown only when changes exist */}
-            {canUndo || canRedo ? (
-              <div
-                className="pointer-events-none fixed left-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
-                style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
-              >
-                <AppTooltip content="Undo">
-                  <button
-                    type="button"
-                    onClick={undo}
-                    disabled={!canUndo}
-                    className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                    title="Undo"
-                  >
-                    <Undo02Icon size={15} />
-                  </button>
-                </AppTooltip>
-                <div className="h-3.5 w-px bg-border/80" />
-                <AppTooltip content="Redo">
-                  <button
-                    type="button"
-                    onClick={redo}
-                    disabled={!canRedo}
-                    className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
-                    title="Redo"
-                  >
-                    <Redo02Icon size={15} />
-                  </button>
-                </AppTooltip>
-              </div>
-            ) : null}
+            {/* Floating Undo & Redo (& Layers) pill on top-left (top-16
+                left-3). Always shown now, not just when there's undo/redo
+                history — Layers needs to stay reachable from here
+                regardless, since that's the whole point of adding it;
+                Undo/Redo just gray themselves out via their own disabled
+                prop on a fresh canvas, same as before. */}
+            <div
+              className="pointer-events-none fixed left-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+              style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
+            >
+              <AppTooltip content="Undo">
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={!canUndo}
+                  className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                  title="Undo"
+                >
+                  <Undo02Icon size={15} />
+                </button>
+              </AppTooltip>
+              <div className="h-3.5 w-px bg-border/80" />
+              <AppTooltip content="Redo">
+                <button
+                  type="button"
+                  onClick={redo}
+                  disabled={!canRedo}
+                  className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+                  title="Redo"
+                >
+                  <Redo02Icon size={15} />
+                </button>
+              </AppTooltip>
+              <div className="h-3.5 w-px bg-border/80" />
+              <AppTooltip content="Layers">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (tab === "layers" && mobileToolDrawerOpen) {
+                      setMobileToolDrawerOpen(false);
+                    } else {
+                      setTab("layers");
+                      setMobileToolDrawerOpen(true);
+                    }
+                  }}
+                  className={cn(
+                    "pointer-events-auto grid h-7 w-7 place-items-center rounded-full transition-all active:scale-95",
+                    tab === "layers" && mobileToolDrawerOpen
+                      ? "bg-secondary text-foreground"
+                      : "text-foreground hover:bg-secondary",
+                  )}
+                  title="Layers"
+                >
+                  <Motion01Icon size={15} />
+                </button>
+              </AppTooltip>
+            </div>
 
             {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
             {selectedTextLayer ||
@@ -4305,7 +4331,17 @@ function Index() {
               {canvasStage}
             </div>
 
-            {typeof document !== "undefined" && !postPreviewOpen && !profilePreviewOpen
+            {/* Also hidden while the Export drawer is open: that drawer is
+                a genuine bottom sheet (anchored to the screen bottom, same
+                as this tab bar) with its own "Done" close button rather
+                than a quick-switch-tools surface like the main tool
+                drawer — which is why THAT one deliberately keeps this bar
+                on top (see MobileBottomTabBar's own comment). The Export
+                drawer's z-30 sits below this bar's z-[100], so without
+                this it hid the drawer's own Download button behind
+                itself, exactly like postPreviewOpen/profilePreviewOpen
+                already needed above. */}
+            {typeof document !== "undefined" && !postPreviewOpen && !profilePreviewOpen && !mobileExportDrawerOpen
               ? createPortal(
                 !(
                   selectedTextLayer ||
@@ -5102,7 +5138,17 @@ function Index() {
           open={newPostConfirmOpen}
           onOpenChange={(open) => (open ? setNewPostConfirmOpen(true) : closeNewPostDialogWithoutStarting())}
         >
-          <DialogContent className="sm:max-w-[960px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
+          {/* max-h + overflow-y-auto: stacking the footer's 4 buttons
+              full-width on mobile (see that section's own comment) made
+              this dialog tall enough that Radix's default plain
+              top-1/2/-translate-y-1/2 centering — no height cap at all —
+              could push its bottom (the footer) below the fold on a short
+              phone screen with no way to reach it, and its top flush
+              against the very top edge with no breathing room. Capping the
+              height guarantees real margin above AND below at every screen
+              size, and makes the dialog scroll internally instead of
+              overflowing off-screen whenever it doesn't fit. */}
+          <DialogContent className="sm:max-w-[960px] max-h-[85vh] overflow-y-auto rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
             {/* text-left overrides DialogHeader's own default of
                 text-center sm:text-left — that default assumes a centered
                 icon-above-title layout, but this header sits the logo
