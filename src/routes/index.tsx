@@ -5103,7 +5103,13 @@ function Index() {
           onOpenChange={(open) => (open ? setNewPostConfirmOpen(true) : closeNewPostDialogWithoutStarting())}
         >
           <DialogContent className="sm:max-w-[960px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
-            <DialogHeader>
+            {/* text-left overrides DialogHeader's own default of
+                text-center sm:text-left — that default assumes a centered
+                icon-above-title layout, but this header sits the logo
+                beside the text in a horizontal row at every breakpoint, so
+                the text should stay left-aligned on mobile too, not just
+                from sm: up. */}
+            <DialogHeader className="text-left">
               <div className="flex items-center gap-3">
                 <img
                   src="/logo.png"
@@ -5124,12 +5130,19 @@ function Index() {
 
             <NewPostSizePicker value={newPostCanvasSize} onChange={previewNewPostSize} />
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-              <div className="flex items-center gap-2">
+            {/* Mobile: all 4 actions stack full-width in one column instead
+                of two side-by-side pairs — at the dialog's mobile width
+                (no sm:max-w-[960px] yet below that breakpoint), "Resize
+                Current Layout"/"Start Blank Canvas" squeezed into half a
+                narrow row together, cramming or clipping their uppercase,
+                letter-spaced labels. Desktop keeps the original two-group
+                layout via sm:. */}
+            <div className="mt-4 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button
                   type="button"
                   onClick={closeNewPostDialogWithoutStarting}
-                  className="rounded-xl border border-border px-3.5 py-2 text-[11px] font-bold uppercase tracking-[1px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground active:scale-95"
+                  className="w-full rounded-xl border border-border px-3.5 py-2 text-[11px] font-bold uppercase tracking-[1px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground active:scale-95 sm:w-auto"
                 >
                   Cancel
                 </button>
@@ -5153,21 +5166,21 @@ function Index() {
                     setSaveAndNewPending(true);
                     setSaveTemplateOpen(true);
                   }}
-                  className="flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-primary shadow-sm transition-all hover:bg-primary/20 active:scale-95"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-primary/40 bg-primary/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-primary shadow-sm transition-all hover:bg-primary/20 active:scale-95 sm:w-auto"
                 >
                   <Bookmark01Icon size={14} />
                   <span>Save & Start New</span>
                 </button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <button
                   type="button"
                   onClick={() => {
                     setNewPostConfirmOpen(false);
                     handleResizeCurrentLayout(newPostCanvasSize, explicitPlatformKey);
                   }}
-                  className="flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-amber-500 shadow-sm transition-all hover:bg-amber-500/20 active:scale-95"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-amber-500 shadow-sm transition-all hover:bg-amber-500/20 active:scale-95 sm:w-auto"
                 >
                   <span>Resize Current Layout</span>
                 </button>
@@ -5177,7 +5190,7 @@ function Index() {
                     setNewPostConfirmOpen(false);
                     handleStartNewPost(newPostCanvasSize, explicitPlatformKey);
                   }}
-                  className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-emerald-500 shadow-sm transition-all hover:bg-emerald-500/20 active:scale-95"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-[11px] font-bold uppercase tracking-[1px] text-emerald-500 shadow-sm transition-all hover:bg-emerald-500/20 active:scale-95 sm:w-auto"
                 >
                   <span>Start Blank Canvas</span>
                 </button>
