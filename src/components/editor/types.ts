@@ -199,6 +199,19 @@ export function groupHasExactPreset(groupKey: string, width: number, height: num
   return group.presets.some((p) => p.w === width && p.h === height);
 }
 
+// Whether the current canvas size matches one of LinkedIn's own cover-photo
+// presets (Personal/Business) rather than a feed-post-shaped one — used by
+// ExportControls to decide which LinkedIn preview mockup actually applies:
+// a cover photo is framed on your profile page (LinkedInProfilePreviewDialog),
+// completely differently from how a feed post renders
+// (PostPreviewDialog), so only one of "LinkedIn Post Preview"/"LinkedIn
+// Profile Preview" ever makes sense to offer at a time.
+export function isLinkedInCoverPhotoSize(width: number, height: number): boolean {
+  const linkedin = CANVAS_PRESET_GROUPS.find((g) => g.key === "linkedin");
+  if (!linkedin) return false;
+  return linkedin.presets.some((p) => p.label.startsWith("Cover Photo") && p.w === width && p.h === height);
+}
+
 export const GRADIENTS = [
   { label: "Violet Dusk", value: "linear-gradient(180deg, #0b0616 0%, #6d28d9 60%, #7c3aed 100%)" },
   { label: "Ember", value: "linear-gradient(140deg, #1a1a1a 0%, #7c2d12 55%, #e85d3a 100%)" },

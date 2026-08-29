@@ -1,5 +1,5 @@
 import { Download01Icon } from "hugeicons-react";
-import type { EditorState } from "./types";
+import { isLinkedInCoverPhotoSize, type EditorState } from "./types";
 import { Chip, Field } from "./ui";
 import { LinkedInGroupIcon } from "./SocialPlatformIcons";
 
@@ -8,6 +8,7 @@ type Props = {
   set: <K extends keyof EditorState>(k: K, v: EditorState[K]) => void;
   onDownload: () => void;
   onPreview: () => void;
+  onProfilePreview: () => void;
   busy: boolean;
 };
 
@@ -21,7 +22,7 @@ type Props = {
 // each caller supplies its own (PopoverContent's card, or the Drawer's
 // sheet), since a nested "collapsible section" header would be redundant
 // once the surrounding UI is already itself only shown on demand.
-export function ExportControls({ s, set, onDownload, onPreview, busy }: Props) {
+export function ExportControls({ s, set, onDownload, onPreview, onProfilePreview, busy }: Props) {
   return (
     <div className="space-y-4">
       <Field label="Format">
@@ -60,15 +61,31 @@ export function ExportControls({ s, set, onDownload, onPreview, busy }: Props) {
           ))}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onPreview}
-        disabled={busy}
-        className="flex w-full items-center justify-center gap-2 rounded-full border border-border bg-white px-5 py-1.5 text-sm font-semibold text-black transition-colors hover:bg-slate-200 hover:text-black disabled:opacity-60"
-      >
-        <LinkedInGroupIcon size={26} />
-        LinkedIn Post Preview
-      </button>
+      {/* A cover photo (Personal/Business) is framed on your profile page,
+          completely differently from a feed post — so only whichever
+          preview mockup actually matches the CURRENT canvas size is worth
+          offering, not both at once. */}
+      {isLinkedInCoverPhotoSize(s.width, s.height) ? (
+        <button
+          type="button"
+          onClick={onProfilePreview}
+          disabled={busy}
+          className="flex w-full items-center justify-center gap-2 rounded-full border border-border bg-white px-5 py-1.5 text-sm font-semibold text-black transition-colors hover:bg-slate-200 hover:text-black disabled:opacity-60"
+        >
+          <LinkedInGroupIcon size={26} />
+          LinkedIn Profile Preview
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onPreview}
+          disabled={busy}
+          className="flex w-full items-center justify-center gap-2 rounded-full border border-border bg-white px-5 py-1.5 text-sm font-semibold text-black transition-colors hover:bg-slate-200 hover:text-black disabled:opacity-60"
+        >
+          <LinkedInGroupIcon size={26} />
+          LinkedIn Post Preview
+        </button>
+      )}
       <button
         type="button"
         onClick={onDownload}

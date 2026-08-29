@@ -161,7 +161,7 @@ export function PostPreviewDialog({
         <div className="absolute right-6 top-6 flex items-center gap-1 rounded-full border border-border bg-card p-1 shadow-sm">
           <button
             type="button"
-            onClick={() => setZoom((z) => Math.max(0.5, Number((z - 0.1).toFixed(1))))}
+            onClick={() => setZoom((z) => Math.max(1, Number((z - 0.1).toFixed(1))))}
             className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             <MinusSignIcon size={13} />

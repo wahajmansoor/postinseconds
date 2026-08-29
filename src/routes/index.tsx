@@ -137,6 +137,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { FullScreenLogoLoader } from "@/components/FullScreenLogoLoader";
 import { ExportPreviewDialog } from "@/components/editor/ExportPreviewDialog";
 import { PostPreviewDialog } from "@/components/editor/PostPreviewDialog";
+import { LinkedInProfilePreviewDialog } from "@/components/editor/LinkedInProfilePreviewDialog";
 import { Rulers, RULER_SIZE } from "@/components/editor/Rulers";
 import { useAuth } from "@/lib/auth";
 import { UserMenu } from "@/components/auth/UserMenu";
@@ -727,6 +728,12 @@ function Index() {
   // rendered image before download).
   const [postPreviewOpen, setPostPreviewOpen] = useState(false);
   const [postPreviewUrl, setPostPreviewUrl] = useState<string | null>(null);
+  // Same idea, for the separate "LinkedIn Profile Preview" (cover photo on
+  // an actual profile page, not a feed post — see
+  // LinkedInProfilePreviewDialog's own comment for why it needed its own
+  // dialog rather than reusing the post-card one).
+  const [profilePreviewOpen, setProfilePreviewOpen] = useState(false);
+  const [profilePreviewUrl, setProfilePreviewUrl] = useState<string | null>(null);
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   // Desktop Export dropdown's own open state — replaced the old persistent
@@ -2560,6 +2567,28 @@ function Index() {
     }
   };
 
+  // Same instant 1x render, handed to the cover-photo/profile mockup instead.
+  const openProfilePreview = async () => {
+    if (!canvasRef.current || busy) return;
+    setCanvasSelection([]);
+    setIsBackgroundSelected(false);
+    (document.activeElement as HTMLElement | null)?.blur();
+    window.getSelection()?.removeAllRanges();
+
+    setProfilePreviewUrl(null);
+    setProfilePreviewOpen(true);
+    setBusy(true);
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    try {
+      const url = await renderExport(1);
+      setProfilePreviewUrl(url);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const confirmDownload = async () => {
     if (isExportingFinal) return;
     setIsExportingFinal(true);
@@ -3992,6 +4021,10 @@ function Index() {
                       setExportPopoverOpen(false);
                       openPostPreview();
                     }}
+                    onProfilePreview={() => {
+                      setExportPopoverOpen(false);
+                      openProfilePreview();
+                    }}
                   />
                 </PopoverContent>
               </Popover>
@@ -4711,6 +4744,10 @@ function Index() {
                       openPostPreview();
                       setMobileExportDrawerOpen(false);
                     }}
+                    onProfilePreview={() => {
+                      openProfilePreview();
+                      setMobileExportDrawerOpen(false);
+                    }}
                     busy={busy}
                   />
                 </div>
@@ -4996,6 +5033,16 @@ function Index() {
           imageUrl={postPreviewUrl}
           canvasWidth={s.width}
           canvasHeight={s.height}
+          userName={user?.name || "You"}
+          userAvatar={user?.avatar || "/defult-img.jpg"}
+        />
+        <LinkedInProfilePreviewDialog
+          open={profilePreviewOpen}
+          onClose={() => {
+            setProfilePreviewOpen(false);
+            setProfilePreviewUrl(null);
+          }}
+          imageUrl={profilePreviewUrl}
           userName={user?.name || "You"}
           userAvatar={user?.avatar || "/defult-img.jpg"}
         />
