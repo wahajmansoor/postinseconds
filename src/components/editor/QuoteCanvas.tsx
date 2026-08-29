@@ -2637,7 +2637,7 @@ function RotateMoveHandleRow({
   };
 
   const btn =
-    "grid h-7 w-7 place-items-center rounded-full bg-white text-black shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-[#15161c] hover:text-white active:scale-95";
+    "group grid h-7 w-7 place-items-center rounded-full bg-white text-black shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-[#15161c] hover:text-white active:scale-95";
 
   return (
     <>
@@ -2688,7 +2688,7 @@ function RotateMoveHandleRow({
               className={btn}
               style={{ cursor: "move" }}
             >
-              <MoveIcon size={18} className="text-[#454545]" />
+              <MoveIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
             </button>
             {/* Rotate Button on Bottom */}
             <button
@@ -2701,7 +2701,7 @@ function RotateMoveHandleRow({
               className={btn}
               style={{ cursor: "default" }}
             >
-              <RotateRefreshIcon size={18} className="text-[#454545]" />
+              <RotateRefreshIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
             </button>
           </>
         ) : (
@@ -2717,7 +2717,7 @@ function RotateMoveHandleRow({
               className={btn}
               style={{ cursor: "default" }}
             >
-              <RotateRefreshIcon size={18} className="text-[#454545]" />
+              <RotateRefreshIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
             </button>
             {/* Move Button on Right */}
             <button
@@ -2730,7 +2730,7 @@ function RotateMoveHandleRow({
               className={btn}
               style={{ cursor: "move" }}
             >
-              <MoveIcon size={18} className="text-[#454545]" />
+              <MoveIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
             </button>
           </>
         )}
