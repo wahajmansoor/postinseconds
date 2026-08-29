@@ -18,11 +18,12 @@ export function FullScreenLogoLoader({
     <div
       aria-hidden={ariaHidden}
       className={cn(
-        "fixed inset-0 z-[999] flex items-center justify-center bg-background",
+        "fixed inset-0 z-[999] flex flex-col items-center justify-center gap-3 bg-background",
         className,
       )}
     >
       <img src="/logo.png" alt="" className="h-14 w-auto animate-pulse" />
+      <p className="text-md font-medium text-muted-foreground">Loading, please wait...</p>
     </div>
   );
 }
