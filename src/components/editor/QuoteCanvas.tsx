@@ -4,11 +4,10 @@ import {
   Copy01Icon,
   CursorCircleSelection02Icon,
   Delete02Icon,
+  MoveIcon,
   SquareLock02Icon,
   SquareUnlock02Icon,
 } from "hugeicons-react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { HandGrabIcon } from "@hugeicons/core-free-icons";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { triggerAlignmentHaptic } from "@/lib/haptics";
@@ -41,6 +40,7 @@ import {
 } from "./types";
 import { getTextEffectStyle } from "./textEffects";
 import { LineShapeSvg } from "./LineShapeSvg";
+import { RotateRefreshIcon } from "./RotateRefreshIcon";
 import type { EditorState, ImageLayer, ShapeLayer, TextLayer } from "./types";
 
 // How far the Canva-style margin guide is inset from each canvas edge, as a
@@ -2688,7 +2688,7 @@ function RotateMoveHandleRow({
               className={btn}
               style={{ cursor: "move" }}
             >
-              <HugeiconsIcon icon={HandGrabIcon} size={18} />
+              <MoveIcon size={18} className="text-[#454545]" />
             </button>
             {/* Rotate Button on Bottom */}
             <button
@@ -2699,9 +2699,9 @@ function RotateMoveHandleRow({
               onPointerUp={handleRotatePointerUp}
               onPointerCancel={handleRotatePointerUp}
               className={btn}
-              style={{ cursor: "grab" }}
+              style={{ cursor: "default" }}
             >
-              <CursorCircleSelection02Icon size={16} />
+              <RotateRefreshIcon size={18} className="text-[#454545]" />
             </button>
           </>
         ) : (
@@ -2715,9 +2715,9 @@ function RotateMoveHandleRow({
               onPointerUp={handleRotatePointerUp}
               onPointerCancel={handleRotatePointerUp}
               className={btn}
-              style={{ cursor: "grab" }}
+              style={{ cursor: "default" }}
             >
-              <CursorCircleSelection02Icon size={16} />
+              <RotateRefreshIcon size={18} className="text-[#454545]" />
             </button>
             {/* Move Button on Right */}
             <button
@@ -2730,7 +2730,7 @@ function RotateMoveHandleRow({
               className={btn}
               style={{ cursor: "move" }}
             >
-              <HugeiconsIcon icon={HandGrabIcon} size={18} />
+              <MoveIcon size={18} className="text-[#454545]" />
             </button>
           </>
         )}
@@ -5358,6 +5358,17 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const effectiveHeight = typeof shape.height === "number" ? shape.height : (isLine ? 24 : shape.size);
   const rotation = shape.rotation ?? 0;
   const invScale = scale > 0 ? 1 / scale : 1;
+  // Line shapes render a thin visual stroke (effectiveHeight defaults to
+  // just 24 canvas-space px) but that same number is also this layer's
+  // pointer-hit target height below — fine on desktop, but once the whole
+  // canvas is scaled down to fit a small mobile screen that strip shrinks
+  // to only a few real screen px, making the line itself very hard to
+  // tap/drag (as opposed to its two endpoint handles, which are a
+  // separate, already invScale-compensated hit area). This only widens the
+  // invisible pointer target — effectiveHeight itself still drives the
+  // actual rendered stroke and all alignment/snap math below, so the line
+  // never looks thicker and its bounding box for other layers stays exact.
+  const lineHitBoxHeight = isLine ? Math.max(effectiveHeight, 36 * invScale) : effectiveHeight;
   const lineRad = (rotation * Math.PI) / 180;
   const lineLen = typeof shape.size === "number" && shape.size > 0 ? shape.size : 200;
   const p1 = { x: (-lineLen / 2) * Math.cos(lineRad), y: (-lineLen / 2) * Math.sin(lineRad) };
@@ -5535,10 +5546,15 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
           top: `${shape.y}%`,
           transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
           width: typeof shape.size === "number" && Number.isFinite(shape.size) && shape.size > 0 ? shape.size : 200,
-          height:
-            typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
+          height: isLine
+            ? lineHitBoxHeight
+            : (typeof effectiveHeight === "number" && Number.isFinite(effectiveHeight) && effectiveHeight > 0
               ? effectiveHeight
-              : 200,
+              : 200),
+          // Only for lines: the hit box above is padded taller than the
+          // visual stroke for touch, so center that (fixed-height) visual
+          // wrapper inside it rather than letting it stretch to fill.
+          ...(isLine ? { display: "flex" as const, alignItems: "center" as const, justifyContent: "center" as const } : null),
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
           zIndex: 10 + index,
           touchAction: "none",
@@ -5551,7 +5567,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
           <div
             style={{
               width: "100%",
-              height: "100%",
+              height: effectiveHeight,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -5767,8 +5783,22 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                           left: 0,
                           top: "50%",
                           transform: "translate(-50%, -50%)",
-                          width: 28,
-                          height: 28,
+                          // Hit box scaled by invScale (same zoomed()
+                          // compensation the 8 corner/edge resize handles
+                          // already use, see getHandleStyle) — without it,
+                          // this stayed a fixed 28 canvas-space px, which
+                          // shrinks along with everything else once the
+                          // whole canvas is scaled down to fit a small
+                          // mobile screen, leaving too small a target to tap
+                          // reliably. The visible dot below is capped at
+                          // 20px real screen size instead of scaling
+                          // unbounded with it — same split the corner
+                          // handles use (big invisible hit target, small
+                          // visible dot), so a zoomed-out canvas gets an
+                          // easier-to-tap handle without the circle itself
+                          // ballooning.
+                          width: 28 * invScale,
+                          height: 28 * invScale,
                           pointerEvents: "auto",
                           cursor: "crosshair",
                           display: "flex",
@@ -5781,9 +5811,10 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       >
                         <div
                           className={cn(
-                            "h-5 w-5 rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            "rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
                             activeHandle === "line-start" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
+                          style={{ width: Math.min(20, 20 * invScale), height: Math.min(20, 20 * invScale) }}
                         />
                         {/* Live Measurement Badge anchored outward past start tip */}
                         {activeHandle === "line-start" && (
@@ -5888,8 +5919,11 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                           left: "100%",
                           top: "50%",
                           transform: "translate(-50%, -50%)",
-                          width: 28,
-                          height: 28,
+                          // See the start handle's own comment above — same
+                          // invScale compensation so this stays a real ~28px
+                          // tap target on screen at any canvas zoom level.
+                          width: 28 * invScale,
+                          height: 28 * invScale,
                           pointerEvents: "auto",
                           cursor: "crosshair",
                           display: "flex",
@@ -5902,9 +5936,10 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       >
                         <div
                           className={cn(
-                            "h-5 w-5 rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            "rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
                             activeHandle === "line-end" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
+                          style={{ width: Math.min(20, 20 * invScale), height: Math.min(20, 20 * invScale) }}
                         />
                         {/* Live Measurement Badge anchored outward past end tip */}
                         {activeHandle === "line-end" && (

@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EditProfileDialog } from "@/components/auth/EditProfileDialog";
-import { Edit02Icon, Logout01Icon, UserCircleIcon, SecurityCheckIcon } from "hugeicons-react";
+import { Crown03Icon, Logout01Icon, UserCircleIcon, UserSquareIcon } from "hugeicons-react";
 
 export function UserMenu() {
   const { user, isAuthenticated, isAdmin, openLoginModal, logout } = useAuth();
@@ -91,7 +91,7 @@ export function UserMenu() {
           }}
           className="cursor-pointer gap-2 rounded-lg text-xs font-semibold text-foreground hover:bg-accent"
         >
-          <Edit02Icon size={14} className="text-primary" />
+          <UserSquareIcon size={14} className="text-foreground" />
           <span>Edit Profile</span>
         </DropdownMenuItem>
 
@@ -101,7 +101,7 @@ export function UserMenu() {
               to="/admin"
               className="flex cursor-pointer items-center gap-2 rounded-lg text-xs font-semibold text-foreground hover:bg-accent"
             >
-              <SecurityCheckIcon size={14} className="text-pink-500" />
+              <Crown03Icon size={14} className="text-foreground" />
               <span>Admin Control Center</span>
             </Link>
           </DropdownMenuItem>

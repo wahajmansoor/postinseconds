@@ -190,11 +190,18 @@ function StudioGate() {
   // treatment, so every "please wait a moment" state in the app reads as
   // one consistent thing instead of several different loading styles.
   if (isLoading) {
-    return (
-      <div className="animate-in fade-in duration-200">
-        <FullScreenLogoLoader />
-      </div>
-    );
+    // The fade-in classes go directly on the loader's own fixed element,
+    // NOT a wrapping div — tw-animate-css's enter keyframe holds a
+    // (visually identity, but non-"none") transform for the whole
+    // animation, and a transform on an ANCESTOR of a `position: fixed`
+    // element becomes its containing block instead of the viewport. Wrapped
+    // this way, the logo would render pinned to that wrapper's collapsed
+    // top-of-page box for the full 200ms, then visibly jump to true
+    // viewport-center the instant the animation ends and the transform
+    // clears — exactly the "shows at the top, then jumps to center" glitch
+    // this was reported for. Same fix already in place for the theme-toggle
+    // usage of this component below (transition-opacity, no transform).
+    return <FullScreenLogoLoader className="animate-in fade-in duration-200" />;
   }
 
   if (!isAuthenticated || !user) {
@@ -623,9 +630,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     try {
       await Haptics.notification({ type: NotificationType.Success });
     } catch { }
-    toast.success(`Image saved successfully to your Gallery/Documents!`, {
-      position: "bottom-center",
-    });
+    toast.success(`Image saved successfully to your Gallery/Documents!`);
     return;
   } catch (docErr) {
     console.warn("Direct save to Documents failed, attempting external storage:", docErr);
@@ -642,9 +647,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     try {
       await Haptics.notification({ type: NotificationType.Success });
     } catch { }
-    toast.success(`Image saved successfully to your Gallery / Downloads!`, {
-      position: "bottom-center",
-    });
+    toast.success(`Image saved successfully to your Gallery / Downloads!`);
     return;
   } catch (extErr) {
     console.warn("External storage write failed, falling back to cache save:", extErr);
@@ -661,10 +664,10 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     try {
       await Haptics.notification({ type: NotificationType.Success });
     } catch { }
-    toast.success(`Downloaded ${filename}!`, { position: "bottom-center" });
+    toast.success(`Downloaded ${filename}!`);
   } catch (cacheErr) {
     console.error("Native write failed:", cacheErr);
-    toast.error("Failed to save image to device.", { position: "bottom-center" });
+    toast.error("Failed to save image to device.");
   }
 }
 
@@ -2589,17 +2592,23 @@ function Index() {
     }
   };
 
-  const confirmDownload = async () => {
+  // sourceUrl/onDone let the LinkedIn Post/Profile preview dialogs' own
+  // Download buttons reuse this exact same save flow (format, scale,
+  // native-vs-browser path, filename, toasts) against their own already-
+  // rendered 1x preview instead of the plain ExportPreviewDialog's — both
+  // default to that original dialog's own state/behavior so the existing
+  // no-arg call sites (ExportPreviewDialog's onConfirm) are untouched.
+  const confirmDownload = async (opts?: { sourceUrl?: string | null; onDone?: () => void }) => {
     if (isExportingFinal) return;
     setIsExportingFinal(true);
     try {
-      let finalUrl = previewUrl;
+      let finalUrl = opts?.sourceUrl ?? previewUrl;
       // If higher resolution requested, render full quality for file save
       if (s.exportScale !== 1 && s.exportFormat !== "gif") {
         finalUrl = await renderExport(s.exportScale);
       }
       if (!finalUrl) {
-        finalUrl = previewUrl || (await renderExport(1));
+        finalUrl = opts?.sourceUrl ?? previewUrl ?? (await renderExport(1));
       }
       if (!finalUrl) return;
       const rawPostName = (s.postName && s.postName.trim()) || "Untitled Post";
@@ -2627,7 +2636,7 @@ function Index() {
         a.style.display = "none";
         document.body.appendChild(a);
         a.click();
-        toast.success(`Downloaded ${filename}!`, { position: "bottom-center" });
+        toast.success(`Downloaded ${filename}!`);
         setTimeout(() => {
           document.body.removeChild(a);
           if (!finalUrl.startsWith("blob:")) {
@@ -2635,10 +2644,14 @@ function Index() {
           }
         }, 3000);
       }
-      setPreviewOpen(false);
+      if (opts?.onDone) {
+        opts.onDone();
+      } else {
+        setPreviewOpen(false);
+      }
     } catch (err) {
       console.error("Download failed:", err);
-      toast.error("Failed to download image.", { position: "bottom-center" });
+      toast.error("Failed to download image.");
     } finally {
       setIsExportingFinal(false);
     }
@@ -5037,6 +5050,13 @@ function Index() {
           canvasHeight={s.height}
           userName={user?.name || "You"}
           userAvatar={user?.avatar || "/defult-img.jpg"}
+          s={s}
+          set={set}
+          // onDone is a no-op — unlike the plain Export Preview dialog,
+          // downloading from here shouldn't dismiss the mockup; you're
+          // still previewing, not confirming a one-shot export.
+          onDownload={() => confirmDownload({ sourceUrl: postPreviewUrl, onDone: () => { } })}
+          isDownloading={isExportingFinal}
         />
         <LinkedInProfilePreviewDialog
           open={profilePreviewOpen}
@@ -5047,6 +5067,10 @@ function Index() {
           imageUrl={profilePreviewUrl}
           userName={user?.name || "You"}
           userAvatar={user?.avatar || "/defult-img.jpg"}
+          s={s}
+          set={set}
+          onDownload={() => confirmDownload({ sourceUrl: profilePreviewUrl, onDone: () => { } })}
+          isDownloading={isExportingFinal}
         />
 
         {croppingImageLayer ? (

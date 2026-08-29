@@ -1,5 +1,5 @@
 import { Download01Icon } from "hugeicons-react";
-import { isLinkedInCoverPhotoSize, type EditorState } from "./types";
+import { isLinkedInCoverPhotoSize, isLinkedInFeedSize, type EditorState } from "./types";
 import { Chip, Field } from "./ui";
 import { LinkedInGroupIcon } from "./SocialPlatformIcons";
 
@@ -7,9 +7,15 @@ type Props = {
   s: EditorState;
   set: <K extends keyof EditorState>(k: K, v: EditorState[K]) => void;
   onDownload: () => void;
-  onPreview: () => void;
-  onProfilePreview: () => void;
+  onPreview?: () => void;
+  onProfilePreview?: () => void;
   busy: boolean;
+  // false when this is already embedded inside one of those very preview
+  // dialogs (PostPreviewDialog/LinkedInProfilePreviewDialog's own Export
+  // popover) — offering "preview this as a LinkedIn post" from inside the
+  // LinkedIn post preview itself would be circular. Defaults to true for
+  // the main header/mobile drawer's own usage, where it's the whole point.
+  showLinkedInPreview?: boolean;
 };
 
 // Export format/resolution + download — the whole reason RightPanel used
@@ -22,7 +28,15 @@ type Props = {
 // each caller supplies its own (PopoverContent's card, or the Drawer's
 // sheet), since a nested "collapsible section" header would be redundant
 // once the surrounding UI is already itself only shown on demand.
-export function ExportControls({ s, set, onDownload, onPreview, onProfilePreview, busy }: Props) {
+export function ExportControls({
+  s,
+  set,
+  onDownload,
+  onPreview,
+  onProfilePreview,
+  busy,
+  showLinkedInPreview = true,
+}: Props) {
   return (
     <div className="space-y-4">
       <Field label="Format">
@@ -62,10 +76,14 @@ export function ExportControls({ s, set, onDownload, onPreview, onProfilePreview
         </div>
       </div>
       {/* A cover photo (Personal/Business) is framed on your profile page,
-          completely differently from a feed post — so only whichever
-          preview mockup actually matches the CURRENT canvas size is worth
-          offering, not both at once. */}
-      {isLinkedInCoverPhotoSize(s.width, s.height) ? (
+          completely differently from a feed post, and each mockup is a
+          real-pixel replica built for that one exact size — so either
+          preview button only makes sense when the canvas is actually that
+          LinkedIn preset, not "whichever one isn't the other" (which used
+          to also offer a feed-post preview for e.g. an Instagram square or
+          custom size the mockup was never designed to represent). Neither
+          shows at all for any other size. */}
+      {showLinkedInPreview && isLinkedInCoverPhotoSize(s.width, s.height) ? (
         <button
           type="button"
           onClick={onProfilePreview}
@@ -75,7 +93,8 @@ export function ExportControls({ s, set, onDownload, onPreview, onProfilePreview
           <LinkedInGroupIcon size={26} />
           LinkedIn Profile Preview
         </button>
-      ) : (
+      ) : null}
+      {showLinkedInPreview && isLinkedInFeedSize(s.width, s.height) ? (
         <button
           type="button"
           onClick={onPreview}
@@ -85,7 +104,7 @@ export function ExportControls({ s, set, onDownload, onPreview, onProfilePreview
           <LinkedInGroupIcon size={26} />
           LinkedIn Post Preview
         </button>
-      )}
+      ) : null}
       <button
         type="button"
         onClick={onDownload}

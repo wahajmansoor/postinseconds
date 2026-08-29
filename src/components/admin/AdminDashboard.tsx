@@ -136,14 +136,14 @@ export function AdminDashboard() {
 
       const success = await upsertTemplate(updated, editCategory === "premium");
       if (success) {
-        toast.success("Template saved successfully!", { position: "bottom-center" });
+        toast.success("Template saved successfully!");
         window.dispatchEvent(
           new CustomEvent("postinseconds:template-saved", {
             detail: { category: editCategory },
           }),
         );
       } else {
-        toast.error("Failed to save template to database.", { position: "bottom-center" });
+        toast.error("Failed to save template to database.");
       }
       setEditingTemplate(null);
       await loadData();
@@ -809,10 +809,10 @@ export function AdminDashboard() {
                               quality: 0.82,
                             });
                             setEditThumbnailUrl(compressed);
-                            toast.success("Cover image ready!", { position: "bottom-center" });
+                            toast.success("Cover image ready!");
                           } catch (err) {
                             console.error("Failed to process image:", err);
-                            toast.error("Failed to process image.", { position: "bottom-center" });
+                            toast.error("Failed to process image.");
                           } finally {
                             setIsUploadingThumb(false);
                           }

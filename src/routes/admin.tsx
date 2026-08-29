@@ -35,11 +35,14 @@ function AdminGate() {
   // every "please wait a moment" state in the app reads as one consistent
   // thing instead of several different loading styles.
   if (isLoading) {
-    return (
-      <div className="animate-in fade-in duration-200">
-        <FullScreenLogoLoader />
-      </div>
-    );
+    // Fade-in classes go directly on the loader's own fixed element, not a
+    // wrapping div — see StudioGate's identical fix (index.tsx) for why: a
+    // wrapping div picks up a transform from tw-animate-css's enter
+    // keyframe for the whole animation, which turns it into the containing
+    // block for the loader's `position: fixed` instead of the viewport,
+    // pinning the logo near the top until the animation ends and it jumps
+    // to true center.
+    return <FullScreenLogoLoader className="animate-in fade-in duration-200" />;
   }
 
   if (!isAuthenticated || !user) {

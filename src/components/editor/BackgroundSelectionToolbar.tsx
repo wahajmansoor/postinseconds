@@ -153,7 +153,14 @@ export function BackgroundSelectionToolbar({
           }
           : undefined
       }
-      className="flex flex-nowrap items-center gap-1 whitespace-nowrap rounded-2xl border border-border/80 bg-background/95 p-1.5 shadow-2xl backdrop-blur-md"
+      // md:-only card look, matching TextSelectionToolbar/ImageSelectionToolbar/
+      // ShapeSelectionToolbar exactly: on mobile this sits bare inside the
+      // shared fixed bottom dock (index.tsx), which already supplies its
+      // own bg-card/95 backdrop-blur-xl — carrying this same look
+      // unconditionally doubled it up as a card-inside-a-card. Desktop
+      // still needs it since there it floats free, docked to the selection
+      // instead of living inside that shared bottom bar.
+      className="flex flex-nowrap items-center gap-1 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
     >
       <span className="px-1.5 text-[11px] font-bold text-muted-foreground">Background</span>
 

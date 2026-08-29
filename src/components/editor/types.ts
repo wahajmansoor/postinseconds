@@ -212,6 +212,18 @@ export function isLinkedInCoverPhotoSize(width: number, height: number): boolean
   return linkedin.presets.some((p) => p.label.startsWith("Cover Photo") && p.w === width && p.h === height);
 }
 
+// Whether the current canvas size matches LinkedIn's own Feed preset
+// exactly — the counterpart check to isLinkedInCoverPhotoSize above, used
+// by ExportControls so "LinkedIn Post Preview" only ever offers to mock up
+// a size that's actually shaped like a LinkedIn feed post, rather than any
+// arbitrary non-cover canvas (an Instagram square, a custom size, etc.)
+// that the post-card mockup was never designed to represent.
+export function isLinkedInFeedSize(width: number, height: number): boolean {
+  const linkedin = CANVAS_PRESET_GROUPS.find((g) => g.key === "linkedin");
+  if (!linkedin) return false;
+  return linkedin.presets.some((p) => p.label === "Feed" && p.w === width && p.h === height);
+}
+
 export const GRADIENTS = [
   { label: "Violet Dusk", value: "linear-gradient(180deg, #0b0616 0%, #6d28d9 60%, #7c3aed 100%)" },
   { label: "Ember", value: "linear-gradient(140deg, #1a1a1a 0%, #7c2d12 55%, #e85d3a 100%)" },

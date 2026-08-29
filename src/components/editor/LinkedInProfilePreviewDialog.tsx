@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Add01Icon,
   ArrowDown01Icon,
   Cancel01Icon,
+  Download01Icon,
   MinusSignIcon,
   Moon02Icon,
   Notification02Icon,
@@ -13,6 +14,9 @@ import {
   Sun03Icon,
 } from "hugeicons-react";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ExportControls } from "./ExportControls";
+import type { EditorState } from "./types";
 import { LinkedInGroupIcon } from "./SocialPlatformIcons";
 import { LinkedInBugIcon, LinkedInOverflowIcon } from "./LinkedInReactionIcons";
 
@@ -25,7 +29,24 @@ type Props = {
   imageUrl: string | null;
   userName: string;
   userAvatar: string;
+  // Full EditorState/set so the Export button here can open the exact same
+  // ExportControls (format + scale) the main header's Export button does,
+  // not just fire off a download at whatever format/scale was already set.
+  s: EditorState;
+  set: <K extends keyof EditorState>(k: K, v: EditorState[K]) => void;
+  // Reuses index.tsx's own confirmDownload save flow (format/scale/native-
+  // vs-browser path/filename/toasts) against this dialog's already-
+  // rendered imageUrl, so liking what you see here can go straight to a
+  // download without closing this preview to find the separate Export
+  // button first.
+  onDownload: () => void;
+  isDownloading: boolean;
 };
+
+// The mockup below is a real-pixel replica of LinkedIn's own on-screen
+// profile-page width, not a scaled-down abstraction — see CARD_WIDTH's use
+// in the zoom-fit effect for why that matters on mobile.
+const CARD_WIDTH = 792;
 
 // A skeleton placeholder bar — stands in for the real headline/bio/mutual-
 // connections text a real profile would show, which this dialog has no
@@ -47,25 +68,69 @@ export function LinkedInProfilePreviewDialog({
   imageUrl,
   userName,
   userAvatar,
+  s,
+  set,
+  onDownload,
+  isDownloading,
 }: Props) {
+  const [exportOpen, setExportOpen] = useState(false);
   const [mockDark, setMockDark] = useState(true);
-  const [zoom, setZoom] = useState(1);
+  // zoom is the live scale the mockup renders at; minZoom is wherever
+  // "fitted to the stage" currently sits — see the effect below for why
+  // both need to move together instead of zoom just starting at a fixed 1.
+  const [{ zoom, minZoom }, setZoomState] = useState({ zoom: 1, minZoom: 1 });
   const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+
+  // Auto-fit the mockup to whatever width the stage actually has. It's a
+  // fixed 792px-wide real-pixel replica (see CARD_WIDTH), and the old zoom
+  // floor of 100% meant on any phone narrower than that — i.e. nearly all
+  // of them — the dialog forced horizontal scrolling/pinching just to see
+  // the whole cover photo instead of showing it fitted like every other
+  // preview in the app. Resets to fit every time the dialog opens, then
+  // keeps tracking the fit on resize/orientation change for as long as the
+  // user hasn't manually zoomed in past it.
+  useEffect(() => {
+    if (!open) return;
+    const el = stageRef.current;
+    if (!el) return;
+
+    let firstRun = true;
+    const applyFit = (width: number) => {
+      const fit = Math.max(0.15, Math.min(1, width / CARD_WIDTH));
+      setZoomState((prev) => ({
+        minZoom: fit,
+        zoom: firstRun || prev.zoom <= prev.minZoom + 0.001 ? fit : Math.max(fit, prev.zoom),
+      }));
+      firstRun = false;
+    };
+
+    applyFit(el.clientWidth);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) applyFit(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open]);
 
   if (!open || typeof document === "undefined") return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[90] flex flex-col bg-background">
-      {/* Header — same 3-column layout as PostPreviewDialog: platform
-          picker, centered mockup light/dark toggle, close. */}
-      <div className="grid shrink-0 grid-cols-3 items-center border-b border-border px-5 py-3.5">
-        <div className="flex items-center gap-3 justify-self-start">
-          <span className="text-sm font-bold text-foreground">Preview on</span>
+      {/* Header — same layout as PostPreviewDialog: outer columns equal
+          (1fr) so the center toggle stays genuinely centered regardless of
+          how the platform picker and close button compare in width, and
+          everything shrinks below sm so the row still fits a narrow phone
+          — see that dialog's own header comment for the full rationale. */}
+      <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border px-3 py-2.5 sm:px-5 sm:py-3.5">
+        <div className="flex items-center gap-1.5 justify-self-start sm:gap-3">
+          <span className="hidden text-sm font-bold text-foreground sm:inline">Preview on</span>
           <div className="relative">
             <button
               type="button"
               onClick={() => setPlatformMenuOpen((v) => !v)}
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm font-semibold text-foreground transition-colors hover:border-primary/50"
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 py-1 text-sm font-semibold text-foreground transition-colors hover:border-primary/50 sm:gap-2 sm:px-2.5 sm:py-1.5"
             >
               <LinkedInGroupIcon size={20} />
               LinkedIn
@@ -92,49 +157,126 @@ export function LinkedInProfilePreviewDialog({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 justify-self-center rounded-full border border-border bg-card px-3 py-1.5 shadow-sm">
-          <Sun03Icon size={14} className={mockDark ? "text-muted-foreground" : "text-amber-500"} />
+        {/* Mockup's own light/dark toggle — independent of the app's theme.
+            Two filled circular buttons rather than an iOS-style sliding
+            switch: the active side is a solid brand-blue circle with a
+            white icon, the inactive side a muted gray circle — reads as a
+            clear either/or choice at a glance instead of a thin track+thumb. */}
+        <div className="flex items-center gap-1 justify-self-center rounded-full border border-border bg-card p-1 shadow-sm">
           <button
             type="button"
-            onClick={() => setMockDark((v) => !v)}
+            onClick={() => setMockDark(false)}
+            aria-label="Preview mockup in light mode"
+            aria-pressed={!mockDark}
             className={cn(
-              "relative h-5 w-9 shrink-0 rounded-full transition-colors",
-              mockDark ? "bg-primary" : "bg-secondary",
+              "grid h-6 w-6 shrink-0 place-items-center rounded-full transition-colors sm:h-7 sm:w-7",
+              !mockDark
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-secondary text-muted-foreground hover:text-foreground",
             )}
           >
-            <span
-              className={cn(
-                "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all",
-                mockDark ? "left-[1.15rem]" : "left-0.5",
-              )}
-            />
+            <Sun03Icon size={14} />
           </button>
-          <Moon02Icon size={14} className={mockDark ? "text-primary" : "text-muted-foreground"} />
+          <button
+            type="button"
+            onClick={() => setMockDark(true)}
+            aria-label="Preview mockup in dark mode"
+            aria-pressed={mockDark}
+            className={cn(
+              "grid h-6 w-6 shrink-0 place-items-center rounded-full transition-colors sm:h-7 sm:w-7",
+              mockDark
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "bg-secondary text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Moon02Icon size={14} />
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={onClose}
-          className="grid h-8 w-8 place-items-center justify-self-end rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-        >
-          <Cancel01Icon size={16} />
-        </button>
+        <div className="flex items-center gap-1.5 justify-self-end sm:gap-2">
+          {/* Same gradient/glow treatment, and the exact same format/scale
+              options, as the main header's own Export button (index.tsx) —
+              opens a popover instead of downloading immediately at
+              whatever format/scale was already set, so "yes, this looks
+              right" can still choose PNG/JPG/WEBP/GIF and resolution right
+              from the preview instead of needing to close it first.
+              showLinkedInPreview=false: offering to preview this AS a
+              LinkedIn cover from inside the LinkedIn cover preview itself
+              would be circular. */}
+          <Popover open={exportOpen} onOpenChange={setExportOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={isDownloading || !imageUrl}
+                className="flex items-center gap-1.5 rounded-full bg-[image:var(--gradient-brand)] px-2.5 py-1.5 text-xs font-bold text-primary-foreground shadow-[var(--shadow-glow)] transition-opacity hover:opacity-90 disabled:opacity-60 sm:px-3.5"
+                title="Export"
+              >
+                {isDownloading ? (
+                  <ReloadIcon size={14} className="animate-spin" />
+                ) : (
+                  <Download01Icon size={14} />
+                )}
+                <span className="hidden sm:inline">{isDownloading ? "Exporting…" : "Export"}</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              sideOffset={10}
+              // z-[110]: PopoverContent's own base class is z-50, which
+              // rendered it BEHIND this dialog's opaque z-[90] full-screen
+              // overlay — the popover was technically opening on click, just
+              // invisible underneath, reading as "nothing happened".
+              className="z-[110] w-80 rounded-2xl border-border/80 bg-card/95 p-4 shadow-2xl backdrop-blur-xl"
+            >
+              <ExportControls
+                s={s}
+                set={set}
+                busy={isDownloading}
+                showLinkedInPreview={false}
+                onDownload={() => {
+                  setExportOpen(false);
+                  onDownload();
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <Cancel01Icon size={16} />
+          </button>
+        </div>
       </div>
 
-      {/* Stage */}
-      <div className="relative flex flex-1 items-center justify-center overflow-auto bg-secondary/30 p-10">
+      {/* Stage — "safe center" instead of plain center on both axes: a
+          plain flex `center` on a scrollable container has a well-known gap
+          where content taller/wider than the viewport can't actually be
+          scrolled to its full extent (the browser only scrolls far enough
+          to keep it centered, clipping the far edge with no room for this
+          padding at all) — "safe" falls back to start-alignment once
+          content overflows, so zooming in still lets you scroll to see the
+          complete mockup with this padding intact as real margin above and
+          below it, not just when it happens to already fit. */}
+      <div
+        ref={stageRef}
+        className="relative flex flex-1 [align-items:safe_center] [justify-content:safe_center] overflow-auto bg-secondary/30 p-4 sm:p-10"
+      >
         <div className="absolute right-6 top-6 flex items-center gap-1 rounded-full border border-border bg-card p-1 shadow-sm">
           <button
             type="button"
-            onClick={() => setZoom((z) => Math.max(1, Number((z - 0.1).toFixed(1))))}
-            className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            disabled={zoom <= minZoom}
+            onClick={() => setZoomState((z) => ({ ...z, zoom: Math.max(z.minZoom, Number((z.zoom - 0.1).toFixed(1))) }))}
+            className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             <MinusSignIcon size={13} />
           </button>
           <button
             type="button"
-            onClick={() => setZoom((z) => Math.min(2, Number((z + 0.1).toFixed(1))))}
-            className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            disabled={zoom >= 2}
+            onClick={() => setZoomState((z) => ({ ...z, zoom: Math.min(2, Number((z.zoom + 0.1).toFixed(1))) }))}
+            className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             <Add01Icon size={13} />
           </button>
