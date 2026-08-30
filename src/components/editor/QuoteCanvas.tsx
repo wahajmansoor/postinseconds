@@ -26,6 +26,7 @@ import {
   withImageRemoved,
   withImageUpdated,
   withMultipleLayersDuplicated,
+  withMultipleLayersLockSet,
   withMultipleLayersRemoved,
   withMultipleLayersRotated,
   withMultipleLayersScaled,
@@ -499,6 +500,20 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     selectedBoundsCacheRef.current = result;
     return result;
   }, [selected, s, isGroupDragging]);
+
+  // Drives the Lock button's icon/label in the multi-selection badge below —
+  // "locked" (all already locked, tap to unlock) only once every selected
+  // layer actually is, otherwise "unlock" (tap locks the rest too), same
+  // convention MultiShapeSelectionToolbar's own allLocked already uses for
+  // a single-kind selection.
+  const allSelectedLocked = useMemo(() => {
+    if (selected.length === 0) return false;
+    return selected.every((sel) => {
+      if (sel.kind === "text") return !!getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+      if (sel.kind === "image") return !!getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+      return !!getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+    });
+  }, [selected, s]);
 
   const updateGroupDrag = useCallback(
     (clientX: number, clientY: number) => {
@@ -1676,6 +1691,32 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   </button>
                 </>
               ) : null}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!set) return;
+                  const result = withMultipleLayersLockSet(s, selected, !allSelectedLocked);
+                  set("texts", result.texts);
+                  set("images", result.images);
+                  set("shapes", result.shapes);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fbbf24",
+                  background: "rgba(251, 191, 36, 0.15)",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+                title={allSelectedLocked ? "Unlock all selected layers" : "Lock all selected layers"}
+              >
+                {allSelectedLocked ? <SquareLock02Icon size={14} /> : <SquareUnlock02Icon size={14} />}
+              </button>
               <button
                 type="button"
                 onClick={(e) => {

@@ -2820,6 +2820,26 @@ export function withShapesShifted(s: EditorState, ids: string[], dxPercent: numb
   );
 }
 
+// Locks/unlocks every id in a mixed-kind multi-selection at once — same
+// shape of input as withMultipleLayersRemoved below, used by QuoteCanvas's
+// own canvas-anchored multi-selection badge (Lock/Duplicate/Delete), which
+// spans text/image/shape together rather than being scoped to one kind the
+// way withTextsLockSet/withImagesLockSet/withShapesLockSet individually are.
+export function withMultipleLayersLockSet(
+  s: EditorState,
+  selected: { kind: "text" | "image" | "shape"; id: string }[],
+  locked: boolean,
+): { texts: TextLayer[]; images: ImageLayer[]; shapes: ShapeLayer[] } {
+  const textIds = selected.filter((item) => item.kind === "text").map((item) => item.id);
+  const imageIds = selected.filter((item) => item.kind === "image").map((item) => item.id);
+  const shapeIds = selected.filter((item) => item.kind === "shape").map((item) => item.id);
+  return {
+    texts: withTextsLockSet(s, textIds, locked),
+    images: withImagesLockSet(s, imageIds, locked),
+    shapes: withShapesLockSet(s, shapeIds, locked),
+  };
+}
+
 export function withMultipleLayersRemoved(
   s: EditorState,
   selected: { kind: "text" | "image" | "shape"; id: string }[],
