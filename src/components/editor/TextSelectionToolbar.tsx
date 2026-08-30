@@ -267,11 +267,47 @@ export function TextSelectionToolbar({
   const weightTriggerRef = useRef<HTMLButtonElement>(null);
   const weightAnchor = useStableAnchor(weightOpen, weightTriggerRef);
 
+  // Same "multiple" convention as currentFontLabel just above, and the same
+  // reason for the layer.html fallback scan: activeFormat.weight only comes
+  // from getActiveFormat's live-selection branch (isEditing + a real caret/
+  // range inside the editable). A plain re-select of the layer — click it,
+  // don't enter edit mode — leaves activeFormat.weight undefined, and
+  // without this scan the trigger/dropdown would silently show the layer's
+  // base weight even when an earlier setWeight() call had actually bolded/
+  // lightened just one highlighted word within it.
+  const currentWeightValue = useMemo((): number | "multiple" => {
+    if (activeFormat.weight === "multiple") return "multiple";
+    if (typeof activeFormat.weight === "number") return activeFormat.weight;
+
+    if (layer.html && typeof document !== "undefined") {
+      try {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = layer.html;
+        const weightSpans = tmp.querySelectorAll<HTMLElement>("[style*='font-weight']");
+        const weightsInHtml = new Set<number>();
+        let totalSpanTextLen = 0;
+        weightSpans.forEach((s) => {
+          const w = parseInt(s.style.fontWeight, 10);
+          if (Number.isFinite(w)) weightsInHtml.add(w);
+          totalSpanTextLen += s.textContent?.length || 0;
+        });
+        const totalTextLen = tmp.textContent?.length || 0;
+        if (totalTextLen > totalSpanTextLen) {
+          weightsInHtml.add(layer.weight || 400);
+        }
+        if (weightsInHtml.size > 1) return "multiple";
+        if (weightsInHtml.size === 1) return Array.from(weightsInHtml)[0]!;
+      } catch { }
+    }
+
+    return layer.weight || 400;
+  }, [activeFormat.weight, layer.weight, layer.html]);
+
   const currentWeightLabel = useMemo(() => {
-    const currentWeight = layer.weight || 400;
-    const match = availableWeights.find((w) => w.value === currentWeight) || availableWeights[0];
-    return match ? match.label.replace(/\s*\(\d+\)/, "") : `${currentWeight}`;
-  }, [layer.weight, availableWeights]);
+    if (currentWeightValue === "multiple") return "Mixed";
+    const match = availableWeights.find((w) => w.value === currentWeightValue) || availableWeights[0];
+    return match ? match.label.replace(/\s*\(\d+\)/, "") : `${currentWeightValue}`;
+  }, [currentWeightValue, availableWeights]);
 
   const [fontStripOpen, setFontStripOpen] = useState(false);
   const [colorStripOpen, setColorStripOpen] = useState(false);
@@ -454,7 +490,7 @@ export function TextSelectionToolbar({
         <div className="w-56 p-2">
           <div className="flex flex-col gap-0.5 max-h-60 overflow-y-auto pr-1">
             {availableWeights.map((w) => {
-              const active = (layer.weight || 400) === w.value;
+              const active = currentWeightValue === w.value;
               return (
                 <button
                   key={w.value}
@@ -762,7 +798,10 @@ export function TextSelectionToolbar({
             weightOpen && "border-primary text-primary",
             availableWeights.length <= 1 && "opacity-70 cursor-default",
           )}
-          style={{ fontFamily: layer.fontFamily, fontWeight: layer.weight || 400 }}
+          style={{
+            fontFamily: layer.fontFamily,
+            fontWeight: currentWeightValue === "multiple" ? layer.weight || 400 : currentWeightValue,
+          }}
         >
           <span className="min-w-0 flex-1 truncate text-left">{currentWeightLabel}</span>
           {availableWeights.length > 1 ? <ArrowDown01Icon size={11} className="shrink-0 text-muted-foreground" /> : null}

@@ -8,6 +8,7 @@ import {
   AlignVerticalCenterIcon,
   Copy01Icon,
   Delete02Icon,
+  EyeIcon,
   LayerBringForwardIcon,
   LayerBringToFrontIcon,
   LayerSendBackwardIcon,
@@ -19,6 +20,7 @@ import {
 import { AppTooltip } from "@/components/ui/tooltip";
 import { isLineShape, type ShapeAlignEdge, type ShapeLayer, type SpaceEvenlyDirection } from "./types";
 import {
+  Chip,
   ColorPickerContent,
   DragHandle,
   Field,
@@ -85,6 +87,7 @@ export function MultiShapeSelectionToolbar({
   onAnyPopoverOpenChange,
 }: MultiShapeSelectionToolbarProps) {
   const [colorOpen, setColorOpen] = useState(false);
+  const [opacityOpen, setOpacityOpen] = useState(false);
   const [strokeWidthOpen, setStrokeWidthOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const [alignOpen, setAlignOpen] = useState(false);
@@ -92,6 +95,7 @@ export function MultiShapeSelectionToolbar({
   const [rotateOpen, setRotateOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [colorPinned, setColorPinned] = useState(false);
+  const [opacityPinned, setOpacityPinned] = useState(false);
   const [strokeWidthPinned, setStrokeWidthPinned] = useState(false);
   const [arrangePinned, setArrangePinned] = useState(false);
   const [alignPinned, setAlignPinned] = useState(false);
@@ -106,6 +110,7 @@ export function MultiShapeSelectionToolbar({
   const [ratioLocked, setRatioLocked] = useState(false);
 
   const colorDrag = useDraggableOffset();
+  const opacityDrag = useDraggableOffset();
   const strokeWidthDrag = useDraggableOffset();
   const arrangeDrag = useDraggableOffset();
   const alignDrag = useDraggableOffset();
@@ -114,6 +119,7 @@ export function MultiShapeSelectionToolbar({
   const advancedDrag = useDraggableOffset();
 
   const colorTriggerRef = useRef<HTMLButtonElement>(null);
+  const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const strokeWidthTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
   const alignTriggerRef = useRef<HTMLButtonElement>(null);
@@ -121,6 +127,7 @@ export function MultiShapeSelectionToolbar({
   const rotateTriggerRef = useRef<HTMLButtonElement>(null);
   const advancedTriggerRef = useRef<HTMLButtonElement>(null);
   const colorAnchor = useStableAnchor(colorOpen, colorTriggerRef);
+  const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const strokeWidthAnchor = useStableAnchor(strokeWidthOpen, strokeWidthTriggerRef);
   const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
   const alignAnchor = useStableAnchor(alignOpen, alignTriggerRef);
@@ -129,7 +136,7 @@ export function MultiShapeSelectionToolbar({
   const advancedAnchor = useStableAnchor(advancedOpen, advancedTriggerRef);
 
   // See the matching block's comment in ShapeSelectionToolbar.tsx.
-  const anyPopoverOpen = colorOpen || strokeWidthOpen || arrangeOpen || alignOpen || spaceEvenlyOpen || rotateOpen || advancedOpen;
+  const anyPopoverOpen = colorOpen || opacityOpen || strokeWidthOpen || arrangeOpen || alignOpen || spaceEvenlyOpen || rotateOpen || advancedOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -151,6 +158,7 @@ export function MultiShapeSelectionToolbar({
   const heights = layers.map((l) => l.height ?? l.size);
   const colors = layers.map((l) => l.color);
   const rotations = layers.map((l) => l.rotation ?? 0);
+  const opacities = layers.map((l) => l.opacity ?? 100);
   const lineLayers = layers.filter((l) => isLineShape(l.kind));
   const hasLineShapes = lineLayers.length > 0;
   const strokeWidths = lineLayers.map((l) => l.strokeWidth ?? 4);
@@ -158,16 +166,18 @@ export function MultiShapeSelectionToolbar({
   const uniformHeight = uniformValue(heights);
   const uniformColor = uniformValue(colors);
   const uniformRotation = uniformValue(rotations);
+  const uniformOpacity = uniformValue(opacities);
   const uniformStrokeWidth = uniformValue(strokeWidths);
   // When sizes/colors/rotation already differ across the selection, each
   // control still needs *some* starting value to render — average width/
-  // height/rotation, and the first layer's color — moving it then snaps
-  // every selected shape to that one shared value, same as any other
+  // height/rotation/opacity, and the first layer's color — moving it then
+  // snaps every selected shape to that one shared value, same as any other
   // "apply to all" control.
   const displayWidth = uniformWidth ?? Math.round(widths.reduce((a, b) => a + b, 0) / widths.length);
   const displayHeight = uniformHeight ?? Math.round(heights.reduce((a, b) => a + b, 0) / heights.length);
   const displayColor = uniformColor ?? colors[0] ?? "#0021ff";
   const displayRotation = uniformRotation ?? Math.round(rotations.reduce((a, b) => a + b, 0) / rotations.length);
+  const displayOpacity = uniformOpacity ?? Math.round(opacities.reduce((a, b) => a + b, 0) / opacities.length);
   const displayStrokeWidth = uniformStrokeWidth ?? (strokeWidths[0] ?? 4);
   const allLocked = layers.every((l) => l.locked);
 
@@ -285,6 +295,80 @@ export function MultiShapeSelectionToolbar({
             onClose={() => setColorOpen(false)}
           />
           <ColorPickerContent value={displayColor} onChange={(c) => onUpdateAll({ color: c })} />
+        </div>
+      </FloatingDropdown>
+
+      <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
+
+      {/* Opacity — applies to every selected shape at once, same control as
+          ShapeSelectionToolbar's single-layer Opacity popover. */}
+      <AppTooltip content="Adjust opacity for all selected shapes">
+        <button
+          ref={opacityTriggerRef}
+          type="button"
+          onClick={() => {
+            setOpacityOpen((wasOpen) => {
+              if (!wasOpen) {
+                opacityDrag.reset();
+                setOpacityPinned(false);
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(
+            btnClass,
+            opacityOpen && "bg-secondary text-primary",
+            displayOpacity < 100 && "text-primary",
+          )}
+        >
+          <EyeIcon size={15} />
+          <span className="text-xs font-semibold">{displayOpacity}%</span>
+        </button>
+      </AppTooltip>
+      <FloatingDropdown
+        anchor={opacityAnchor}
+        offset={opacityDrag.offset}
+        align="center"
+        pinned={opacityPinned}
+        onRequestClose={() => setOpacityOpen(false)}
+        triggerRef={opacityTriggerRef}
+      >
+        <div
+          data-nopan=""
+          data-keep-text-editing=""
+          className="w-56 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+        >
+          <DragHandle
+            label={uniformOpacity !== undefined ? "Opacity — All Selected" : "Opacity — Mixed"}
+            {...opacityDrag.dragHandleProps}
+            pinned={opacityPinned}
+            onTogglePin={() => setOpacityPinned((p) => !p)}
+            onClose={() => setOpacityOpen(false)}
+          />
+          <div className="space-y-3 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-foreground">Opacity</span>
+              <span className="text-xs text-muted-foreground">{displayOpacity}%</span>
+            </div>
+            <Range
+              value={displayOpacity}
+              min={0}
+              max={100}
+              onChange={(v) => onUpdateAll({ opacity: v })}
+            />
+            <div className="flex gap-1">
+              {[100, 75, 50, 25].map((pct) => (
+                <Chip
+                  key={pct}
+                  onClick={() => onUpdateAll({ opacity: pct })}
+                  active={displayOpacity === pct}
+                  className="flex-1 justify-center px-1 text-[10px]"
+                >
+                  {pct}%
+                </Chip>
+              ))}
+            </div>
+          </div>
         </div>
       </FloatingDropdown>
 

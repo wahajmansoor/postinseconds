@@ -59,6 +59,16 @@ export type LiveTextFormat = {
   strike: boolean;
   uppercase: boolean;
   fontFamily?: string | "multiple" | undefined;
+  // Mirrors fontFamily's own "multiple" convention — the numeric weight
+  // actually applied at the caret/highlighted range right now (which
+  // per-range setWeight() calls can leave different from the layer's own
+  // base t.weight), or "multiple" when the highlighted range mixes more
+  // than one weight. See getActiveFormat's own comment for why this needed
+  // adding — TextSelectionToolbar's Font Weight control used to only ever
+  // read the layer-level weight, so it silently kept showing whatever the
+  // layer's base weight was instead of what a highlighted word had
+  // actually been set to.
+  weight?: number | "multiple" | undefined;
   color?: string | "multiple" | undefined;
   colors?: string[] | undefined;
   bulletList: boolean;
@@ -1579,70 +1589,84 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
             >
               <span>{selected.length} Layers Selected</span>
               <span style={{ opacity: 0.3 }}>|</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!set) return;
-                  const result = withMixedLayersSpacedEvenly(s, selected, "tidy");
-                  set("texts", result.texts);
-                  set("images", result.images);
-                  set("shapes", result.shapes);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  color: "#a78bfa",
-                  background: "rgba(167, 139, 250, 0.15)",
-                  border: "none",
-                  borderRadius: 12,
-                  padding: "4px 10px",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: 12,
-                  transition: "all 0.15s ease",
-                }}
-                title="Tidy up & space all selected layers evenly"
-              >
-                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="6" y1="5" x2="6" y2="19" />
-                  <line x1="12" y1="5" x2="12" y2="19" />
-                  <line x1="18" y1="5" x2="18" y2="19" />
-                </svg>
-                Space evenly
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (!set) return;
-                  const result = withMultipleLayersRotated(s, selected, 90, "group");
-                  set("texts", result.texts);
-                  set("images", result.images);
-                  set("shapes", result.shapes);
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  color: "#34d399",
-                  background: "rgba(52, 211, 153, 0.15)",
-                  border: "none",
-                  borderRadius: 12,
-                  padding: "4px 10px",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: 12,
-                  transition: "all 0.15s ease",
-                }}
-                title="Rotate selected layers 90°"
-              >
-                <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19" />
-                </svg>
-                Rotate 90°
-              </button>
+              {/* Space Evenly / Rotate 90° — desktop only. This whole badge
+                  is a fixed, unconditional-width, whiteSpace:nowrap pill
+                  with no overflow/scroll handling of its own, so on a
+                  narrow mobile screen the full 4-button version ran off
+                  both edges of the viewport at once (unreadable, and the
+                  cut-off buttons unreachable). Trimming it to just
+                  Duplicate/Delete on mobile — the two actions with no other
+                  path to trigger them on mobile — keeps it inside the
+                  screen instead of trying to make a `position:absolute`
+                  canvas-anchored badge horizontally scrollable. */}
+              {!effectiveIsMobile ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!set) return;
+                      const result = withMixedLayersSpacedEvenly(s, selected, "tidy");
+                      set("texts", result.texts);
+                      set("images", result.images);
+                      set("shapes", result.shapes);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      color: "#a78bfa",
+                      background: "rgba(167, 139, 250, 0.15)",
+                      border: "none",
+                      borderRadius: 12,
+                      padding: "4px 10px",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 12,
+                      transition: "all 0.15s ease",
+                    }}
+                    title="Tidy up & space all selected layers evenly"
+                  >
+                    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="6" y1="5" x2="6" y2="19" />
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="18" y1="5" x2="18" y2="19" />
+                    </svg>
+                    Space evenly
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!set) return;
+                      const result = withMultipleLayersRotated(s, selected, 90, "group");
+                      set("texts", result.texts);
+                      set("images", result.images);
+                      set("shapes", result.shapes);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      color: "#34d399",
+                      background: "rgba(52, 211, 153, 0.15)",
+                      border: "none",
+                      borderRadius: 12,
+                      padding: "4px 10px",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 12,
+                      transition: "all 0.15s ease",
+                    }}
+                    title="Rotate selected layers 90°"
+                  >
+                    <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19" />
+                    </svg>
+                    Rotate 90°
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={(e) => {
@@ -1775,11 +1799,16 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 window.addEventListener("pointerup", handlePointerUp);
                 window.addEventListener("pointercancel", handlePointerUp);
               }}
-              className="grid h-7 w-7 place-items-center rounded-full bg-white text-black shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-[#15161c] hover:text-white active:scale-95"
+              className="group grid h-7 w-7 place-items-center rounded-full bg-white text-black shadow-[0_0_4px_1px_#39466024,0_0_0_1px_#2b354a4d] transition-colors hover:bg-[#15161c] hover:text-white active:scale-95"
               style={{ cursor: "grab" }}
               title="Drag to rotate entire selection"
             >
-              <CursorCircleSelection02Icon size={16} />
+              {/* Same icon/size/color as the single-selection rotate handle's
+                  own button (the `btn` class a few hundred lines up in
+                  RotateMoveHandleRow) — this one used
+                  CursorCircleSelection02Icon at size 16, a different icon
+                  from every other rotate handle in the app. */}
+              <RotateRefreshIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
             </button>
           </div>
 
@@ -3715,6 +3744,29 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           });
         }
 
+        // Same span-scanning approach as fontFamily just above — setWeight
+        // (see its own comment) wraps a highlighted range in a
+        // style="font-weight:N" span rather than going through
+        // queryCommandState the way bold/italic/underline do, so those
+        // per-range overrides have to be read back the same way they were
+        // written, not off t.weight (the layer's base weight, which a
+        // range-scoped setWeight call never touches).
+        let selectedWeight: number | undefined = undefined;
+        let isMultipleWeights = false;
+        if (fragment && fragment.querySelectorAll) {
+          const weightElements = fragment.querySelectorAll<HTMLElement>("[style*='font-weight']");
+          const foundWeights = new Set<number>();
+          weightElements.forEach((el) => {
+            const w = parseInt(el.style.fontWeight, 10);
+            if (Number.isFinite(w)) foundWeights.add(w);
+          });
+          if (foundWeights.size > 1) {
+            isMultipleWeights = true;
+          } else if (foundWeights.size === 1) {
+            selectedWeight = Array.from(foundWeights)[0];
+          }
+        }
+
         const node = selRange.commonAncestorContainer;
         const elContainer = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
         let selectedColor: string | undefined = foundColors.size === 1 ? Array.from(foundColors)[0] : undefined;
@@ -3727,6 +3779,10 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           if (!selectedColor && foundColors.size === 0) {
             selectedColor = normalizeColorToHex(comp.color);
           }
+          if (selectedWeight === undefined && !isMultipleWeights) {
+            const compWeight = parseInt(comp.fontWeight, 10);
+            selectedWeight = Number.isFinite(compWeight) ? compWeight : t.weight;
+          }
         }
         return {
           bold: document.queryCommandState("bold"),
@@ -3735,6 +3791,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           strike: document.queryCommandState("strikeThrough"),
           uppercase: isUpper || !!t.uppercase,
           fontFamily: isMultipleFonts ? "multiple" : selectedFont,
+          weight: isMultipleWeights ? "multiple" : (selectedWeight ?? t.weight),
           color: foundColors.size > 1 ? "multiple" : selectedColor,
           colors: foundColors.size > 1 ? Array.from(foundColors) : selectedColor ? [selectedColor] : undefined,
           bulletList: document.queryCommandState("insertUnorderedList"),
@@ -3750,6 +3807,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       strike: !!t.strike,
       uppercase: !!t.uppercase,
       fontFamily: t.fontFamily,
+      weight: t.weight,
       color: t.color,
       bulletList: false,
       numberedList: false,
@@ -5404,20 +5462,18 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const effectiveHeight = typeof shape.height === "number" ? shape.height : (isLine ? 24 : shape.size);
   const rotation = shape.rotation ?? 0;
   const invScale = scale > 0 ? 1 / scale : 1;
-  // Line endpoint handles' VISIBLE dot — deliberately NOT invScale-
-  // compensated like the invisible 28px hit box just below (that one stays
-  // constant on purpose, for reliable tapping). On mobile, where the canvas
-  // is typically fit-zoomed well under 100%, invScale compensation meant
-  // this dot rendered at a flat 20px ceiling almost all the time — looking
-  // oversized next to the now-much-thinner line/card it belongs to. Scaling
-  // by `scale` instead makes the dot's on-screen size actually track the
-  // canvas zoom the way the line itself does (smaller when zoomed out,
-  // bigger zoomed in), floored so it never shrinks past comfortably visible
-  // at extreme zoom-out and capped at the original 20px ceiling so it never
-  // balloons past it either. Desktop is untouched (still the flat 20px this
-  // was originally asked to cap at).
+  // Line endpoint handles' VISIBLE dot. On mobile this now reuses the exact
+  // same size formula as the standard corner resize handles' own dot
+  // (getHandleVisualStyle → zoomed(handleDims("corner"), scale), i.e.
+  // 10 * invScale) — an earlier pass here used a `scale`-based formula
+  // instead (shrinking at low zoom rather than growing), which fixed an
+  // earlier "looks oversized" complaint but left line dots a visibly
+  // different size from every other selected item's resize dots at the
+  // same zoom level. Matching the corner-handle formula keeps them
+  // consistent across shape kinds. Desktop is untouched (still the flat
+  // 20px cap this was originally asked to stay under).
   const lineEndpointDotPx = isMobile
-    ? Math.max(13, Math.min(20, 20 * scale))
+    ? zoomed(handleDims("corner"), scale).width
     : Math.min(20, 20 * invScale);
   // Line shapes render a thin visual stroke (effectiveHeight defaults to
   // just 24 canvas-space px) but that same number is also this layer's
