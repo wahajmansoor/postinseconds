@@ -239,8 +239,11 @@ export function LinkedInProfilePreviewDialog({
           (1fr) so the center toggle stays genuinely centered regardless of
           how the platform picker and close button compare in width, and
           everything shrinks below sm so the row still fits a narrow phone
-          — see that dialog's own header comment for the full rationale. */}
-      <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border px-3 py-2.5 sm:px-5 sm:py-3.5">
+          — see that dialog's own header comment for the full rationale,
+          including pt- adding safe-area-inset-top on mobile (this is a
+          `fixed inset-0` full-screen overlay, so without it the header sat
+          right against the top edge/notch). */}
+      <div className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-border px-3 pb-2.5 pt-[calc(env(safe-area-inset-top)+10px)] sm:px-5 sm:pb-3.5 sm:pt-3.5">
         <div className="flex items-center gap-1.5 justify-self-start sm:gap-3">
           <span className="hidden text-sm font-bold text-foreground sm:inline">Preview on</span>
           <div className="relative">
@@ -424,8 +427,14 @@ export function LinkedInProfilePreviewDialog({
             scrollable bounds — the mockup rendering tiny and adrift in a
             mostly-empty stage at 2x instead of just filling more of the
             screen. Keeping margin and transform on two separate elements
-            avoids that interaction entirely. */}
-        <div className="m-4 sm:m-10">
+            avoids that interaction entirely.
+            Top margin is deliberately taller than the other three sides on
+            mobile (mt-12 vs mx-4/mb-4) — with a plain m-4 the mockup's top
+            edge sat right up against the header with barely any breathing
+            room, especially once "safe center" falls back to start-aligned
+            once it's tall enough to overflow. Desktop keeps the original
+            even sm:m-10 on all sides. */}
+        <div className="mx-4 mb-4 mt-12 sm:m-10">
           {/* opacity gate: belt-and-suspenders alongside the layout-effect
               fix above — hides the mockup until the very first real fit has
               landed, so even a browser that delivers ResizeObserver's

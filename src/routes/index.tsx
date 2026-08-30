@@ -1965,24 +1965,32 @@ function Index() {
     };
   }, [isMobile, mobileToolDrawerOpen, fit]);
 
-  const prevSelectionLenRef = useRef(canvasSelection.length);
+  // Background selection is tracked entirely separately from
+  // canvasSelection (see isBackgroundSelected's own state above), so it has
+  // to be OR'd in here too — otherwise deselecting a background (e.g. the
+  // mobile selection bar's Done/tick button, see its own comment) never
+  // counts as "selection cleared" and this effect never fires, leaving the
+  // canvas stuck wherever it panned/lifted to while the background's
+  // color/gradient picker was open.
+  const hasSelection = canvasSelection.length > 0 || isBackgroundSelected;
+  const prevSelectionLenRef = useRef(hasSelection);
   useEffect(() => {
     let t: number | undefined;
     if (isMobile) {
       if (
-        prevSelectionLenRef.current > 0 &&
-        canvasSelection.length === 0 &&
+        prevSelectionLenRef.current &&
+        !hasSelection &&
         !isCustomZoomRef.current
       ) {
         fit();
         t = window.setTimeout(fit, 320);
       }
-      prevSelectionLenRef.current = canvasSelection.length;
+      prevSelectionLenRef.current = hasSelection;
     }
     return () => {
       if (t !== undefined) window.clearTimeout(t);
     };
-  }, [isMobile, canvasSelection.length, fit]);
+  }, [isMobile, hasSelection, fit]);
 
   // The one real zoom primitive — wheel, buttons, and the slider/typed-%
   // input all funnel through this (pinch has its own variant below, since
@@ -4396,6 +4404,22 @@ function Index() {
                         e.currentTarget.blur();
                         setCanvasSelection([]);
                         setIsBackgroundSelected(false);
+                        // This button unmounts whichever *SelectionToolbar
+                        // is currently showing (text/image/shape/background)
+                        // outright, mid-render, the instant selection clears
+                        // — unlike the desktop floating toolbar, mobile has
+                        // no `detached` fallback slot to keep it mounted for
+                        // one more tick. So if one of its color/gradient/font
+                        // popovers was open, it never gets the chance to
+                        // fire its own onOpenChange(false) and clear its
+                        // pinnedOwners slot — leaving anyPopoverOpen stuck
+                        // true forever and permanently blocking the mobile
+                        // "restore canvas to fit" effect (see its own
+                        // comment above, trigger 3). Clearing all four
+                        // slots here directly is what the vanishing
+                        // popover would have done itself had it gotten the
+                        // chance.
+                        setPinnedOwners({ text: null, image: null, shape: null, background: null });
                       }}
                       className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
                       title="Done (Deselect)"

@@ -453,51 +453,43 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     [s.layerOrder, s.texts, s.images, s.shapes],
   );
 
-  // Computes aggregate bounding box of all currently selected layers
+  // Computes aggregate bounding box of all currently selected layers.
+  // Freezes at its last computed value (via the ref cache below) while a
+  // group drag is active, instead of recomputing — the box this feeds is
+  // already invisible for the whole drag (`visibility: isGroupDragging ?
+  // "hidden" : "visible"` below), yet without this the memo still fully
+  // recomputed on every single drag tick anyway, because `s` (part of the
+  // dep array) changes on every pointermove the drag makes. Recomputing
+  // means the loop below runs a document.querySelector +
+  // offsetWidth/offsetHeight read (a forced layout) for EVERY layer on the
+  // canvas, every tick — exactly the kind of per-frame layout thrashing
+  // that reads as "laggy, not smooth" once you're moving several layers
+  // together on a mid-range phone.
+  // Deliberately NOT just returning null during the drag (an earlier pass
+  // at this fix did, and it was wrong): the box this feeds also HOSTS the
+  // full-area drag overlay that updateGroupDrag/endGroupDrag's own pointer
+  // handlers live on, gated by `{selectedBounds && ... ? (...) : null}`
+  // below. Going null the instant a drag starts (isGroupDragging flips
+  // true synchronously in the SAME pointerdown that starts the drag, before
+  // any pointermove) would unmount that overlay mid-gesture, dropping its
+  // pointer capture and silently ending the drag after a single tick.
+  // Freezing at the last good (non-dragging) value keeps the box mounted
+  // throughout instead — its exact left/top/width/height during the freeze
+  // don't matter since it's invisible anyway, and updateGroupDrag's own
+  // width/height fallback (computed straight from each item's own
+  // startX/startY %, no DOM involved) already covers a stale/missing value
+  // gracefully.
+  const selectedBoundsCacheRef = useRef<NonNullable<ReturnType<typeof computeSelectedBounds>> | null>(null);
   const selectedBounds = useMemo(() => {
-    if (selected.length <= 1) return null;
-    let minLeft = Infinity;
-    let maxRight = -Infinity;
-    let minTop = Infinity;
-    let maxBottom = -Infinity;
-
-    const allElements = getAllCanvasElements(s);
-    for (const sel of selected) {
-      const el = allElements.find((e) => e.id === sel.id);
-      if (el) {
-        const left = (el.x / 100) * s.width - el.width / 2;
-        const right = (el.x / 100) * s.width + el.width / 2;
-        const top = (el.y / 100) * s.height - el.height / 2;
-        const bottom = (el.y / 100) * s.height + el.height / 2;
-        minLeft = Math.min(minLeft, left);
-        maxRight = Math.max(maxRight, right);
-        minTop = Math.min(minTop, top);
-        maxBottom = Math.max(maxBottom, bottom);
-      }
+    if (selected.length <= 1) {
+      selectedBoundsCacheRef.current = null;
+      return null;
     }
-
-    if (!Number.isFinite(minLeft) || minLeft >= maxRight || minTop >= maxBottom) return null;
-
-    const width = maxRight - minLeft;
-    const height = maxBottom - minTop;
-    const centerX = ((minLeft + width / 2) / s.width) * 100;
-    const centerY = ((minTop + height / 2) / s.height) * 100;
-
-    return {
-      left: minLeft,
-      top: minTop,
-      width,
-      height,
-      centerX,
-      centerY,
-      isNearCenterX: Math.abs(centerX - 50) < 0.6,
-      isNearCenterY: Math.abs(centerY - 50) < 0.6,
-      isNearEdgeLeft: minLeft <= 8,
-      isNearEdgeRight: maxRight >= s.width - 8,
-      isNearEdgeTop: minTop <= 8,
-      isNearEdgeBottom: maxBottom >= s.height - 8,
-    };
-  }, [selected, s]);
+    if (isGroupDragging) return selectedBoundsCacheRef.current;
+    const result = computeSelectedBounds(selected, s);
+    selectedBoundsCacheRef.current = result;
+    return result;
+  }, [selected, s, isGroupDragging]);
 
   const updateGroupDrag = useCallback(
     (clientX: number, clientY: number) => {
@@ -915,6 +907,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
                 showMargins={showMargins}
+                isMobile={effectiveIsMobile}
               />
             );
           }
@@ -1967,6 +1960,57 @@ function getAllCanvasElements(s: EditorState): ElementBounds[] {
       });
     });
   return elements;
+}
+
+// Extracted out of the `selectedBounds` useMemo above so it's callable from
+// there conditionally (skipped mid-drag, see that memo's own comment) —
+// same DOM-querying cost as getAllCanvasElements, just aggregated down to
+// one bounding box across the given selection.
+function computeSelectedBounds(
+  selected: { kind: "image" | "text" | "shape"; id: string }[],
+  s: EditorState,
+) {
+  let minLeft = Infinity;
+  let maxRight = -Infinity;
+  let minTop = Infinity;
+  let maxBottom = -Infinity;
+
+  const allElements = getAllCanvasElements(s);
+  for (const sel of selected) {
+    const el = allElements.find((e) => e.id === sel.id);
+    if (el) {
+      const left = (el.x / 100) * s.width - el.width / 2;
+      const right = (el.x / 100) * s.width + el.width / 2;
+      const top = (el.y / 100) * s.height - el.height / 2;
+      const bottom = (el.y / 100) * s.height + el.height / 2;
+      minLeft = Math.min(minLeft, left);
+      maxRight = Math.max(maxRight, right);
+      minTop = Math.min(minTop, top);
+      maxBottom = Math.max(maxBottom, bottom);
+    }
+  }
+
+  if (!Number.isFinite(minLeft) || minLeft >= maxRight || minTop >= maxBottom) return null;
+
+  const width = maxRight - minLeft;
+  const height = maxBottom - minTop;
+  const centerX = ((minLeft + width / 2) / s.width) * 100;
+  const centerY = ((minTop + height / 2) / s.height) * 100;
+
+  return {
+    left: minLeft,
+    top: minTop,
+    width,
+    height,
+    centerX,
+    centerY,
+    isNearCenterX: Math.abs(centerX - 50) < 0.6,
+    isNearCenterY: Math.abs(centerY - 50) < 0.6,
+    isNearEdgeLeft: minLeft <= 8,
+    isNearEdgeRight: maxRight >= s.width - 8,
+    isNearEdgeTop: minTop <= 8,
+    isNearEdgeBottom: maxBottom >= s.height - 8,
+  };
 }
 
 function calculateAlignmentSnap({
@@ -5280,6 +5324,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   controlsOverlayEl,
   suppressDragRef,
   showMargins = false,
+  isMobile = false,
 }: {
   shape: ShapeLayer;
   index: number;
@@ -5303,6 +5348,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   controlsOverlayEl?: HTMLDivElement | null;
   suppressDragRef?: React.RefObject<boolean> | undefined;
   showMargins?: boolean;
+  isMobile?: boolean;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -5358,6 +5404,21 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const effectiveHeight = typeof shape.height === "number" ? shape.height : (isLine ? 24 : shape.size);
   const rotation = shape.rotation ?? 0;
   const invScale = scale > 0 ? 1 / scale : 1;
+  // Line endpoint handles' VISIBLE dot — deliberately NOT invScale-
+  // compensated like the invisible 28px hit box just below (that one stays
+  // constant on purpose, for reliable tapping). On mobile, where the canvas
+  // is typically fit-zoomed well under 100%, invScale compensation meant
+  // this dot rendered at a flat 20px ceiling almost all the time — looking
+  // oversized next to the now-much-thinner line/card it belongs to. Scaling
+  // by `scale` instead makes the dot's on-screen size actually track the
+  // canvas zoom the way the line itself does (smaller when zoomed out,
+  // bigger zoomed in), floored so it never shrinks past comfortably visible
+  // at extreme zoom-out and capped at the original 20px ceiling so it never
+  // balloons past it either. Desktop is untouched (still the flat 20px this
+  // was originally asked to cap at).
+  const lineEndpointDotPx = isMobile
+    ? Math.max(13, Math.min(20, 20 * scale))
+    : Math.min(20, 20 * invScale);
   // Line shapes render a thin visual stroke (effectiveHeight defaults to
   // just 24 canvas-space px) but that same number is also this layer's
   // pointer-hit target height below — fine on desktop, but once the whole
@@ -5820,10 +5881,19 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       >
                         <div
                           className={cn(
-                            "rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            "rounded-full shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            // Mobile: solid filled dot, no border ring — stays
+                            // clearly visible on its own against any canvas
+                            // background at the smaller sizes above, without
+                            // needing an outline to read as "there". Desktop
+                            // keeps the original white-fill-plus-blue-border
+                            // look untouched.
+                            isMobile
+                              ? "bg-[#0021ff]"
+                              : "border-[2.5px] border-[#0021ff] bg-white group-hover:scale-125 group-hover:bg-[#0021ff]",
                             activeHandle === "line-start" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
-                          style={{ width: Math.min(20, 20 * invScale), height: Math.min(20, 20 * invScale) }}
+                          style={{ width: lineEndpointDotPx, height: lineEndpointDotPx }}
                         />
                         {/* Live Measurement Badge anchored outward past start tip */}
                         {activeHandle === "line-start" && (
@@ -5947,10 +6017,14 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       >
                         <div
                           className={cn(
-                            "rounded-full border-[2.5px] border-[#0021ff] bg-white shadow-md transition-all group-hover:scale-125 group-hover:bg-[#0021ff] group-active:scale-135 group-active:bg-[#0021ff] group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            "rounded-full shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
+                            // See the start handle's own comment above.
+                            isMobile
+                              ? "bg-[#0021ff]"
+                              : "border-[2.5px] border-[#0021ff] bg-white group-hover:scale-125 group-hover:bg-[#0021ff]",
                             activeHandle === "line-end" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
-                          style={{ width: Math.min(20, 20 * invScale), height: Math.min(20, 20 * invScale) }}
+                          style={{ width: lineEndpointDotPx, height: lineEndpointDotPx }}
                         />
                         {/* Live Measurement Badge anchored outward past end tip */}
                         {activeHandle === "line-end" && (
