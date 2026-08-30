@@ -3772,7 +3772,6 @@ function Index() {
               setCanvasSelection([]);
               setIsBackgroundSelected(false);
             }}
-            onFitToScreen={fit}
           />
         </div>
 
@@ -4169,188 +4168,44 @@ function Index() {
               </AppTooltip>
             </div>
 
-            {/* Floating Lock & Delete pill on top-right (top-16 right-3) */}
-            {selectedTextLayer ||
-              selectedImageLayer ||
-              selectedShapeLayer ||
-              isMultiShapeSelection ||
-              isMultiImageSelection ||
-              isMixedMultiSelection ? (
-              <div
-                className="pointer-events-none fixed right-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
-                style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
-              >
-                {/* Lock Toggle Button */}
-                <AppTooltip
-                  content={
-                    selectedTextLayer?.locked ||
-                      selectedImageLayer?.locked ||
-                      selectedShapeLayer?.locked ||
-                      (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                      (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
-                      (isMixedMultiSelection &&
-                        canvasSelection.every((sel) => {
-                          if (sel.kind === "text")
-                            return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                          if (sel.kind === "image")
-                            return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                        }))
-                      ? "Unlock Layer"
-                      : "Lock Layer"
-                  }
+            {/* Floating Fit-to-screen + Margins pill on top-right, always
+                shown — Fit reuses the same icon/action as the desktop zoom
+                controls' own "Fit canvas to screen" button (Ctrl+0);
+                Margins mirrors that same row's Show/Hide margins toggle.
+                The per-layer Lock/Duplicate/Delete pill (LayerToolbar,
+                docked above the selected layer itself) already covers
+                lock/delete for whatever's selected, so this row doesn't
+                duplicate those — it's just the two canvas-level actions
+                that have no selection to dock next to. */}
+            <div
+              className="pointer-events-none fixed right-4 z-20 flex items-center gap-1 rounded-full border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-xl"
+              style={{ top: "calc(env(safe-area-inset-top) + 4.5rem)" }}
+            >
+              <AppTooltip content="Fit canvas to screen">
+                <button
+                  type="button"
+                  onClick={fit}
+                  className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-foreground transition-all hover:bg-secondary active:scale-95"
+                  title="Fit canvas to screen"
                 >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isMultiShapeSelection) {
-                        const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                        set("shapes", (_, prev) =>
-                          withShapesLockSet(
-                            prev,
-                            multiSelectedShapeLayers.map((l) => l.id),
-                            !allLocked,
-                          ),
-                        );
-                      } else if (isMultiImageSelection) {
-                        const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                        set("images", (_, prev) =>
-                          withImagesLockSet(
-                            prev,
-                            multiSelectedImageLayers.map((l) => l.id),
-                            !allLocked,
-                          ),
-                        );
-                      } else if (isMixedMultiSelection) {
-                        const allLocked = canvasSelection.every((sel) => {
-                          if (sel.kind === "text")
-                            return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                          if (sel.kind === "image")
-                            return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                        });
-                        const textIds = canvasSelection
-                          .filter((l) => l.kind === "text")
-                          .map((l) => l.id);
-                        const imageIds = canvasSelection
-                          .filter((l) => l.kind === "image")
-                          .map((l) => l.id);
-                        const shapeIds = canvasSelection
-                          .filter((l) => l.kind === "shape")
-                          .map((l) => l.id);
-                        if (textIds.length)
-                          set("texts", (_, prev) => withTextsLockSet(prev, textIds, !allLocked));
-                        if (imageIds.length)
-                          set("images", (_, prev) => withImagesLockSet(prev, imageIds, !allLocked));
-                        if (shapeIds.length)
-                          set("shapes", (_, prev) => withShapesLockSet(prev, shapeIds, !allLocked));
-                      } else if (selectedTextLayer) {
-                        set("texts", (_, prev) =>
-                          withTextUpdated(prev, selectedTextLayer.id, {
-                            locked: !selectedTextLayer.locked,
-                          }),
-                        );
-                      } else if (selectedImageLayer) {
-                        set("images", (_, prev) =>
-                          withImageUpdated(prev, selectedImageLayer.id, {
-                            locked: !selectedImageLayer.locked,
-                          }),
-                        );
-                      } else if (selectedShapeLayer) {
-                        set("shapes", (_, prev) =>
-                          withShapeUpdated(prev, selectedShapeLayer.id, {
-                            locked: !selectedShapeLayer.locked,
-                          }),
-                        );
-                      }
-                    }}
-                    className={cn(
-                      "pointer-events-auto grid h-7 w-7 place-items-center rounded-full transition-all active:scale-95",
-                      selectedTextLayer?.locked ||
-                        selectedImageLayer?.locked ||
-                        selectedShapeLayer?.locked ||
-                        (isMultiShapeSelection &&
-                          multiSelectedShapeLayers.every((l) => l.locked)) ||
-                        (isMultiImageSelection &&
-                          multiSelectedImageLayers.every((l) => l.locked)) ||
-                        (isMixedMultiSelection &&
-                          canvasSelection.every((sel) => {
-                            if (sel.kind === "text")
-                              return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                            if (sel.kind === "image")
-                              return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                          }))
-                        ? "bg-amber-500/20 text-amber-500"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    title={
-                      selectedTextLayer?.locked ||
-                        selectedImageLayer?.locked ||
-                        selectedShapeLayer?.locked ||
-                        (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                        (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
-                        (isMixedMultiSelection &&
-                          canvasSelection.every((sel) => {
-                            if (sel.kind === "text")
-                              return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                            if (sel.kind === "image")
-                              return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                          }))
-                        ? "Unlock Layer"
-                        : "Lock Layer"
-                    }
-                  >
-                    {selectedTextLayer?.locked ||
-                      selectedImageLayer?.locked ||
-                      selectedShapeLayer?.locked ||
-                      (isMultiShapeSelection && multiSelectedShapeLayers.every((l) => l.locked)) ||
-                      (isMultiImageSelection && multiSelectedImageLayers.every((l) => l.locked)) ||
-                      (isMixedMultiSelection &&
-                        canvasSelection.every((sel) => {
-                          if (sel.kind === "text")
-                            return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                          if (sel.kind === "image")
-                            return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                          return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                        })) ? (
-                      <SquareLock02Icon size={14} />
-                    ) : (
-                      <SquareUnlock02Icon size={14} />
-                    )}
-                  </button>
-                </AppTooltip>
-
-                <div className="h-3.5 w-px bg-border/80" />
-
-                {/* Delete Button */}
-                <AppTooltip content="Delete Layer">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isMultiShapeSelection || isMultiImageSelection || isMixedMultiSelection) {
-                        commit((prev) => {
-                          const result = withMultipleLayersRemoved(prev, canvasSelection);
-                          return { ...prev, ...result };
-                        });
-                      } else if (selectedTextLayer) {
-                        set("texts", (_, prev) => withTextRemoved(prev, selectedTextLayer.id));
-                      } else if (selectedImageLayer) {
-                        set("images", (_, prev) => withImageRemoved(prev, selectedImageLayer.id));
-                      } else if (selectedShapeLayer) {
-                        set("shapes", (_, prev) => withShapeRemoved(prev, selectedShapeLayer.id));
-                      }
-                      setCanvasSelection([]);
-                    }}
-                    className="pointer-events-auto grid h-7 w-7 place-items-center rounded-full text-red-500/80 transition-all hover:bg-red-500/10 hover:text-red-500 active:scale-95"
-                    title="Delete Layer"
-                  >
-                    <Delete02Icon size={14} />
-                  </button>
-                </AppTooltip>
-              </div>
-            ) : null}
+                  <CenterFocusIcon size={15} />
+                </button>
+              </AppTooltip>
+              <div className="h-3.5 w-px bg-border/80" />
+              <AppTooltip content={showMargins ? "Hide margins" : "Show margins"}>
+                <button
+                  type="button"
+                  onClick={() => setShowMargins((m) => !m)}
+                  className={cn(
+                    "pointer-events-auto grid h-7 w-7 place-items-center rounded-full transition-all active:scale-95",
+                    showMargins ? "bg-secondary text-foreground" : "text-foreground hover:bg-secondary",
+                  )}
+                  title={showMargins ? "Hide margins" : "Show margins"}
+                >
+                  <SquareDashed size={15} />
+                </button>
+              </AppTooltip>
+            </div>
 
             <div
               className="flex min-h-0 flex-1 flex-col p-3"

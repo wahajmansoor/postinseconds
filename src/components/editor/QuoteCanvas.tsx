@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import {
   Copy01Icon,
   Delete02Icon,
-  FitToScreenIcon,
   MoveIcon,
   SquareLock02Icon,
   SquareUnlock02Icon,
@@ -124,13 +123,6 @@ type Props = {
   onDeselectAll?: () => void;
   /** Force mobile mode behavior (falls back to useIsMobile hook) */
   isMobile?: boolean;
-  /** Recenters/rescales the outer canvas stage back to its fit-to-screen
-   * view (index.tsx's own `fit()`) — surfaced as a manual button in each
-   * single-layer LayerToolbar on mobile, alongside Lock/Duplicate/Delete,
-   * as an explicit escape hatch next to the various automatic
-   * restore-to-fit triggers already in index.tsx. Undefined/omitted on
-   * desktop, where that button doesn't render at all. */
-  onFitToScreen?: () => void;
   /** Show Canva-style dashed margins guide inside the canvas */
   showMargins?: boolean;
   /** True for as long as a second touch is also down (a pinch gesture in
@@ -264,7 +256,6 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     onDeselectAll,
     isMobile,
     showMargins = false,
-    onFitToScreen,
   },
   ref,
 ) {
@@ -926,7 +917,6 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 suppressDragRef={suppressDragRef}
                 showMargins={showMargins}
                 isMobile={effectiveIsMobile}
-                onFitToScreen={onFitToScreen}
               />
             );
           }
@@ -953,8 +943,6 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
                 showMargins={showMargins}
-                isMobile={effectiveIsMobile}
-                onFitToScreen={onFitToScreen}
               />
             );
           }
@@ -982,8 +970,6 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
                 showMargins={showMargins}
-                isMobile={effectiveIsMobile}
-                onFitToScreen={onFitToScreen}
               />
             );
           }
@@ -2519,7 +2505,6 @@ function LayerToolbar({
   placement = "top",
   extraOffset = 0,
   inline = false,
-  onFitToScreen,
 }: {
   locked: boolean;
   onToggleLock: () => void;
@@ -2529,9 +2514,6 @@ function LayerToolbar({
   placement?: "top" | "bottom" | undefined;
   extraOffset?: number | undefined;
   inline?: boolean | undefined;
-  // Mobile-only — see its own comment on QuoteCanvas's Props. Undefined on
-  // desktop, so the button below simply doesn't render there.
-  onFitToScreen?: (() => void) | undefined;
 }) {
   const invScale = scale > 0 ? 1 / scale : 1;
   const btn =
@@ -2616,23 +2598,6 @@ function LayerToolbar({
           </button>
         </>
       )}
-      {onFitToScreen ? (
-        <>
-          <div className="mx-0.5 h-5 w-px bg-white/15" />
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onFitToScreen();
-            }}
-            title="Fit canvas to screen"
-            className={btn}
-          >
-            <FitToScreenIcon size={18} />
-          </button>
-        </>
-      ) : null}
     </div>
   );
 }
@@ -3351,8 +3316,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   controlsOverlayEl,
   suppressDragRef,
   showMargins = false,
-  isMobile = false,
-  onFitToScreen,
 }: {
   t: TextLayer;
   index: number;
@@ -3377,8 +3340,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   controlsOverlayEl?: HTMLDivElement | null;
   suppressDragRef?: React.RefObject<boolean> | undefined;
   showMargins?: boolean;
-  isMobile?: boolean;
-  onFitToScreen?: (() => void) | undefined;
 }) {
   const dragRef = useRef<{
     px: number;
@@ -4665,7 +4626,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
                     onDelete={remove}
                     scale={scale}
                     placement="top"
-                    onFitToScreen={isMobile ? onFitToScreen : undefined}
                   />
                 </div>
               </div>
@@ -4876,8 +4836,6 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   controlsOverlayEl,
   suppressDragRef,
   showMargins = false,
-  isMobile = false,
-  onFitToScreen,
 }: {
   img: ImageLayer;
   index: number;
@@ -4901,8 +4859,6 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   controlsOverlayEl?: HTMLDivElement | null;
   suppressDragRef?: React.RefObject<boolean> | undefined;
   showMargins?: boolean;
-  isMobile?: boolean;
-  onFitToScreen?: (() => void) | undefined;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -5234,7 +5190,6 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
                     onDelete={remove}
                     scale={scale}
                     placement="top"
-                    onFitToScreen={isMobile ? onFitToScreen : undefined}
                   />
                 </div>
               </div>
@@ -5437,7 +5392,6 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   suppressDragRef,
   showMargins = false,
   isMobile = false,
-  onFitToScreen,
 }: {
   shape: ShapeLayer;
   index: number;
@@ -5462,7 +5416,6 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   suppressDragRef?: React.RefObject<boolean> | undefined;
   showMargins?: boolean;
   isMobile?: boolean;
-  onFitToScreen?: (() => void) | undefined;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -5843,7 +5796,6 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       onDelete={remove}
                       scale={scale}
                       inline={true}
-                      onFitToScreen={isMobile ? onFitToScreen : undefined}
                     />
                   </div>
                 </div>
@@ -5864,7 +5816,6 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       onDelete={remove}
                       scale={scale}
                       placement="top"
-                      onFitToScreen={isMobile ? onFitToScreen : undefined}
                     />
                   </div>
                 </div>
