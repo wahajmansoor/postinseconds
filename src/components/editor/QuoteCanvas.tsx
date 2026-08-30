@@ -5805,6 +5805,15 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                           alignItems: "center",
                           justifyContent: "center",
                           zIndex: activeHandle === "line-start" ? 120 : 100,
+                          // Without this, mobile browsers hold the very first
+                          // touchmove(s) back to decide whether the gesture is
+                          // a page scroll before handing pointermove to us —
+                          // that's the "lag before the drag catches up" feel.
+                          // The 8 corner/edge handles already set this via
+                          // getHandleStyle (line ~220); these two line
+                          // endpoints build their style object by hand and
+                          // had been missing it.
+                          touchAction: "none",
                         }}
                         className="group"
                         title="Drag endpoint to resize length or angle"
@@ -5930,6 +5939,8 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                           alignItems: "center",
                           justifyContent: "center",
                           zIndex: activeHandle === "line-end" ? 120 : 100,
+                          // See the start handle's own comment above.
+                          touchAction: "none",
                         }}
                         className="group"
                         title="Drag endpoint to resize length or angle"

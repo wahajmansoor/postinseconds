@@ -2086,7 +2086,15 @@ function Index() {
       const dy = e.shiftKey ? 0 : e.deltaY;
       const { width: stageW, height: stageH } = stageSizeRef.current;
       setPan((p) => clampPan({ x: p.x - dx, y: p.y - dy }, scaleRef.current, stageW, stageH));
-      isCustomZoomRef.current = true;
+      // NOT isCustomZoomRef — this branch only pans, it never touches
+      // scale. That ref (see its own comment above) exists to stop the
+      // mobile auto-refit-on-close effects from clobbering a scale the
+      // user deliberately chose; a plain pan carries no such intent, and
+      // marking it "custom zoom" anyway was a real bug (see the matching
+      // note on the single-finger touch-pan branch below) — it latched
+      // isCustomZoomRef true from an incidental scroll/drag and, since fit()
+      // is the only place that ever clears it, permanently disabled every
+      // auto-recenter for the rest of the session.
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -2198,7 +2206,16 @@ function Index() {
           );
           pendingScale = null;
         } else if (hasPendingPan) {
-          isCustomZoomRef.current = true;
+          // NOT isCustomZoomRef here either — single-finger drag only
+          // pans, same reasoning as the plain-scroll branch above. This
+          // was the one actually firing on mobile: any one-finger drag
+          // on the canvas (panning to see a layer, nudging the view while
+          // a drawer was open, etc.) permanently latched isCustomZoomRef
+          // true and silently disabled the "snap back to fit" effects for
+          // the rest of the session — which is why the canvas could end
+          // up stuck wherever it was last panned to (e.g. still shifted
+          // up out of the way of a now-closed drawer) instead of
+          // returning to its centered fit.
           const { width: stageW, height: stageH } = stageSizeRef.current;
           setPan((p) =>
             clampPan(
