@@ -2,7 +2,6 @@ import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useMemo, use
 import { createPortal } from "react-dom";
 import {
   Copy01Icon,
-  CursorCircleSelection02Icon,
   Delete02Icon,
   MoveIcon,
   SquareLock02Icon,
@@ -1696,7 +1695,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 title="Duplicate all selected layers"
               >
                 <Copy01Icon size={14} />
-                Duplicate
+                {selected.length}
               </button>
               <button
                 type="button"
@@ -1727,7 +1726,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 title="Delete all selected layers"
               >
                 <Delete02Icon size={14} />
-                Delete All
+                {selected.length}
               </button>
             </div>
           ) : null}

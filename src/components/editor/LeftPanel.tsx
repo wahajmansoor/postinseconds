@@ -22,6 +22,7 @@ import {
   Bookmark01Icon,
   DragDropVerticalIcon,
   CheckmarkCircle02Icon,
+  Layers01Icon,
   Tick02Icon,
   Search01Icon,
   Cancel01Icon,
@@ -1962,7 +1963,7 @@ export function LeftPanel({
                         title="Duplicate all selected layers"
                       >
                         <Copy01Icon size={12} />
-                        Duplicate ({selection.length})
+                        {selection.length}
                       </button>
                       <button
                         type="button"
@@ -1978,7 +1979,7 @@ export function LeftPanel({
                         title="Delete all selected layers"
                       >
                         <Delete02Icon size={12} />
-                        Delete ({selection.length})
+                        {selection.length}
                       </button>
                     </>
                   ) : null}
@@ -1990,8 +1991,9 @@ export function LeftPanel({
                         { selectAll: !allSelected, toggle: false },
                       )
                     }
-                    className="rounded-lg bg-secondary/80 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-secondary"
+                    className="flex items-center gap-1 rounded-lg bg-secondary/80 px-2 py-1 text-[11px] font-medium text-foreground hover:bg-secondary"
                   >
+                    <Layers01Icon size={12} />
                     {allSelected ? "Deselect All" : "Select All"}
                   </button>
                   <button
