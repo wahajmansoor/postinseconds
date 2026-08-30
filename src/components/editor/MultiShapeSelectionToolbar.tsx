@@ -162,12 +162,14 @@ export function MultiShapeSelectionToolbar({
   const lineLayers = layers.filter((l) => isLineShape(l.kind));
   const hasLineShapes = lineLayers.length > 0;
   const strokeWidths = lineLayers.map((l) => l.strokeWidth ?? 4);
+  const lineCaps = lineLayers.map((l) => l.lineCap ?? "round");
   const uniformWidth = uniformValue(widths);
   const uniformHeight = uniformValue(heights);
   const uniformColor = uniformValue(colors);
   const uniformRotation = uniformValue(rotations);
   const uniformOpacity = uniformValue(opacities);
   const uniformStrokeWidth = uniformValue(strokeWidths);
+  const uniformLineCap = uniformValue(lineCaps);
   // When sizes/colors/rotation already differ across the selection, each
   // control still needs *some* starting value to render — average width/
   // height/rotation/opacity, and the first layer's color — moving it then
@@ -179,6 +181,7 @@ export function MultiShapeSelectionToolbar({
   const displayRotation = uniformRotation ?? Math.round(rotations.reduce((a, b) => a + b, 0) / rotations.length);
   const displayOpacity = uniformOpacity ?? Math.round(opacities.reduce((a, b) => a + b, 0) / opacities.length);
   const displayStrokeWidth = uniformStrokeWidth ?? (strokeWidths[0] ?? 4);
+  const displayLineCap = uniformLineCap ?? (lineCaps[0] ?? "round");
   const allLocked = layers.every((l) => l.locked);
 
   // Group bounding box, in px, relative to the canvas — same left/top edge
@@ -259,7 +262,7 @@ export function MultiShapeSelectionToolbar({
           )}
         >
           <div
-            className="h-4.5 w-4.5 shrink-0 rounded-full border border-border shadow-xs"
+            className="h-4.5 w-4.5 shrink-0 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
             style={{ background: displayColor }}
           />
           <span className="text-xs">{uniformColor ? "Color" : "Mixed Color"}</span>
@@ -449,6 +452,31 @@ export function MultiShapeSelectionToolbar({
                       {px}px
                     </button>
                   ))}
+                </div>
+                <div className="space-y-1.5 border-t border-border/60 pt-3">
+                  <span className="text-xs font-semibold text-foreground">End Style</span>
+                  <div className="flex rounded-lg border border-border/70 bg-secondary/30 p-0.5">
+                    {(
+                      [
+                        { value: "round" as const, label: "Round" },
+                        { value: "butt" as const, label: "Square" },
+                      ]
+                    ).map(({ value, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => onUpdateAll({ lineCap: value })}
+                        className={cn(
+                          "flex-1 rounded-md py-1.5 text-center text-xs font-medium transition-colors",
+                          displayLineCap === value
+                            ? "bg-background font-bold text-primary shadow-sm"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

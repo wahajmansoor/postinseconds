@@ -224,7 +224,7 @@ export function isLinkedInFeedSize(width: number, height: number): boolean {
   return linkedin.presets.some((p) => p.label === "Feed" && p.w === width && p.h === height);
 }
 
-export const GRADIENTS = [
+const CURATED_GRADIENTS = [
   { label: "Violet Dusk", value: "linear-gradient(180deg, #0b0616 0%, #6d28d9 60%, #7c3aed 100%)" },
   { label: "Ember", value: "linear-gradient(140deg, #1a1a1a 0%, #7c2d12 55%, #e85d3a 100%)" },
   { label: "Ocean", value: "linear-gradient(160deg, #0c2340 0%, #1a4a6e 55%, #5cbdb9 100%)" },
@@ -242,6 +242,388 @@ export const GRADIENTS = [
   { label: "Golden Luxury", value: "linear-gradient(145deg, #1c1917 0%, #78350f 50%, #f59e0b 100%)" },
   { label: "Clean Minimal", value: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%)" },
 ];
+
+// The full 180-gradient set from github.com/itmeo/webgradients (MIT
+// licensed — "free for personal and commercial use"), transcribed from its
+// own gradients.json. Replaces the earlier cosine-palette and gradientti
+// sources: this one dataset alone is bigger and more varied than both
+// combined, so keeping them too would've meant mostly-redundant entries
+// with no real new coverage. CURATED_GRADIENTS above (deeper/moodier dark
+// tones this set skews away from) and MONOCHROMATIC_GRADIENTS below (true
+// single-hue ramps, which nothing here has either) still fill in what this
+// set doesn't cover.
+function webGradientCss(deg: number, stops: [string, number][]): string {
+  return `linear-gradient(${deg}deg, ${stops.map(([color, pos]) => `${color} ${pos}%`).join(", ")})`;
+}
+const WEBGRADIENTS: { name: string; deg: number; stops: [string, number][] }[] = [
+  { name: "Warm Flame", deg: 45, stops: [["#ff9a9e", 0], ["#fad0c4", 99], ["#fad0c4", 100]] },
+  { name: "Night Fade", deg: 0, stops: [["#a18cd1", 0], ["#fbc2eb", 100]] },
+  { name: "Spring Warmth", deg: 0, stops: [["#fad0c4", 0], ["#fad0c4", 1], ["#ffd1ff", 100]] },
+  { name: "Juicy Peach", deg: 90, stops: [["#ffecd2", 0], ["#fcb69f", 100]] },
+  { name: "Young Passion", deg: 90, stops: [["#ff8177", 0], ["#ff867a", 0], ["#ff8c7f", 21], ["#f99185", 52], ["#cf556c", 78], ["#b12a5b", 100]] },
+  { name: "Lady Lips", deg: 0, stops: [["#ff9a9e", 0], ["#fecfef", 99], ["#fecfef", 100]] },
+  { name: "Sunny Morning", deg: 120, stops: [["#f6d365", 0], ["#fda085", 100]] },
+  { name: "Rainy Ashville", deg: 0, stops: [["#fbc2eb", 0], ["#a6c1ee", 100]] },
+  { name: "Frozen Dreams", deg: 0, stops: [["#fdcbf1", 0], ["#fdcbf1", 1], ["#e6dee9", 100]] },
+  { name: "Winter Neva", deg: 120, stops: [["#a1c4fd", 0], ["#c2e9fb", 100]] },
+  { name: "Dusty Grass", deg: 120, stops: [["#d4fc79", 0], ["#96e6a1", 100]] },
+  { name: "Tempting Azure", deg: 120, stops: [["#84fab0", 0], ["#8fd3f4", 100]] },
+  { name: "Heavy Rain", deg: 0, stops: [["#cfd9df", 0], ["#e2ebf0", 100]] },
+  { name: "Amy Crisp", deg: 120, stops: [["#a6c0fe", 0], ["#f68084", 100]] },
+  { name: "Mean Fruit", deg: 120, stops: [["#fccb90", 0], ["#d57eeb", 100]] },
+  { name: "Lilac Sky", deg: 120, stops: [["#e0c3fc", 0], ["#8ec5fc", 100]] },
+  { name: "Ripe Malinka", deg: 120, stops: [["#f093fb", 0], ["#f5576c", 100]] },
+  { name: "Cloudy Knoxville", deg: 120, stops: [["#fdfbfb", 0], ["#ebedee", 100]] },
+  { name: "Malibu Beach", deg: 0, stops: [["#4facfe", 0], ["#00f2fe", 100]] },
+  { name: "New Life", deg: 0, stops: [["#43e97b", 0], ["#38f9d7", 100]] },
+  { name: "True Sunset", deg: 0, stops: [["#fa709a", 0], ["#fee140", 100]] },
+  { name: "Morpheus Den", deg: 0, stops: [["#30cfd0", 0], ["#330867", 100]] },
+  { name: "Rare Wind", deg: 0, stops: [["#a8edea", 0], ["#fed6e3", 100]] },
+  { name: "Near Moon", deg: 0, stops: [["#5ee7df", 0], ["#b490ca", 100]] },
+  { name: "Wild Apple", deg: 0, stops: [["#d299c2", 0], ["#fef9d7", 100]] },
+  { name: "Saint Petersburg", deg: 135, stops: [["#f5f7fa", 0], ["#c3cfe2", 100]] },
+  { name: "Arielle's Smile", deg: 0, stops: [["#16d9e3", 0], ["#30c7ec", 47], ["#46aef7", 100]] },
+  { name: "Plum Plate", deg: 135, stops: [["#667eea", 0], ["#764ba2", 100]] },
+  { name: "Everlasting Sky", deg: 135, stops: [["#fdfcfb", 0], ["#e2d1c3", 100]] },
+  { name: "Happy Fisher", deg: 120, stops: [["#89f7fe", 0], ["#66a6ff", 100]] },
+  { name: "Blessing", deg: 0, stops: [["#fddb92", 0], ["#d1fdff", 100]] },
+  { name: "Sharpeye Eagle", deg: 0, stops: [["#9890e3", 0], ["#b1f4cf", 100]] },
+  { name: "Ladoga Bottom", deg: 0, stops: [["#ebc0fd", 0], ["#d9ded8", 100]] },
+  { name: "Lemon Gate", deg: 0, stops: [["#96fbc4", 0], ["#f9f586", 100]] },
+  { name: "Itmeo Branding", deg: 180, stops: [["#2af598", 0], ["#009efd", 100]] },
+  { name: "Zeus Miracle", deg: 0, stops: [["#cd9cf2", 0], ["#f6f3ff", 100]] },
+  { name: "Old Hat", deg: 0, stops: [["#e4afcb", 0], ["#b8cbb8", 0], ["#b8cbb8", 0], ["#e2c58b", 30], ["#c2ce9c", 64], ["#7edbdc", 100]] },
+  { name: "Star Wine", deg: 0, stops: [["#b8cbb8", 0], ["#b8cbb8", 0], ["#b465da", 0], ["#cf6cc9", 33], ["#ee609c", 66], ["#ee609c", 100]] },
+  { name: "Deep Blue", deg: 120, stops: [["#e0c3fc", 0], ["#8ec5fc", 100]] },
+  { name: "Coup de Grace", deg: 0, stops: [["#DCD9D4", 0], ["#DCD9D4", 100]] },
+  { name: "Happy Acid", deg: 0, stops: [["#37ecba", 0], ["#72afd3", 100]] },
+  { name: "Awesome Pine", deg: 0, stops: [["#ebbba7", 0], ["#cfc7f8", 100]] },
+  { name: "New York", deg: 0, stops: [["#fff1eb", 0], ["#ace0f9", 100]] },
+  { name: "Shy Rainbow", deg: 0, stops: [["#eea2a2", 0], ["#bbc1bf", 19], ["#57c6e1", 42]] },
+  { name: "Loon Crest", deg: 0, stops: [["#989898", 0], ["#989898", 100]] },
+  { name: "Mixed Hopes", deg: 0, stops: [["#c471f5", 0], ["#fa71cd", 100]] },
+  { name: "Fly High", deg: 0, stops: [["#48c6ef", 0], ["#6f86d6", 100]] },
+  { name: "Strong Bliss", deg: 0, stops: [["#f78ca0", 0], ["#f9748f", 19], ["#fd868c", 60]] },
+  { name: "Fresh Milk", deg: 0, stops: [["#feada6", 0], ["#f5efef", 100]] },
+  { name: "Snow Again", deg: 0, stops: [["#e6e9f0", 0], ["#eef1f5", 100]] },
+  { name: "February Ink", deg: 0, stops: [["#accbee", 0], ["#e7f0fd", 100]] },
+  { name: "Kind Steel", deg: -20, stops: [["#e9defa", 0], ["#fbfcdb", 100]] },
+  { name: "Soft Grass", deg: 0, stops: [["#c1dfc4", 0], ["#deecdd", 100]] },
+  { name: "Grown Early", deg: 0, stops: [["#0ba360", 0], ["#3cba92", 100]] },
+  { name: "Sharp Blues", deg: 0, stops: [["#00c6fb", 0], ["#005bea", 100]] },
+  { name: "Shady Water", deg: 0, stops: [["#74ebd5", 0], ["#9face6", 100]] },
+  { name: "Dirty Beauty", deg: 0, stops: [["#6a85b6", 0], ["#bac8e0", 100]] },
+  { name: "Great Whale", deg: 0, stops: [["#a3bded", 0], ["#6991c7", 100]] },
+  { name: "Teen Notebook", deg: 0, stops: [["#9795f0", 0], ["#fbc8d4", 100]] },
+  { name: "Polite Rumors", deg: 0, stops: [["#a7a6cb", 0], ["#8989ba", 52], ["#8989ba", 100]] },
+  { name: "Sweet Period", deg: 0, stops: [["#3f51b1", 0], ["#5a55ae", 13], ["#7b5fac", 25], ["#8f6aae", 38], ["#a86aa4", 50], ["#cc6b8e", 62], ["#f18271", 75], ["#f3a469", 87], ["#f7c978", 100]] },
+  { name: "Wide Matrix", deg: 0, stops: [["#fcc5e4", 0], ["#fda34b", 15], ["#ff7882", 35], ["#c8699e", 52], ["#7046aa", 71], ["#0c1db8", 87], ["#020f75", 100]] },
+  { name: "Soft Cherish", deg: 0, stops: [["#dbdcd7", 0], ["#dddcd7", 24], ["#e2c9cc", 30], ["#e7627d", 46], ["#b8235a", 59], ["#801357", 71], ["#3d1635", 84], ["#1c1a27", 100]] },
+  { name: "Red Salvation", deg: 0, stops: [["#f43b47", 0], ["#453a94", 100]] },
+  { name: "Burning Spring", deg: 0, stops: [["#4fb576", 0], ["#44c489", 30], ["#28a9ae", 46], ["#28a2b7", 59], ["#4c7788", 71], ["#6c4f63", 80], ["#432c39", 100]] },
+  { name: "Night Party", deg: 0, stops: [["#0250c5", 0], ["#d43f8d", 100]] },
+  { name: "Sky Glider", deg: 0, stops: [["#88d3ce", 0], ["#6e45e2", 100]] },
+  { name: "Heaven Peach", deg: 0, stops: [["#d9afd9", 0], ["#97d9e1", 100]] },
+  { name: "Purple Division", deg: 0, stops: [["#7028e4", 0], ["#e5b2ca", 100]] },
+  { name: "Aqua Splash", deg: 15, stops: [["#13547a", 0], ["#80d0c7", 100]] },
+  { name: "Above Clouds", deg: 0, stops: [["#BDBBBE", 0], ["#9D9EA3", 100]] },
+  { name: "Spiky Naga", deg: 0, stops: [["#505285", 0], ["#585e92", 12], ["#65689f", 25]] },
+  { name: "Love Kiss", deg: 0, stops: [["#ff0844", 0], ["#ffb199", 100]] },
+  { name: "Sharp Glass", deg: 0, stops: [["#C9CCD3", 0], ["#C9CCD3", 100]] },
+  { name: "Clean Mirror", deg: 45, stops: [["#93a5cf", 0], ["#e4efe9", 100]] },
+  { name: "Premium Dark", deg: 0, stops: [["#434343", 0], ["#000000", 100]] },
+  { name: "Cold Evening", deg: 0, stops: [["#0c3483", 0], ["#a2b6df", 100], ["#6b8cce", 100]] },
+  { name: "Cochiti Lake", deg: 45, stops: [["#93a5cf", 0], ["#e4efe9", 100]] },
+  { name: "Summer Games", deg: 0, stops: [["#92fe9d", 0], ["#00c9ff", 100]] },
+  { name: "Passionate Bed", deg: 0, stops: [["#ff758c", 0], ["#ff7eb3", 100]] },
+  { name: "Mountain Rock", deg: 0, stops: [["#868f96", 0], ["#596164", 100]] },
+  { name: "Desert Hump", deg: 0, stops: [["#c79081", 0], ["#dfa579", 100]] },
+  { name: "Jungle Day", deg: 45, stops: [["#8baaaa", 0], ["#ae8b9c", 100]] },
+  { name: "Phoenix Start", deg: 0, stops: [["#f83600", 0], ["#f9d423", 100]] },
+  { name: "October Silence", deg: -20, stops: [["#b721ff", 0], ["#21d4fd", 100]] },
+  { name: "Faraway River", deg: -20, stops: [["#6e45e2", 0], ["#88d3ce", 100]] },
+  { name: "Alchemist Lab", deg: -20, stops: [["#d558c8", 0], ["#24d292", 100]] },
+  { name: "Over Sun", deg: 60, stops: [["#abecd6", 0], ["#fbed96", 100]] },
+  { name: "Premium White", deg: 0, stops: [["#d5d4d0", 0], ["#d5d4d0", 1], ["#eeeeec", 31]] },
+  { name: "Mars Party", deg: 0, stops: [["#5f72bd", 0], ["#9b23ea", 100]] },
+  { name: "Eternal Constance", deg: 0, stops: [["#09203f", 0], ["#537895", 100]] },
+  { name: "Japan Blush", deg: -20, stops: [["#ddd6f3", 0], ["#faaca8", 100], ["#faaca8", 100]] },
+  { name: "Smiling Rain", deg: -20, stops: [["#dcb0ed", 0], ["#99c99c", 100]] },
+  { name: "Cloudy Apple", deg: 0, stops: [["#f3e7e9", 0], ["#e3eeff", 99], ["#e3eeff", 100]] },
+  { name: "Big Mango", deg: 0, stops: [["#c71d6f", 0], ["#d09693", 100]] },
+  { name: "Healthy Water", deg: 60, stops: [["#96deda", 0], ["#50c9c3", 100]] },
+  { name: "Amour Amour", deg: 0, stops: [["#f77062", 0], ["#fe5196", 100]] },
+  { name: "Risky Concrete", deg: 0, stops: [["#c4c5c7", 0], ["#dcdddf", 52], ["#ebebeb", 100]] },
+  { name: "Strong Stick", deg: 0, stops: [["#a8caba", 0], ["#5d4157", 100]] },
+  { name: "Vicious Stance", deg: 60, stops: [["#29323c", 0], ["#485563", 100]] },
+  { name: "Palo Alto", deg: -60, stops: [["#16a085", 0], ["#f4d03f", 100]] },
+  { name: "Happy Memories", deg: -60, stops: [["#ff5858", 0], ["#f09819", 100]] },
+  { name: "Midnight Bloom", deg: -20, stops: [["#2b5876", 0], ["#4e4376", 100]] },
+  { name: "Crystalline", deg: -20, stops: [["#00cdac", 0], ["#8ddad5", 100]] },
+  { name: "Raccoon Back", deg: -180, stops: [["#BCC5CE", 0], ["#929EAD", 98]] },
+  { name: "Party Bliss", deg: 0, stops: [["#4481eb", 0], ["#04befe", 100]] },
+  { name: "Confident Cloud", deg: 0, stops: [["#dad4ec", 0], ["#dad4ec", 1], ["#f3e7e9", 100]] },
+  { name: "Le Cocktail", deg: 45, stops: [["#874da2", 0], ["#c43a30", 100]] },
+  { name: "River City", deg: 0, stops: [["#4481eb", 0], ["#04befe", 100]] },
+  { name: "Frozen Berry", deg: 0, stops: [["#e8198b", 0], ["#c7eafd", 100]] },
+  { name: "Elegance", deg: 0, stops: [["#EADFDF", 59], ["#ECE2DF", 100]] },
+  { name: "Child Care", deg: -20, stops: [["#f794a4", 0], ["#fdd6bd", 100]] },
+  { name: "Flying Lemon", deg: 60, stops: [["#64b3f4", 0], ["#c2e59c", 100]] },
+  { name: "New Retrowave", deg: 0, stops: [["#3b41c5", 0], ["#a981bb", 49], ["#ffc8a9", 100]] },
+  { name: "Hidden Jaguar", deg: 0, stops: [["#0fd850", 0], ["#f9f047", 100]] },
+  { name: "Above The Sky", deg: 0, stops: [["#d3d3d3", 0], ["#d3d3d3", 1], ["#e0e0e0", 26]] },
+  { name: "Nega", deg: 45, stops: [["#ee9ca7", 0], ["#ffdde1", 100]] },
+  { name: "Dense Water", deg: 0, stops: [["#3ab5b0", 0], ["#3d99be", 31], ["#56317a", 100]] },
+  { name: "Chemic Aqua", deg: 0, stops: [["#CDDCDC", 0], ["#CDDCDC", 100]] },
+  { name: "Seashore", deg: 0, stops: [["#209cff", 0], ["#68e0cf", 100]] },
+  { name: "Marble Wall", deg: 0, stops: [["#bdc2e8", 0], ["#bdc2e8", 1], ["#e6dee9", 100]] },
+  { name: "Cheerful Caramel", deg: 0, stops: [["#e6b980", 0], ["#eacda3", 100]] },
+  { name: "Night Sky", deg: 0, stops: [["#1e3c72", 0], ["#1e3c72", 1], ["#2a5298", 100]] },
+  { name: "Magic Lake", deg: 0, stops: [["#d5dee7", 0], ["#ffafbd", 0], ["#c9ffbf", 100]] },
+  { name: "Young Grass", deg: 0, stops: [["#9be15d", 0], ["#00e3ae", 100]] },
+  { name: "Colorful Peach", deg: 0, stops: [["#ed6ea0", 0], ["#ec8c69", 100]] },
+  { name: "Gentle Care", deg: 0, stops: [["#ffc3a0", 0], ["#ffafbd", 100]] },
+  { name: "Plum Bath", deg: 0, stops: [["#cc208e", 0], ["#6713d2", 100]] },
+  { name: "Happy Unicorn", deg: 0, stops: [["#b3ffab", 0], ["#12fff7", 100]] },
+  { name: "Full Metal", deg: 0, stops: [["#D5DEE7", 0], ["#E8EBF2", 50], ["#E2E7ED", 100]] },
+  { name: "African Field", deg: 0, stops: [["#65bd60", 0], ["#5ac1a8", 25], ["#3ec6ed", 50]] },
+  { name: "Solid Stone", deg: 0, stops: [["#243949", 0], ["#517fa4", 100]] },
+  { name: "Orange Juice", deg: -20, stops: [["#fc6076", 0], ["#ff9a44", 100]] },
+  { name: "Glass Water", deg: 0, stops: [["#dfe9f3", 0], ["#ffffff", 100]] },
+  { name: "Slick Carbon", deg: 180, stops: [["#323232", 0], ["#3F3F3F", 40], ["#1C1C1C", 150]] },
+  { name: "North Miracle", deg: 0, stops: [["#00dbde", 0], ["#fc00ff", 100]] },
+  { name: "Fruit Blend", deg: 0, stops: [["#f9d423", 0], ["#ff4e50", 100]] },
+  { name: "Millennium Pine", deg: 0, stops: [["#50cc7f", 0], ["#f5d100", 100]] },
+  { name: "High Flight", deg: 0, stops: [["#0acffe", 0], ["#495aff", 100]] },
+  { name: "Mole Hall", deg: -20, stops: [["#616161", 0], ["#9bc5c3", 100]] },
+  { name: "Earl Gray", deg: 0, stops: [["#E4E4E1", 0], ["#E4E4E1", 100]] },
+  { name: "Space Shift", deg: 60, stops: [["#3d3393", 0], ["#2b76b9", 37], ["#2cacd1", 65], ["#35eb93", 100]] },
+  { name: "Forest Inei", deg: 0, stops: [["#df89b5", 0], ["#bfd9fe", 100]] },
+  { name: "Royal Garden", deg: 0, stops: [["#ed6ea0", 0], ["#ec8c69", 100]] },
+  { name: "Rich Metal", deg: 0, stops: [["#d7d2cc", 0], ["#304352", 100]] },
+  { name: "Juicy Cake", deg: 0, stops: [["#e14fad", 0], ["#f9d423", 100]] },
+  { name: "Smart Indigo", deg: 0, stops: [["#b224ef", 0], ["#7579ff", 100]] },
+  { name: "Sand Strike", deg: 0, stops: [["#c1c161", 0], ["#c1c161", 0], ["#d4d4b1", 100]] },
+  { name: "Norse Beauty", deg: 0, stops: [["#ec77ab", 0], ["#7873f5", 100]] },
+  { name: "Aqua Guidance", deg: 0, stops: [["#007adf", 0], ["#00ecbc", 100]] },
+  { name: "Sun Veggie", deg: -225, stops: [["#20E2D7", 0], ["#F9FEA5", 100]] },
+  { name: "Sea Lord", deg: -225, stops: [["#2CD8D5", 0], ["#C5C1FF", 56], ["#FFBAC3", 100]] },
+  { name: "Black Sea", deg: -225, stops: [["#2CD8D5", 0], ["#6B8DD6", 48], ["#8E37D7", 100]] },
+  { name: "Grass Shampoo", deg: -225, stops: [["#DFFFCD", 0], ["#90F9C4", 48], ["#39F3BB", 100]] },
+  { name: "Landing Aircraft", deg: -225, stops: [["#5D9FFF", 0], ["#B8DCFF", 48], ["#6BBBFF", 100]] },
+  { name: "Witch Dance", deg: -225, stops: [["#A8BFFF", 0], ["#884D80", 100]] },
+  { name: "Sleepless Night", deg: -225, stops: [["#5271C4", 0], ["#B19FFF", 48], ["#ECA1FE", 100]] },
+  { name: "Angel Care", deg: -225, stops: [["#FFE29F", 0], ["#FFA99F", 48], ["#FF719A", 100]] },
+  { name: "Crystal River", deg: -225, stops: [["#22E1FF", 0], ["#1D8FE1", 48], ["#625EB1", 100]] },
+  { name: "Soft Lipstick", deg: -225, stops: [["#B6CEE8", 0], ["#F578DC", 100]] },
+  { name: "Salt Mountain", deg: -225, stops: [["#FFFEFF", 0], ["#D7FFFE", 100]] },
+  { name: "Perfect White", deg: -225, stops: [["#E3FDF5", 0], ["#FFE6FA", 100]] },
+  { name: "Fresh Oasis", deg: -225, stops: [["#7DE2FC", 0], ["#B9B6E5", 100]] },
+  { name: "Strict November", deg: -225, stops: [["#CBBACC", 0], ["#2580B3", 100]] },
+  { name: "Morning Salad", deg: -225, stops: [["#B7F8DB", 0], ["#50A7C2", 100]] },
+  { name: "Deep Relief", deg: -225, stops: [["#7085B6", 0], ["#87A7D9", 50], ["#DEF3F8", 100]] },
+  { name: "Sea Strike", deg: -225, stops: [["#77FFD2", 0], ["#6297DB", 48], ["#1EECFF", 100]] },
+  { name: "Night Call", deg: -225, stops: [["#AC32E4", 0], ["#7918F2", 48], ["#4801FF", 100]] },
+  { name: "Supreme Sky", deg: -225, stops: [["#D4FFEC", 0], ["#57F2CC", 48], ["#4596FB", 100]] },
+  { name: "Light Blue", deg: -225, stops: [["#9EFBD3", 0], ["#57E9F2", 48], ["#45D4FB", 100]] },
+  { name: "Mind Crawl", deg: -225, stops: [["#473B7B", 0], ["#3584A7", 51], ["#30D2BE", 100]] },
+  { name: "Lily Meadow", deg: -225, stops: [["#65379B", 0], ["#886AEA", 53], ["#6457C6", 100]] },
+  { name: "Sugar Lollipop", deg: -225, stops: [["#A445B2", 0], ["#D41872", 52], ["#FF0066", 100]] },
+  { name: "Sweet Dessert", deg: -225, stops: [["#7742B2", 0], ["#F180FF", 52], ["#FD8BD9", 100]] },
+  { name: "Magic Ray", deg: -225, stops: [["#FF3CAC", 0], ["#562B7C", 52], ["#2B86C5", 100]] },
+  { name: "Teen Party", deg: -225, stops: [["#FF057C", 0], ["#8D0B93", 50], ["#321575", 100]] },
+  { name: "Frozen Heat", deg: -225, stops: [["#FF057C", 0], ["#7C64D5", 48], ["#4CC3FF", 100]] },
+  { name: "Gagarin View", deg: -225, stops: [["#69EACB", 0], ["#EACCF8", 48], ["#6654F1", 100]] },
+  { name: "Fabled Sunset", deg: -225, stops: [["#231557", 0], ["#44107A", 29], ["#FF1361", 67]] },
+  { name: "Perfect Blue", deg: -225, stops: [["#3D4E81", 0], ["#5753C9", 48], ["#6E7FF3", 100]] },
+];
+const GENERATED_GRADIENTS = WEBGRADIENTS.map(({ name, deg, stops }) => ({
+  label: name,
+  value: webGradientCss(deg, stops),
+}));
+
+function hsl(h: number, s: number, l: number): string {
+  return `hsl(${Math.round(((h % 360) + 360) % 360)}, ${Math.round(s)}%, ${Math.round(l)}%)`;
+}
+
+// A true monochromatic ramp per hue (dark tint -> light tint of the SAME
+// hue) — none of the three sets above actually have these; they're all
+// multi-hue by design. Matches Canva's own "Monochromatic" row, which is
+// exactly this: one swatch per hue, each staying within that one hue's own
+// shade/tint range rather than blending toward a different color.
+const MONOCHROMATIC_HUES: { name: string; hue: number; sat: number }[] = [
+  { name: "Gray", hue: 220, sat: 8 },
+  { name: "Red", hue: 355, sat: 65 },
+  { name: "Orange", hue: 28, sat: 80 },
+  { name: "Gold", hue: 45, sat: 75 },
+  { name: "Green", hue: 140, sat: 55 },
+  { name: "Teal", hue: 175, sat: 60 },
+  { name: "Blue", hue: 215, sat: 65 },
+  { name: "Purple", hue: 275, sat: 55 },
+];
+const MONOCHROMATIC_GRADIENTS = MONOCHROMATIC_HUES.map(({ name, hue, sat }) => ({
+  label: `${name} Tones`,
+  value: `linear-gradient(135deg, ${hsl(hue, sat, 18)} 0%, ${hsl(hue, sat, 45)} 50%, ${hsl(hue, Math.max(15, sat - 20), 82)} 100%)`,
+}));
+
+// Auto-classifies a gradient into Canva's own picker groupings (Cool tones
+// / Warm tones / Monochromatic) straight from its actual CSS, instead of
+// hand-tagging every one of the ~45 gradients above — parses every color
+// literal (#hex or rgb(...), covering all three generators above) back to
+// HSL, then buckets on hue spread (tight spread + a genuinely single-hue
+// ramp = monochromatic, same idea MONOCHROMATIC_GRADIENTS is built from
+// directly) and average hue otherwise (warm = reds/oranges/yellows/pinks,
+// cool = greens/teals/blues/purples — same split the reference image's
+// rows actually land on: greens sit in "Cool tones" there, not "Warm").
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l: l * 100 };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === rn) h = ((gn - bn) / d + (gn < bn ? 6 : 0)) * 60;
+  else if (max === gn) h = ((bn - rn) / d + 2) * 60;
+  else h = ((rn - gn) / d + 4) * 60;
+  return { h, s: s * 100, l: l * 100 };
+}
+function extractHslColors(css: string): { h: number; s: number; l: number }[] {
+  const colors: { h: number; s: number; l: number }[] = [];
+  const hexRe = /#([0-9a-fA-F]{6})/g;
+  for (const m of css.matchAll(hexRe)) {
+    const n = parseInt(m[1]!, 16);
+    colors.push(rgbToHsl((n >> 16) & 255, (n >> 8) & 255, n & 255));
+  }
+  const rgbRe = /rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/g;
+  for (const m of css.matchAll(rgbRe)) {
+    colors.push(rgbToHsl(Number(m[1]), Number(m[2]), Number(m[3])));
+  }
+  const hslRe = /hsl\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)%\s*,\s*(\d+(?:\.\d+)?)%\s*\)/g;
+  for (const m of css.matchAll(hslRe)) {
+    colors.push({ h: Number(m[1]), s: Number(m[2]), l: Number(m[3]) });
+  }
+  return colors;
+}
+function classifyGradient(css: string): "cool" | "warm" | "monochromatic" {
+  const colors = extractHslColors(css);
+  if (colors.length === 0) return "cool";
+  const avgSat = colors.reduce((sum, c) => sum + c.s, 0) / colors.length;
+  // Circular hue spread: max pairwise angular distance, not a plain
+  // max-min (hue wraps at 360, so red at 355 and 5 are actually adjacent).
+  const angDist = (a: number, b: number) => {
+    const d = Math.abs(a - b) % 360;
+    return d > 180 ? 360 - d : d;
+  };
+  let spread = 0;
+  for (let i = 0; i < colors.length; i++) {
+    for (let j = i + 1; j < colors.length; j++) {
+      spread = Math.max(spread, angDist(colors[i]!.h, colors[j]!.h));
+    }
+  }
+  if (avgSat < 18 || spread < 20) return "monochromatic";
+  // Circular mean hue via averaging unit vectors — a plain arithmetic mean
+  // breaks the same way min/max does across the 360/0 wrap.
+  const sumX = colors.reduce((s, c) => s + Math.cos((c.h * Math.PI) / 180), 0);
+  const sumY = colors.reduce((s, c) => s + Math.sin((c.h * Math.PI) / 180), 0);
+  const avgHue = ((Math.atan2(sumY, sumX) * 180) / Math.PI + 360) % 360;
+  return avgHue <= 75 || avgHue >= 300 ? "warm" : "cool";
+}
+
+export type GradientCategory = "cool" | "warm" | "monochromatic";
+export const GRADIENTS: { label: string; value: string; category: GradientCategory }[] = [
+  ...CURATED_GRADIENTS,
+  ...GENERATED_GRADIENTS,
+  ...MONOCHROMATIC_GRADIENTS,
+].map((g) => ({ ...g, category: classifyGradient(g.value) }));
+
+// Parses an arbitrary linear-/radial-gradient() CSS string back into its
+// angle and ordered color stops — the piece every "Custom" gradient editor
+// in the app (BackgroundSelectionToolbar, and the two in LeftPanel) was
+// missing. None of them ever read the CURRENTLY APPLIED background back
+// into their own start/mid/end/accent2 fields on open — Custom always
+// showed its own leftover local state (defaults, or whatever was last
+// typed in there this session) with zero connection to whatever preset the
+// user had actually just picked from the gallery. That's the "gradient
+// doesn't show in Custom" bug: it wasn't SOME gradients failing, it was
+// EVERY preset, since nothing ever synced them in the first place.
+export function parseGradientCss(
+  css: string,
+): { type: "linear" | "radial"; angle: number; stops: { color: string; pos: number }[] } | null {
+  const trimmed = css.trim();
+  const isRadial = trimmed.startsWith("radial-gradient");
+  const isLinear = trimmed.startsWith("linear-gradient");
+  if (!isRadial && !isLinear) return null;
+
+  const open = trimmed.indexOf("(");
+  const close = trimmed.lastIndexOf(")");
+  if (open < 0 || close < 0) return null;
+  const inner = trimmed.slice(open + 1, close);
+
+  // Split on top-level commas only — rgba(...)/hsla(...) stops have their
+  // own internal commas that must NOT split the list.
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of inner) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  if (parts.length === 0) return null;
+
+  let angle = 135;
+  let stopParts = parts;
+  const first = parts[0] ?? "";
+  if (isLinear && /^-?\d+(\.\d+)?deg$/.test(first)) {
+    angle = parseFloat(first);
+    stopParts = parts.slice(1);
+  } else if (!/^(#|rgba?\(|hsla?\()/i.test(first)) {
+    // Non-angle, non-color leading token — e.g. "to right" (linear) or
+    // "circle at center" (radial). Not a stop; drop it.
+    stopParts = parts.slice(1);
+  }
+
+  const colorStopRe = /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))\s*(-?\d+(?:\.\d+)?)?%?/;
+  const stops = stopParts
+    .map((p, i) => {
+      const m = p.match(colorStopRe);
+      if (!m) return null;
+      const pos = m[2] !== undefined ? Number(m[2]) : (i / Math.max(1, stopParts.length - 1)) * 100;
+      return { color: m[1]!, pos };
+    })
+    .filter((s): s is { color: string; pos: number } => s !== null);
+
+  return stops.length > 0 ? { type: isRadial ? "radial" : "linear", angle, stops } : null;
+}
+
+// Reduces an arbitrary-length stop list down to the 2-4 stops every
+// Custom gradient editor's UI actually has fields for (start, optional
+// mid, optional accent2, end) — lossy for anything with more real stops
+// than that (most of the WEBGRADIENTS/COSINE_PALETTES entries), but shows
+// something recognizably related to the source gradient instead of the
+// editor's unrelated leftover defaults.
+export function reduceGradientStops(
+  stops: { color: string; pos: number }[],
+): { start: string; mid?: string; accent2?: string; end: string } {
+  const n = stops.length;
+  if (n === 0) return { start: "#6366f1", end: "#ec4899" };
+  if (n === 1) return { start: stops[0]!.color, end: stops[0]!.color };
+  if (n === 2) return { start: stops[0]!.color, end: stops[n - 1]!.color };
+  if (n === 3) return { start: stops[0]!.color, mid: stops[1]!.color, end: stops[2]!.color };
+  return {
+    start: stops[0]!.color,
+    mid: stops[Math.round((n - 1) / 3)]!.color,
+    accent2: stops[Math.round((2 * (n - 1)) / 3)]!.color,
+    end: stops[n - 1]!.color,
+  };
+}
 
 export type FontOption = {
   label: string;
@@ -504,6 +886,7 @@ export type TextLayer = {
 export type LineKind =
   | "line-solid"
   | "line-dashed"
+  | "line-dash-short"
   | "line-dotted"
   | "line-arrow-right"
   | "line-arrow-open-right"
@@ -539,9 +922,96 @@ export function isLineShape(kind: ShapeKind | string): boolean {
   return typeof kind === "string" && kind.startsWith("line-");
 }
 
+// The newer, independently-configurable line model — ShapeLayer.lineStyle/
+// lineStartCap/lineEndCap below. Older shapes (created before this existed,
+// or from LINE_PRESETS) carry none of these three fields and keep rendering
+// through the legacy `kind`-driven switch in LineShapeSvg instead — kind
+// itself no longer changes for a line once these are in play, so a shape
+// can't end up in a mixed/inconsistent state. `lineStyle` presence is what
+// LineShapeSvg checks to decide which renderer a given shape uses.
+export type LineStrokeStyle = "solid" | "dash-long" | "dash-short" | "dotted";
+export type LineEndCapKind =
+  | "none"
+  | "arrow"
+  | "arrow-open"
+  | "circle"
+  | "circle-hollow"
+  | "square"
+  | "square-hollow"
+  | "diamond"
+  | "diamond-hollow"
+  | "tbar";
+
+// Seeds lineStyle/lineStartCap/lineEndCap from a legacy `kind` the first
+// time a line shape's Start/End/Style controls are touched, so switching a
+// LINE_PRESETS-created shape onto the new independent model doesn't change
+// how it looks until the user actually picks something different.
+export function inferLineStyleFromKind(kind: LineKind): {
+  style: LineStrokeStyle;
+  start: LineEndCapKind;
+  end: LineEndCapKind;
+} {
+  const style: LineStrokeStyle = kind.includes("dotted")
+    ? "dotted"
+    : kind.includes("dash-short")
+      ? "dash-short"
+      : kind.includes("dashed")
+        ? "dash-long"
+        : "solid";
+  switch (kind) {
+    case "line-arrow-right":
+    case "line-arrow-open-right":
+    case "line-arrow-dotted-right":
+      return { style, start: "none", end: kind === "line-arrow-open-right" ? "arrow-open" : "arrow" };
+    case "line-tbar":
+      return { style, start: "tbar", end: "tbar" };
+    case "line-double-arrow":
+    case "line-double-arrow-dotted":
+      return { style, start: "arrow", end: "arrow" };
+    case "line-square-ends":
+      return { style, start: "square", end: "square" };
+    case "line-circle-ends":
+      return { style, start: "circle", end: "circle" };
+    case "line-diamond-ends":
+      return { style, start: "diamond", end: "diamond" };
+    case "line-square-hollow-ends":
+      return { style, start: "square-hollow", end: "square-hollow" };
+    case "line-circle-hollow-ends":
+      return { style, start: "circle-hollow", end: "circle-hollow" };
+    case "line-diamond-hollow-ends":
+      return { style, start: "diamond-hollow", end: "diamond-hollow" };
+    default:
+      return { style, start: "none", end: "none" };
+  }
+}
+
+// The (lineStyle, lineStartCap, lineEndCap) triple actually in effect for a
+// line shape right now — its own three fields once set, or the same triple
+// inferred from `kind` before they ever are (see inferLineStyleFromKind's
+// own comment). Used to keep the Lines preset gallery's "active" highlight
+// and the Line Style panel's own controls reading off one single source of
+// truth, so picking from either stays in sync with the other instead of
+// each tracking a different field.
+export function effectiveLineTriple(layer: {
+  kind: ShapeKind;
+  lineStyle?: LineStrokeStyle | undefined;
+  lineStartCap?: LineEndCapKind | undefined;
+  lineEndCap?: LineEndCapKind | undefined;
+}): { style: LineStrokeStyle; start: LineEndCapKind; end: LineEndCapKind } {
+  if (layer.lineStyle !== undefined) {
+    return {
+      style: layer.lineStyle,
+      start: layer.lineStartCap ?? "none",
+      end: layer.lineEndCap ?? "none",
+    };
+  }
+  return inferLineStyleFromKind(layer.kind as LineKind);
+}
+
 export const LINE_PRESETS: { id: string; label: string; kind: LineKind }[] = [
   { id: "line-solid", label: "Solid Line", kind: "line-solid" },
-  { id: "line-dashed", label: "Dashed Line", kind: "line-dashed" },
+  { id: "line-dashed", label: "Long Dash", kind: "line-dashed" },
+  { id: "line-dash-short", label: "Short Dash", kind: "line-dash-short" },
   { id: "line-dotted", label: "Dotted Line", kind: "line-dotted" },
   { id: "line-arrow-right", label: "Solid Arrow Right", kind: "line-arrow-right" },
   { id: "line-arrow-open-right", label: "Open Arrow Right", kind: "line-arrow-open-right" },
@@ -1157,8 +1627,44 @@ export function shapeSupportsRadius(kind: ShapeKind): boolean {
   return kind === "rect" || kind === "arch" || kind === "u-shape" || kind === "quarter-circle";
 }
 
+const LINE_STYLE_LABELS: Record<LineStrokeStyle, string> = {
+  solid: "Solid",
+  "dash-long": "Long Dash",
+  "dash-short": "Short Dash",
+  dotted: "Dotted",
+};
+
+const LINE_CAP_LABELS: Record<LineEndCapKind, string> = {
+  none: "",
+  arrow: "Arrow",
+  "arrow-open": "Open Arrow",
+  circle: "Circle",
+  "circle-hollow": "Hollow Circle",
+  square: "Square",
+  "square-hollow": "Hollow Square",
+  diamond: "Diamond",
+  "diamond-hollow": "Hollow Diamond",
+  tbar: "T-Bar",
+};
+
 export function getShapeLabel(shape: ShapeLayer): string {
   if (isLineShape(shape.kind)) {
+    // Once a line has been touched by the Line Style/Ends controls, `kind`
+    // itself deliberately stays frozen at whatever it was before (see
+    // inferLineStyleFromKind's own comment) — looking it up in LINE_PRESETS
+    // would keep showing the shape's ORIGINAL preset name forever, no
+    // matter what the user actually changed it to since. Describe the
+    // shape's real current (style, start, end) triple instead once it's in
+    // play.
+    if (shape.lineStyle !== undefined) {
+      const styleLabel = LINE_STYLE_LABELS[shape.lineStyle];
+      const start = shape.lineStartCap ?? "none";
+      const end = shape.lineEndCap ?? "none";
+      if (start === "none" && end === "none") return `${styleLabel} Line`;
+      if (start === end) return `${LINE_CAP_LABELS[start]} Ends`;
+      const parts = [start, end].filter((c) => c !== "none").map((c) => LINE_CAP_LABELS[c]);
+      return parts.length ? `${parts.join(" / ")} Line` : `${styleLabel} Line`;
+    }
     const linePreset = LINE_PRESETS.find((p) => p.kind === shape.kind);
     return linePreset ? linePreset.label : "Line";
   }
@@ -1310,6 +1816,20 @@ export type ShapeLayer = {
   // Degrees, clockwise, around the layer's own center. Unset means 0 — same
   // optional/fallback pattern as everything else here.
   rotation?: number | undefined;
+  // Line shapes only (isLineShape(kind)) — "rounded end points" toggle,
+  // applies to the plain stroke ends only (not decorative markers, which
+  // draw their own explicit shape). Unset means "round", matching every
+  // line's original hardcoded look before this was made a per-shape choice.
+  lineCap?: "round" | "butt" | undefined;
+  // Line shapes only, and only once set — see inferLineStyleFromKind's own
+  // comment for why these three stay undefined on any shape still using the
+  // legacy `kind`-driven look. lineStyle is the stroke pattern (solid/dash/
+  // dot); lineStartCap/lineEndCap are the independently-chosen decoration
+  // at each end (arrow, circle, tbar, etc — see LineEndCapKind), replacing
+  // `kind`'s old one-preset-covers-both-ends limitation.
+  lineStyle?: LineStrokeStyle | undefined;
+  lineStartCap?: LineEndCapKind | undefined;
+  lineEndCap?: LineEndCapKind | undefined;
 };
 
 export type EditorState = {

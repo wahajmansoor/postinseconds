@@ -199,31 +199,26 @@ export function rgbaToHex({ r, g, b, a }: RGBA, includeAlpha = false): string {
 }
 
 // HeroUI Color Palettes
+// A 24-color, 6-per-row default palette (renders as 4 rows via
+// ColorSwatchPicker's grid-cols-6) — picked to match a reference "Default
+// solid colors" grid: one grayscale ramp, then three rows sweeping through
+// warm/cool hue families, each row itself running light-to-dark.
 export const HEROUI_PALETTES = [
   {
-    name: "HeroUI Theme",
-    colors: [
-      "#006FEE", // Primary
-      "#7828C8", // Secondary
-      "#17C964", // Success
-      "#F5A524", // Warning
-      "#F31260", // Danger
-      "#18181B", // Dark
-      "#71717A", // Default/Zinc
-      "#06B6D4", // Cyan
-    ],
+    name: "Grayscale",
+    colors: ["#000000", "#595959", "#808080", "#B3B3B3", "#D9D9D9", "#FFFFFF"],
   },
   {
-    name: "Vibrant",
-    colors: [
-      "#38BDF8", "#818CF8", "#C084FC", "#F472B6", "#FB7185", "#FB923C", "#FBBF24", "#4ADE80",
-    ],
+    name: "Reds & Purples",
+    colors: ["#FF3B30", "#FF6B81", "#FF6EC7", "#D9A6F5", "#A855F7", "#6C3CE9"],
   },
   {
-    name: "Monochrome & Slate",
-    colors: [
-      "#000000", "#1E293B", "#334155", "#64748B", "#94A3B8", "#CBD5E1", "#F1F5F9", "#FFFFFF",
-    ],
+    name: "Teals & Blues",
+    colors: ["#14B8A6", "#22D3D3", "#5EEAD4", "#38BDF8", "#3B5BDB", "#1E1B8C"],
+  },
+  {
+    name: "Greens & Oranges",
+    colors: ["#16A34A", "#9AE66E", "#FFF176", "#FFD93D", "#FDB44B", "#F97316"],
   },
 ];
 
@@ -477,7 +472,11 @@ export function ColorSwatchPicker({
       </div>
       <div className="flex flex-col gap-2">
         {palettes.map((palette) => (
-          <div key={palette.name} className="flex items-center justify-between gap-1.5">
+          // grid + aspect-square (not the earlier flex-1/rounded-full pill
+          // attempt) — same square-swatch treatment as GradientSwatchGrid,
+          // each swatch exactly filling its own grid track so the gap
+          // between them can't get squeezed out by a fixed pixel size.
+          <div key={palette.name} className="grid grid-cols-6 gap-1.5">
             {palette.colors.map((c) => {
               const isSelected = normalizedValue === c.toUpperCase();
               return (
@@ -487,8 +486,8 @@ export function ColorSwatchPicker({
                   onClick={() => onChange(c)}
                   title={`${palette.name}: ${c}`}
                   className={cn(
-                    "relative flex h-6 w-6 items-center justify-center rounded-lg border border-black/10 dark:border-white/15 transition-all hover:scale-115 active:scale-95",
-                    isSelected && "ring-2 ring-primary ring-offset-1 dark:ring-offset-black scale-105 shadow-sm",
+                    "relative flex aspect-square w-full items-center justify-center rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-all hover:scale-105 active:scale-95",
+                    isSelected && "ring-2 ring-primary ring-offset-1 dark:ring-offset-black scale-105",
                   )}
                   style={{ backgroundColor: c }}
                 >
@@ -768,11 +767,17 @@ export function ColorPickerContent({
   const currentColor = rgbaToHex(rgba, showAlpha && hsva.a < 1);
 
   return (
-    // max-md: this is used both as a plain desktop popover (fixed w-68 is
-    // correct there) and directly inside FloatingDropdown's mobile bottom
-    // sheet (Text Color, Background Solid) — on mobile it should fill the
-    // sheet's own width instead of floating narrow inside it with blank
-    <div className="flex w-68 max-md:w-full flex-col gap-3 p-3.5 max-md:gap-2.5 max-md:p-2.5 text-popover-foreground">
+    // w-full, not a fixed w-68 — this renders both as a free-floating
+    // Popover's own body (ColorPicker below, whose PopoverContent now
+    // carries the fixed w-68 itself, sized however IT likes since nothing
+    // constrains a portal-positioned popover) AND embedded directly inline
+    // inside an already-sized parent (e.g. the Custom Gradient panel's
+    // Start/End/Middle color Fields, each inside its own ~256px-wide
+    // FloatingDropdown). A hardcoded w-68 (272px) here overflowed that
+    // narrower parent — with the parent's own overflow-hidden, the excess
+    // just got silently clipped rather than wrapping or scrolling, which
+    // is what "cut off on the right" was.
+    <div className="flex w-full flex-col gap-3 p-3.5 max-md:gap-2.5 max-md:p-2.5 text-popover-foreground">
       {/* 1. HeroUI 2D Color Area - Desktop only, hidden on mobile for clean compact layout */}
       <div className="hidden md:block">
         <ColorArea hsva={hsva} onChange={updateHsva} />
@@ -1004,14 +1009,14 @@ export function ColorPicker({
             <button
               type="button"
               className={cn(
-                "relative flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/80 bg-secondary/60 text-muted-foreground transition-all hover:bg-secondary hover:text-foreground hover:scale-105 active:scale-95 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary",
+                "relative flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-none bg-secondary/60 text-muted-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-all hover:bg-secondary hover:text-foreground hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-primary",
                 swatchClassName,
               )}
               title="Custom color picker / eyedropper"
             >
               <Pipette size={14} className="text-foreground" />
               <span
-                className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-background shadow-sm"
+                className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
                 style={{ backgroundColor: value || "#000000" }}
               />
             </button>
@@ -1019,7 +1024,7 @@ export function ColorPicker({
             <button
               type="button"
               className={cn(
-                "relative flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 cursor-pointer overflow-hidden rounded-full border border-black/20 dark:border-white/20 shadow-sm transition-all hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
+                "relative flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 cursor-pointer overflow-hidden rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2",
                 swatchClassName,
               )}
               style={{ backgroundColor: value || "#000000" }}
@@ -1032,7 +1037,7 @@ export function ColorPicker({
           data-nopan=""
           align={align}
           sideOffset={6}
-          className="w-auto rounded-3xl border border-border/80 bg-popover/95 p-0 shadow-2xl backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-150 z-[100]"
+          className="w-68 max-md:w-[calc(100vw-1.5rem)] rounded-3xl border border-border/80 bg-popover/95 p-0 shadow-2xl backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-150 z-[100]"
         >
           <ColorPickerContent
             value={value}

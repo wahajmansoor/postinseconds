@@ -4,16 +4,18 @@ import { cn } from "@/lib/utils";
 import { ColorPickerContent } from "@/components/ui/color-picker";
 import {
   Chip,
+  CompactColorField,
   DragHandle,
   Field,
   FloatingDropdown,
+  GradientSwatchGrid,
   Range,
   Toggle,
   UploadButton,
   useDraggableOffset,
   useStableAnchor,
 } from "./ui";
-import { GRADIENTS, type EditorState } from "./types";
+import { GRADIENTS, parseGradientCss, reduceGradientStops, type EditorState } from "./types";
 
 // Canva-style top-docked toolbar — same slot and look as TextSelectionToolbar/
 // ImageSelectionToolbar/ShapeSelectionToolbar, shown instead of those when the
@@ -91,20 +93,26 @@ export function BackgroundSelectionToolbar({
   const [showCustomGradient, setShowCustomGradient] = useState(false);
   const [gradStart, setGradStart] = useState("#6366f1");
   const [gradMid, setGradMid] = useState("#8b5cf6");
+  // 4th stop — only reachable once the 3rd (gradMid) is already on, since a
+  // 4-stop gradient is really "the 3-stop one, plus one more" rather than
+  // its own independent thing. Re-spaces to even quartiles (0/33/66/100)
+  // instead of keeping gradMid pinned at 50% — an even spread reads more
+  // intentional than one stop sitting off-center once there are 4 of them.
+  const [gradAccent2, setGradAccent2] = useState("#f59e0b");
+  const [useAccent2, setUseAccent2] = useState(false);
   const [gradEnd, setGradEnd] = useState("#ec4899");
   const [useMid, setUseMid] = useState(false);
   const [gradType, setGradType] = useState<"linear" | "radial">("linear");
   const [gradAngle, setGradAngle] = useState(135);
+  const use4Stops = useMid && useAccent2;
   const customGradValue = useMemo(() => {
-    if (gradType === "radial") {
-      return useMid
-        ? `radial-gradient(circle at center, ${gradStart} 0%, ${gradMid} 50%, ${gradEnd} 100%)`
-        : `radial-gradient(circle at center, ${gradStart} 0%, ${gradEnd} 100%)`;
-    }
-    return useMid
-      ? `linear-gradient(${gradAngle}deg, ${gradStart} 0%, ${gradMid} 50%, ${gradEnd} 100%)`
-      : `linear-gradient(${gradAngle}deg, ${gradStart} 0%, ${gradEnd} 100%)`;
-  }, [gradType, gradAngle, gradStart, gradMid, gradEnd, useMid]);
+    const stops = use4Stops
+      ? `${gradStart} 0%, ${gradMid} 33%, ${gradAccent2} 66%, ${gradEnd} 100%`
+      : useMid
+        ? `${gradStart} 0%, ${gradMid} 50%, ${gradEnd} 100%`
+        : `${gradStart} 0%, ${gradEnd} 100%`;
+    return gradType === "radial" ? `radial-gradient(circle at center, ${stops})` : `linear-gradient(${gradAngle}deg, ${stops})`;
+  }, [gradType, gradAngle, gradStart, gradMid, gradAccent2, gradEnd, useMid, use4Stops]);
 
   // See the matching block's comment in TextSelectionToolbar.tsx.
   const anyPopoverOpen = solidOpen || gradientOpen || imagePopoverOpen;
@@ -182,7 +190,7 @@ export function BackgroundSelectionToolbar({
         title="Solid color"
       >
         <span
-          className="h-4 w-4 shrink-0 rounded-full border border-border/60"
+          className="h-4 w-4 shrink-0 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
           style={{ background: isSolidActive ? currentSwatch : "#ffffff" }}
         />
         Solid
@@ -228,7 +236,7 @@ export function BackgroundSelectionToolbar({
         title="Gradient"
       >
         <span
-          className="h-4 w-4 shrink-0 rounded-full border border-border/60"
+          className="h-4 w-4 shrink-0 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
           style={{ background: isGradientActive ? currentSwatch : GRADIENTS[0]?.value }}
         />
         Gradient
@@ -258,27 +266,35 @@ export function BackgroundSelectionToolbar({
               // width/attention instead of competing with a still-visible
               // preset grid above it.
               <div className="space-y-3">
-                <div className="grid grid-cols-4 gap-2">
-                  {GRADIENTS.map((g) => (
-                    <button
-                      key={g.value}
-                      type="button"
-                      onClick={() => applyColor(g.value)}
-                      title={g.label}
-                      style={{ background: g.value }}
-                      className={cn(
-                        "h-10 w-full rounded-sm border transition-transform hover:scale-105 active:scale-95",
-                        isGradientActive && s.background === g.value
-                          ? "ring-2 ring-primary ring-offset-1 ring-offset-background"
-                          : "border-border/90",
-                      )}
-                    />
-                  ))}
-                </div>
+                <GradientSwatchGrid
+                  value={isGradientActive ? s.background : undefined}
+                  onChange={applyColor}
+                />
 
                 <button
                   type="button"
-                  onClick={() => setShowCustomGradient(true)}
+                  onClick={() => {
+                    // Seed the editor from whatever gradient is actually
+                    // applied right now, instead of leaving it showing
+                    // Custom's own unrelated leftover state (this is the
+                    // "gradient doesn't show in Custom" bug — see
+                    // parseGradientCss's own comment).
+                    if (isGradientActive) {
+                      const parsed = parseGradientCss(s.background);
+                      if (parsed) {
+                        const { start, mid, accent2, end } = reduceGradientStops(parsed.stops);
+                        setGradStart(start);
+                        setGradEnd(end);
+                        setUseMid(mid !== undefined);
+                        setGradMid(mid ?? "#8b5cf6");
+                        setUseAccent2(accent2 !== undefined);
+                        setGradAccent2(accent2 ?? "#f59e0b");
+                        setGradType(parsed.type);
+                        if (parsed.type === "linear") setGradAngle(parsed.angle);
+                      }
+                    }
+                    setShowCustomGradient(true);
+                  }}
                   className="flex w-full items-center justify-between rounded-xl px-1 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-secondary"
                 >
                   Custom
@@ -301,8 +317,10 @@ export function BackgroundSelectionToolbar({
                     onClick={() => {
                       setGradStart("#6366f1");
                       setGradMid("#8b5cf6");
+                      setGradAccent2("#f59e0b");
                       setGradEnd("#ec4899");
                       setUseMid(false);
+                      setUseAccent2(false);
                       setGradType("linear");
                       setGradAngle(135);
                     }}
@@ -330,29 +348,51 @@ export function BackgroundSelectionToolbar({
                   </button>
                 </div>
 
-                {/* ColorPickerContent directly (stacked, not the 2-column
-                    swatch grid this used to be) — not ColorInput/ColorPicker,
-                    whose own separate Radix Popover portals to <body> as a
-                    DOM sibling of this whole Gradient dropdown, not a
-                    descendant of it. FloatingDropdown's outside-click
-                    dismissal is a real Node.contains() check against its own
-                    panel, blind to React's component tree, so any click
-                    inside that nested portal read as "outside" and instantly
-                    collapsed this entire panel — same bug, same fix as
-                    ShapeSelectionToolbar/ImageSelectionToolbar's Shadow
-                    Color (see their comments for the full mechanism). */}
+                {/* CompactColorField (swatch + hex text field only) instead
+                    of the full ColorPickerContent — that one's own fixed
+                    w-68 layout doesn't fit this dropdown's narrower width
+                    (see its own comment), and ColorInput's popover-based
+                    picker isn't safe to nest here either: its Radix Popover
+                    portals to <body> as a DOM sibling of this whole
+                    Gradient dropdown, not a descendant, so FloatingDropdown's
+                    outside-click dismissal (a plain Node.contains() check,
+                    blind to React's component tree) reads any click inside
+                    that nested portal as "outside" and instantly collapses
+                    this entire panel — same bug ShapeSelectionToolbar/
+                    ImageSelectionToolbar's Shadow Color hit before. A native
+                    color input's own picker is a real OS-level UI outside
+                    the DOM entirely, so it can't trigger that false
+                    positive either. */}
                 <Field label="Start color">
-                  <ColorPickerContent value={gradStart} onChange={setGradStart} />
+                  <CompactColorField value={gradStart} onChange={setGradStart} />
                 </Field>
                 <Field label="End color">
-                  <ColorPickerContent value={gradEnd} onChange={setGradEnd} />
+                  <CompactColorField value={gradEnd} onChange={setGradEnd} />
                 </Field>
 
-                <Toggle checked={useMid} onChange={setUseMid} label="Add 3rd accent color stop" />
+                <Toggle
+                  checked={useMid}
+                  onChange={(v) => {
+                    setUseMid(v);
+                    // Turning the 3rd stop off with the 4th still on would
+                    // leave use4Stops's own "useMid && useAccent2" check
+                    // stranded — collapse the 4th along with it.
+                    if (!v) setUseAccent2(false);
+                  }}
+                  label="Add 3rd accent color stop"
+                />
                 {useMid ? (
-                  <Field label="Middle color stop">
-                    <ColorPickerContent value={gradMid} onChange={setGradMid} />
-                  </Field>
+                  <>
+                    <Field label="Middle color stop">
+                      <CompactColorField value={gradMid} onChange={setGradMid} />
+                    </Field>
+                    <Toggle checked={useAccent2} onChange={setUseAccent2} label="Add 4th accent color stop" />
+                    {useAccent2 ? (
+                      <Field label="4th color stop">
+                        <CompactColorField value={gradAccent2} onChange={setGradAccent2} />
+                      </Field>
+                    ) : null}
+                  </>
                 ) : null}
 
                 <div className="grid grid-cols-2 gap-2">

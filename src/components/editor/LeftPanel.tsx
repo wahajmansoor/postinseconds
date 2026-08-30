@@ -47,7 +47,6 @@ import { VERIFIED_PICKER_ICONS } from "./VerifiedBadges";
 import {
   FONTS,
   getAvailableFontWeights,
-  GRADIENTS,
   PREMIUM_TEMPLATES,
   SHADOW_OVERLAY_PRESETS,
   SHAPE_PRESETS,
@@ -61,6 +60,8 @@ import {
   getShapeLayers,
   getTextLayers,
   getUnifiedLayers,
+  parseGradientCss,
+  reduceGradientStops,
   withMultipleLayersDuplicated,
   withMultipleLayersRemoved,
   withUnifiedLayerReordered,
@@ -98,7 +99,9 @@ import {
   AreaInput,
   Chip,
   ColorInput,
+  ColorSwatchPicker,
   Field,
+  GradientSwatchGrid,
   Panel,
   Range,
   Select,
@@ -279,23 +282,7 @@ function ShapeGradientControl({
       </div>
 
       {tab === "presets" ? (
-        <div className="grid grid-cols-4 gap-2">
-          {GRADIENTS.map((g) => (
-            <button
-              key={g.label}
-              type="button"
-              title={g.label}
-              onClick={() => onChange(g.value)}
-              style={{ background: g.value }}
-              className={cn(
-                "h-8 w-full rounded-sm border transition-transform hover:scale-105",
-                gradient === g.value
-                  ? "border-primary ring-2 ring-primary/40"
-                  : "border-border",
-              )}
-            />
-          ))}
-        </div>
+        <GradientSwatchGrid value={gradient} onChange={onChange} />
       ) : (
         <div className="flex flex-col gap-2.5">
           <div
@@ -646,24 +633,46 @@ export function LeftPanel({
       : `linear-gradient(${gradAngle}deg, ${gradStart} 0%, ${gradEnd} 100%)`;
   }, [gradType, gradAngle, gradStart, gradMid, gradEnd, useMid]);
 
-  // Curated presets (see GRADIENTS in types.ts) are all a consistent
-  // 3-stop `linear-gradient(ANGLEdeg, C1 0%, C2 X%, C3 100%)` shape, so
-  // picking one can also populate the Custom Gradient studio's own fields —
-  // letting the user fine-tune a curated preset with the same controls,
-  // instead of the studio staying stuck on whatever it last showed.
+  // Picking a curated/gallery preset also populates the Custom Gradient
+  // studio's own fields, letting the user fine-tune it with the same
+  // controls instead of the studio staying stuck on whatever it last
+  // showed. This used to only match one exact shape (a positive-angle,
+  // hex-only, EXACTLY-3-stop linear gradient) via regex — which silently
+  // failed (and left the studio unchanged) for the vast majority of the
+  // 200+-gradient gallery: plain 2-stop gradients, negative angles
+  // (several webgradients entries use e.g. -20deg/-225deg), radial
+  // gradients, rgb()-based ones (COSINE_PALETTES), and anything with more
+  // than 3 real stops. parseGradientCss/reduceGradientStops handle all of
+  // that generally instead of one narrow hand-written shape.
   const applyCuratedGradientToStudio = (value: string) => {
-    const match = value.match(
-      /^linear-gradient\((\d+)deg,\s*(#[0-9a-fA-F]{3,8})\s+0%,\s*(#[0-9a-fA-F]{3,8})\s+\d+%,\s*(#[0-9a-fA-F]{3,8})\s+100%\)$/,
-    );
-    if (!match) return;
-    const [, angle, start, mid, end] = match;
-    setGradType("linear");
-    setGradAngle(Number(angle));
-    setGradStart(start!);
-    setGradMid(mid!);
-    setGradEnd(end!);
-    setUseMid(true);
+    const parsed = parseGradientCss(value);
+    if (!parsed) return;
+    const { start, mid, end } = reduceGradientStops(parsed.stops);
+    setGradType(parsed.type);
+    if (parsed.type === "linear") setGradAngle(parsed.angle);
+    setGradStart(start);
+    setGradEnd(end);
+    setUseMid(mid !== undefined);
+    setGradMid(mid ?? "#a855f7");
   };
+
+  // Keeps Create Custom Gradient in sync with s.background from ANY
+  // source — not just clicks on this panel's own "Curated Gradients" grid
+  // (applyCuratedGradientToStudio's original one caller). The toolbar's
+  // own Gradient picker (BackgroundSelectionToolbar) sets s.background
+  // directly and has no idea this separate studio's local state exists;
+  // without watching s.background itself, picking a gradient from there
+  // left this studio showing whatever it last had, same "doesn't show in
+  // Custom" bug as before, just from a different entry point. Skipped when
+  // s.background already equals customGradValue — that means the change
+  // just came from this studio's own Apply button, so re-parsing would be
+  // a pointless (if harmless) round trip.
+  useEffect(() => {
+    if (s.background.includes("gradient") && s.background !== customGradValue) {
+      applyCuratedGradientToStudio(s.background);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.background]);
 
   const saveCustomGradient = () => {
     if (savedGradients.includes(customGradValue)) return;
@@ -1619,10 +1628,9 @@ export function LeftPanel({
                               }}
                               style={{ backgroundColor: c }}
                               className={cn(
-                                "h-5 w-5 rounded-full border shadow-sm transition-transform hover:scale-110",
-                                activeTextLayer.color.toLowerCase() === c.toLowerCase()
-                                  ? "ring-2 ring-primary ring-offset-1"
-                                  : "border-border/60",
+                                "h-5 w-5 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-transform hover:scale-110",
+                                activeTextLayer.color.toLowerCase() === c.toLowerCase() &&
+                                  "ring-2 ring-primary ring-offset-1",
                               )}
                               title={c}
                             />
@@ -2743,40 +2751,18 @@ export function LeftPanel({
               set("bgImage", null);
             }}
           />
-          <div className="grid grid-cols-6 gap-2 pt-1">
-            {[
-              { label: "White", color: "#ffffff" },
-              { label: "Soft Gray", color: "#f4f4f5" },
-              { label: "Dark Gray", color: "#18181b" },
-              { label: "Pure Black", color: "#000000" },
-              { label: "Indigo", color: "#4f46e5" },
-              { label: "Rose", color: "#e11d48" },
-              { label: "Emerald", color: "#059669" },
-              { label: "Amber", color: "#d97706" },
-              { label: "Sky", color: "#0284c7" },
-              { label: "Purple", color: "#7c3aed" },
-              { label: "Teal", color: "#0d9488" },
-              { label: "Slate", color: "#334155" },
-            ].map((c) => (
-              <button
-                key={c.color}
-                type="button"
-                title={c.label}
-                onClick={() => {
-                  set("background", c.color);
-                  set("bgImage", null);
-                  onItemSelect?.();
-                }}
-                style={{ background: c.color }}
-                className={cn(
-                  "h-8 w-full rounded-xl border transition-all hover:scale-105",
-                  s.background.toLowerCase() === c.color.toLowerCase() && !s.bgImage
-                    ? "border-primary ring-2 ring-primary/40"
-                    : "border-border shadow-sm",
-                )}
-              />
-            ))}
-          </div>
+          {/* Same 24-color default palette as every other color picker's
+              own Presets grid (ColorSwatchPicker, backed by
+              HEROUI_PALETTES) — this panel used to keep its own separate,
+              shorter 12-color list instead of sharing that one. */}
+          <ColorSwatchPicker
+            value={s.background.startsWith("#") ? s.background : "#ffffff"}
+            onChange={(v) => {
+              set("background", v);
+              set("bgImage", null);
+              onItemSelect?.();
+            }}
+          />
         </div>
       </Panel>
 
@@ -3054,26 +3040,15 @@ export function LeftPanel({
       ) : null}
 
       <Panel title="Curated Gradients">
-        <div className="grid grid-cols-4 gap-2">
-          {GRADIENTS.map((g) => (
-            <button
-              key={g.label}
-              type="button"
-              title={g.label}
-              onClick={() => {
-                set("background", g.value);
-                set("bgImage", null);
-                applyCuratedGradientToStudio(g.value);
-                onItemSelect?.();
-              }}
-              style={{ background: g.value }}
-              className={cn(
-                "h-12 w-full rounded-sm border transition-transform hover:scale-105",
-                s.background === g.value && !s.bgImage ? "border-primary ring-2 ring-primary/40" : "border-border",
-              )}
-            />
-          ))}
-        </div>
+        <GradientSwatchGrid
+          value={!s.bgImage ? s.background : undefined}
+          onChange={(v) => {
+            set("background", v);
+            set("bgImage", null);
+            applyCuratedGradientToStudio(v);
+            onItemSelect?.();
+          }}
+        />
       </Panel>
     </>
   );

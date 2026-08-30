@@ -14,15 +14,19 @@ import {
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
 import {
-  GRADIENTS,
   SHAPE_PRESETS,
   LINE_PRESETS,
   isLineShape,
+  inferLineStyleFromKind,
+  effectiveLineTriple,
   getMatchingShapePresetId,
   getShapeLabel,
   shapeCss,
   shapeSupportsRadius,
   type BoxStyle,
+  type LineEndCapKind,
+  type LineKind,
+  type LineStrokeStyle,
   type ShapeLayer,
 } from "./types";
 import { LineShapeSvg } from "./LineShapeSvg";
@@ -32,12 +36,70 @@ import {
   DragHandle,
   Field,
   FloatingDropdown,
+  GradientSwatchGrid,
   Range,
   Toggle,
   useDraggableOffset,
   useStableAnchor,
 } from "./ui";
 import { cn } from "@/lib/utils";
+
+// The 10 Line Start / Line End options, in the same 5-per-row order as the
+// reference picker: no marker, then arrow/circle/square/diamond each as an
+// outline first and filled second, with t-bar tucked in front of the
+// filled row. Shared by both the Start and End grids below.
+const CAP_OPTIONS: LineEndCapKind[] = [
+  "none",
+  "arrow-open",
+  "circle-hollow",
+  "square-hollow",
+  "diamond-hollow",
+  "tbar",
+  "arrow",
+  "circle",
+  "square",
+  "diamond",
+];
+
+// One option's preview icon. Renders through LineShapeSvg itself (same
+// renderer real shapes use) rather than a hand-drawn icon, so a picked
+// option is guaranteed to look exactly like what lands on the canvas.
+// "none" gets its own literal "no marker" glyph instead, since a plain
+// line preview wouldn't read as distinct from every other option at a
+// glance the way it needs to here.
+function EndCapIcon({ capKind, side }: { capKind: LineEndCapKind; side: "start" | "end" }) {
+  if (capKind === "none") {
+    return (
+      <svg width={20} height={20} viewBox="0 0 20 20" fill="none" className="text-muted-foreground">
+        <circle cx={10} cy={10} r={7.5} stroke="currentColor" strokeWidth={1.75} />
+        <line x1={5} y1={15} x2={15} y2={5} stroke="currentColor" strokeWidth={1.75} />
+      </svg>
+    );
+  }
+  // NOT preserveAspect here — that mode gives LineShapeSvg a fixed 100-wide
+  // viewBox (sized for an actual canvas-length line) and lets it scale the
+  // whole thing down to fit whatever box it's in. At a ~20px icon box that
+  // scale-down crushed every marker — drawn at real pixel sizes like
+  // radius≈4.5, headSize≈12 — down to a barely-there sliver, exactly the
+  // "can't tell arrow from circle" problem. Passing an explicit small
+  // width/height instead makes the viewBox match the icon box 1:1, so
+  // markers render at their real intended size rather than getting
+  // shrunk an extra ~80%.
+  return (
+    <div className="h-5 w-8">
+      <LineShapeSvg
+        kind="line-solid"
+        color="currentColor"
+        strokeWidth={4}
+        width={32}
+        height={20}
+        lineStyle="solid"
+        lineStartCap={side === "start" ? capKind : "none"}
+        lineEndCap={side === "end" ? capKind : "none"}
+      />
+    </div>
+  );
+}
 
 interface ShapeSelectionToolbarProps {
   layer: ShapeLayer;
@@ -67,6 +129,7 @@ export function ShapeSelectionToolbar({
   const [styleOpen, setStyleOpen] = useState(false);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [strokeWidthOpen, setStrokeWidthOpen] = useState(false);
+  const [endsOpen, setEndsOpen] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
@@ -75,6 +138,7 @@ export function ShapeSelectionToolbar({
   const [stylePinned, setStylePinned] = useState(false);
   const [radiusPinned, setRadiusPinned] = useState(false);
   const [strokeWidthPinned, setStrokeWidthPinned] = useState(false);
+  const [endsPinned, setEndsPinned] = useState(false);
   const [opacityPinned, setOpacityPinned] = useState(false);
   const [shadowPinned, setShadowPinned] = useState(false);
   const [arrangePinned, setArrangePinned] = useState(false);
@@ -83,6 +147,7 @@ export function ShapeSelectionToolbar({
   const styleDrag = useDraggableOffset();
   const radiusDrag = useDraggableOffset();
   const strokeWidthDrag = useDraggableOffset();
+  const endsDrag = useDraggableOffset();
   const opacityDrag = useDraggableOffset();
   const shadowDrag = useDraggableOffset();
   const arrangeDrag = useDraggableOffset();
@@ -91,6 +156,7 @@ export function ShapeSelectionToolbar({
   const styleTriggerRef = useRef<HTMLButtonElement>(null);
   const radiusTriggerRef = useRef<HTMLButtonElement>(null);
   const strokeWidthTriggerRef = useRef<HTMLButtonElement>(null);
+  const endsTriggerRef = useRef<HTMLButtonElement>(null);
   const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -98,6 +164,7 @@ export function ShapeSelectionToolbar({
   const styleAnchor = useStableAnchor(styleOpen, styleTriggerRef);
   const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
   const strokeWidthAnchor = useStableAnchor(strokeWidthOpen, strokeWidthTriggerRef);
+  const endsAnchor = useStableAnchor(endsOpen, endsTriggerRef);
   const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
   const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
@@ -114,7 +181,14 @@ export function ShapeSelectionToolbar({
 
   // See the matching block's comment in TextSelectionToolbar.tsx.
   const anyPopoverOpen =
-    shapePickerOpen || styleOpen || radiusOpen || opacityOpen || shadowOpen || arrangeOpen;
+    shapePickerOpen ||
+    styleOpen ||
+    radiusOpen ||
+    strokeWidthOpen ||
+    endsOpen ||
+    opacityOpen ||
+    shadowOpen ||
+    arrangeOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +257,10 @@ export function ShapeSelectionToolbar({
                 gradient={layer.style === "gradient" ? (layer.gradient ?? "linear-gradient(135deg, #6366f1, #ec4899)") : undefined}
                 strokeWidth={2.5}
                 preserveAspect={true}
+                lineCap={layer.lineCap ?? "round"}
+                lineStyle={layer.lineStyle}
+                lineStartCap={layer.lineStartCap}
+                lineEndCap={layer.lineEndCap}
               />
             </div>
           ) : (
@@ -209,84 +287,103 @@ export function ShapeSelectionToolbar({
           className="w-72 max-md:w-full max-h-[80vh] overflow-y-auto rounded-2xl border border-border bg-background shadow-xl"
         >
           <DragHandle
-            label="Elements & Lines"
+            label={isLineShape(layer.kind) ? "Lines" : "Shapes"}
             {...shapeDrag.dragHandleProps}
             pinned={shapePickerPinned}
             onTogglePin={() => setShapePickerPinned((p) => !p)}
             onClose={() => setShapePickerOpen(false)}
           />
           <div className="space-y-4 p-3">
-            {/* Lines Section */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-foreground">Lines</span>
-                <span className="text-[10px] text-muted-foreground">{LINE_PRESETS.length} styles</span>
+            {/* Only one of these two sections ever shows, scoped to what's
+                currently selected — a line only offers other line styles,
+                a shape only offers other shapes. Switching category
+                (shape <-> line) isn't offered here at all; add a fresh
+                element from the Elements panel instead. */}
+            {isLineShape(layer.kind) ? (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-foreground">Lines</span>
+                  <span className="text-[10px] text-muted-foreground">{LINE_PRESETS.length} styles</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {LINE_PRESETS.map((preset) => {
+                    // Compares the SAME (style, start, end) triple the Line
+                    // Style panel and Start/End pickers read/write (see
+                    // effectiveLineTriple's own comment) rather than raw
+                    // `kind` — so picking a preset here and picking one
+                    // from those other controls stay in sync with each
+                    // other regardless of which one a shape's own
+                    // lineStyle/kind fields actually carry.
+                    const presetTriple = inferLineStyleFromKind(preset.kind);
+                    const currentTriple = effectiveLineTriple(layer);
+                    const isActive =
+                      currentTriple.style === presetTriple.style &&
+                      currentTriple.start === presetTriple.start &&
+                      currentTriple.end === presetTriple.end;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          onUpdate({
+                            lineStyle: presetTriple.style,
+                            lineStartCap: presetTriple.start,
+                            lineEndCap: presetTriple.end,
+                            height: typeof layer.height === "number" ? layer.height : 30,
+                            strokeWidth: layer.strokeWidth ?? 4,
+                          });
+                          setShapePickerOpen(false);
+                        }}
+                        title={preset.label}
+                        className={cn(
+                          "flex h-10 items-center justify-center rounded-lg border p-1.5 transition-all",
+                          isActive
+                            ? "border-primary bg-primary/20 text-primary ring-2 ring-primary/60 shadow-sm"
+                            : "border-border bg-secondary/50 text-foreground hover:border-primary hover:text-primary",
+                        )}
+                      >
+                        <LineShapeSvg kind={preset.kind} strokeWidth={2.5} preserveAspect={true} />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
-                {LINE_PRESETS.map((preset) => {
-                  const isActive = layer.kind === preset.kind;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => {
-                        onUpdate({
-                          kind: preset.kind,
-                          height: typeof layer.height === "number" ? layer.height : 30,
-                          strokeWidth: layer.strokeWidth ?? 4,
-                        });
-                        setShapePickerOpen(false);
-                      }}
-                      title={preset.label}
-                      className={cn(
-                        "flex h-10 items-center justify-center rounded-lg border p-1.5 transition-all",
-                        isActive
-                          ? "border-primary bg-primary/20 text-primary ring-2 ring-primary/60 shadow-sm"
-                          : "border-border bg-secondary/50 text-foreground hover:border-primary hover:text-primary",
-                      )}
-                    >
-                      <LineShapeSvg kind={preset.kind} strokeWidth={2.5} preserveAspect={true} />
-                    </button>
-                  );
-                })}
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-foreground">Shapes</span>
+                  <span className="text-[10px] text-muted-foreground">{SHAPE_PRESETS.length} shapes</span>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {SHAPE_PRESETS.map((preset) => {
+                    const isActive = currentPresetId === preset.id;
+                    const previewRadius = preset.id === "rounded" ? 6 : preset.radius;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          onUpdate({ kind: preset.kind, radius: preset.radius });
+                          setShapePickerOpen(false);
+                        }}
+                        title={preset.label}
+                        className={cn(
+                          "flex aspect-square items-center justify-center rounded-lg border p-2 transition-all",
+                          isActive
+                            ? "border-primary bg-primary/20 text-primary ring-2 ring-primary/60 shadow-sm"
+                            : "border-border bg-secondary/50 text-muted-foreground hover:border-primary hover:text-foreground",
+                        )}
+                      >
+                        <span
+                          className="block h-full w-full"
+                          style={{ background: "currentColor", ...shapeCss(preset.kind, previewRadius) }}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-
-            {/* Geometric Shapes Section */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-foreground">Shapes</span>
-                <span className="text-[10px] text-muted-foreground">{SHAPE_PRESETS.length} shapes</span>
-              </div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {SHAPE_PRESETS.map((preset) => {
-                  const isActive = currentPresetId === preset.id;
-                  const previewRadius = preset.id === "rounded" ? 6 : preset.radius;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => {
-                        onUpdate({ kind: preset.kind, radius: preset.radius });
-                        setShapePickerOpen(false);
-                      }}
-                      title={preset.label}
-                      className={cn(
-                        "flex aspect-square items-center justify-center rounded-lg border p-2 transition-all",
-                        isActive
-                          ? "border-primary bg-primary/20 text-primary ring-2 ring-primary/60 shadow-sm"
-                          : "border-border bg-secondary/50 text-muted-foreground hover:border-primary hover:text-foreground",
-                      )}
-                    >
-                      <span
-                        className="block h-full w-full"
-                        style={{ background: "currentColor", ...shapeCss(preset.kind, previewRadius) }}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </FloatingDropdown>
@@ -313,7 +410,14 @@ export function ShapeSelectionToolbar({
           )}
         >
           <div
-            className="h-4.5 w-4.5 shrink-0 rounded-full border border-border shadow-xs"
+            className={cn(
+              "h-4.5 w-4.5 shrink-0 rounded-full",
+              // Outline fill needs a REAL visible border to preview as
+              // "outline" (a ring around empty space) — the borderless
+              // inset-shadow treatment every other swatch/preview uses now
+              // wouldn't read as an outline at all with nothing behind it.
+              currentStyle === "outline" ? "border-2" : "border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]",
+            )}
             style={{
               background:
                 currentStyle === "gradient"
@@ -322,7 +426,6 @@ export function ShapeSelectionToolbar({
                     ? "transparent"
                     : layer.color,
               borderColor: currentStyle === "outline" ? layer.color : undefined,
-              borderWidth: currentStyle === "outline" ? "2px" : "1px",
             }}
           />
           <span className="capitalize text-xs">{currentStyle}</span>
@@ -406,21 +509,10 @@ export function ShapeSelectionToolbar({
             {currentStyle === "gradient" ? (
               <div className="space-y-2">
                 <span className="text-xs font-semibold text-foreground">Gradient Presets</span>
-                <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-1">
-                  {GRADIENTS.map((g, idx) => (
-                    <button
-                      key={g.label || idx}
-                      type="button"
-                      onClick={() => onUpdate({ gradient: g.value })}
-                      title={g.label}
-                      className={cn(
-                        "h-8 rounded-sm border border-border/80 transition-transform hover:scale-105",
-                        layer.gradient === g.value && "ring-2 ring-primary",
-                      )}
-                      style={{ background: g.value }}
-                    />
-                  ))}
-                </div>
+                <GradientSwatchGrid
+                  value={layer.gradient}
+                  onChange={(v) => onUpdate({ gradient: v })}
+                />
               </div>
             ) : null}
 
@@ -454,7 +546,7 @@ export function ShapeSelectionToolbar({
       {/* 3. Corner Radius (if supported) OR Line Thickness (if line) */}
       {isLineShape(layer.kind) ? (
         <>
-          <AppTooltip content="Adjust line thickness">
+          <AppTooltip content="Line pattern, ends, and thickness">
             <button
               ref={strokeWidthTriggerRef}
               type="button"
@@ -472,9 +564,7 @@ export function ShapeSelectionToolbar({
                 strokeWidthOpen && "bg-secondary text-primary",
               )}
             >
-              <span className="text-[11px] font-semibold">
-                Weight: {layer.strokeWidth ?? 4}px
-              </span>
+              <span className="text-[11px] font-semibold">Stroke Styles</span>
             </button>
           </AppTooltip>
           <FloatingDropdown
@@ -491,43 +581,177 @@ export function ShapeSelectionToolbar({
               className="w-64 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
             >
               <DragHandle
-                label="Line Thickness"
+                label="Stroke Styles"
                 {...strokeWidthDrag.dragHandleProps}
                 pinned={strokeWidthPinned}
                 onTogglePin={() => setStrokeWidthPinned((p) => !p)}
                 onClose={() => setStrokeWidthOpen(false)}
               />
-              <div className="space-y-3 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-foreground">Line Weight</span>
-                  <span className="text-xs font-mono text-muted-foreground">
-                    {layer.strokeWidth ?? 4}px
-                  </span>
+              <div className="space-y-4 p-3">
+                {/* Stroke pattern — picking one seeds lineStartCap/lineEndCap
+                    from the shape's current legacy `kind` the first time
+                    (see inferLineStyleFromKind's own comment), so switching
+                    onto the new independent model doesn't change how the
+                    shape looks until Start/End is actually touched. */}
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(
+                    [
+                      { value: "solid" as const, dash: undefined },
+                      { value: "dash-long" as const, dash: "6 4" },
+                      { value: "dash-short" as const, dash: "2.5 2.5" },
+                      { value: "dotted" as const, dash: "0.1 3.5" },
+                    ]
+                  ).map(({ value, dash }) => {
+                    const active = effectiveLineTriple(layer).style === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          if (layer.lineStyle === undefined) {
+                            const inferred = inferLineStyleFromKind(layer.kind as LineKind);
+                            onUpdate({ lineStyle: value, lineStartCap: inferred.start, lineEndCap: inferred.end });
+                          } else {
+                            onUpdate({ lineStyle: value });
+                          }
+                        }}
+                        className={cn(
+                          "flex h-9 items-center justify-center rounded-xl border transition-colors",
+                          active
+                            ? "border-primary bg-primary/10"
+                            : "border-border/70 bg-secondary/40 hover:border-primary/50",
+                        )}
+                        title={value.replace("-", " ")}
+                      >
+                        <svg width={28} height={2} className="overflow-visible">
+                          <line
+                            x1={0}
+                            y1={1}
+                            x2={28}
+                            y2={1}
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            strokeDasharray={dash}
+                            strokeLinecap={dash ? "round" : undefined}
+                            className={active ? "text-primary" : "text-foreground"}
+                          />
+                        </svg>
+                      </button>
+                    );
+                  })}
                 </div>
-                <Range
-                  value={layer.strokeWidth ?? 4}
-                  min={1}
-                  max={24}
-                  step={1}
-                  onChange={(v) => onUpdate({ strokeWidth: v })}
+
+                <Toggle
+                  label="Rounded end points"
+                  checked={(layer.lineCap ?? "round") === "round"}
+                  onChange={(v) => onUpdate({ lineCap: v ? "round" : "butt" })}
                 />
-                <div className="grid grid-cols-6 gap-1 pt-1">
-                  {[1, 2, 4, 6, 8, 12].map((px) => (
-                    <button
-                      key={px}
-                      type="button"
-                      onClick={() => onUpdate({ strokeWidth: px })}
-                      className={cn(
-                        "rounded-md py-1 text-center font-mono text-[10px] font-semibold transition-colors border",
-                        (layer.strokeWidth ?? 4) === px
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border/70 bg-secondary/50 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {px}px
-                    </button>
-                  ))}
+
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-foreground">Stroke weight</span>
+                  <Range
+                    value={layer.strokeWidth ?? 4}
+                    min={1}
+                    max={24}
+                    step={1}
+                    onChange={(v) => onUpdate({ strokeWidth: v })}
+                  />
                 </div>
+              </div>
+            </div>
+          </FloatingDropdown>
+
+          <AppTooltip content="Arrowheads and end markers">
+            <button
+              ref={endsTriggerRef}
+              type="button"
+              onClick={() => {
+                setEndsOpen((wasOpen) => {
+                  if (!wasOpen) {
+                    endsDrag.reset();
+                    setEndsPinned(false);
+                  }
+                  return !wasOpen;
+                });
+              }}
+              className={cn(btnClass, endsOpen && "bg-secondary text-primary")}
+            >
+              <span className="text-[11px] font-semibold">Line Ends</span>
+            </button>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={endsAnchor}
+            offset={endsDrag.offset}
+            align="center"
+            pinned={endsPinned}
+            onRequestClose={() => setEndsOpen(false)}
+            triggerRef={endsTriggerRef}
+          >
+            <div
+              data-nopan=""
+              data-keep-text-editing=""
+              className="w-80 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+            >
+              <DragHandle
+                label="Line Ends"
+                {...endsDrag.dragHandleProps}
+                pinned={endsPinned}
+                onTogglePin={() => setEndsPinned((p) => !p)}
+                onClose={() => setEndsOpen(false)}
+              />
+              <div className="space-y-4 p-3">
+                {(["start", "end"] as const).map((side) => {
+                  const triple = effectiveLineTriple(layer);
+                  const current = side === "start" ? triple.start : triple.end;
+                  return (
+                    <div key={side}>
+                      <span className="mb-1.5 block text-xs font-semibold text-foreground">
+                        {side === "start" ? "Line Start" : "Line End"}
+                      </span>
+                      <div className="grid grid-cols-5 gap-2">
+                        {CAP_OPTIONS.map((capKind) => {
+                          const active = current === capKind;
+                          return (
+                            <button
+                              key={capKind}
+                              type="button"
+                              onClick={() => {
+                                // First touch of Start/End on a shape still
+                                // on the legacy `kind` model seeds lineStyle
+                                // + the OTHER end's cap from that kind first
+                                // (same pattern the Line Style pattern row
+                                // uses) — so setting just one end doesn't
+                                // silently reset the other end's existing
+                                // decoration back to "none".
+                                if (layer.lineStyle === undefined) {
+                                  const inferred = inferLineStyleFromKind(layer.kind as LineKind);
+                                  onUpdate({
+                                    lineStyle: inferred.style,
+                                    lineStartCap: side === "start" ? capKind : inferred.start,
+                                    lineEndCap: side === "end" ? capKind : inferred.end,
+                                  });
+                                } else if (side === "start") {
+                                  onUpdate({ lineStartCap: capKind });
+                                } else {
+                                  onUpdate({ lineEndCap: capKind });
+                                }
+                              }}
+                              title={capKind.replace("-", " ")}
+                              className={cn(
+                                "flex h-12 items-center justify-center rounded-xl border-2 transition-colors",
+                                active
+                                  ? "border-primary bg-primary/15 text-primary"
+                                  : "border-border/70 bg-secondary/40 text-foreground hover:border-primary/50",
+                              )}
+                            >
+                              <EndCapIcon capKind={capKind} side={side} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </FloatingDropdown>
@@ -801,31 +1025,6 @@ export function ShapeSelectionToolbar({
           </div>
         </div>
       </FloatingDropdown>
-
-      <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
-
-      {/* 6. Flip Horizontal / Vertical */}
-      <AppTooltip content="Flip horizontal">
-        <button
-          type="button"
-          onClick={() => onUpdate({ flipH: !layer.flipH })}
-          className={cn(btnClass, "px-2", layer.flipH && "bg-secondary text-primary font-bold")}
-          title="Flip Horizontal"
-        >
-          <span className="text-sm font-bold">⇄</span>
-        </button>
-      </AppTooltip>
-
-      <AppTooltip content="Flip vertical">
-        <button
-          type="button"
-          onClick={() => onUpdate({ flipV: !layer.flipV })}
-          className={cn(btnClass, "px-2", layer.flipV && "bg-secondary text-primary font-bold")}
-          title="Flip Vertical"
-        >
-          <span className="text-sm font-bold">⇅</span>
-        </button>
-      </AppTooltip>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

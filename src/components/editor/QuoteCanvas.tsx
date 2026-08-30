@@ -931,7 +931,6 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
                 showMargins={showMargins}
-                isMobile={effectiveIsMobile}
               />
             );
           }
@@ -2771,7 +2770,12 @@ function RotateMoveHandleRow({
             ? {
                 position: "absolute",
                 left: "50%",
-                top: "calc(100% + 22px)",
+                // Was 22px — with a fingertip on either button sitting that
+                // close to the box's own bottom edge, the touch itself
+                // covered the selection outline right above it while
+                // holding. Bumped up to give clear space between the
+                // outline and the row so it stays visible while dragging.
+                top: "calc(100% + 42px)",
                 marginTop: rotationExtraOffset,
                 transform: `translateX(-50%) scale(${invScale})`,
                 transformOrigin: "center top",
@@ -5432,7 +5436,6 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   controlsOverlayEl,
   suppressDragRef,
   showMargins = false,
-  isMobile = false,
 }: {
   shape: ShapeLayer;
   index: number;
@@ -5456,7 +5459,6 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   controlsOverlayEl?: HTMLDivElement | null;
   suppressDragRef?: React.RefObject<boolean> | undefined;
   showMargins?: boolean;
-  isMobile?: boolean;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -5512,19 +5514,12 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const effectiveHeight = typeof shape.height === "number" ? shape.height : (isLine ? 24 : shape.size);
   const rotation = shape.rotation ?? 0;
   const invScale = scale > 0 ? 1 / scale : 1;
-  // Line endpoint handles' VISIBLE dot. On mobile this now reuses the exact
-  // same size formula as the standard corner resize handles' own dot
-  // (getHandleVisualStyle → zoomed(handleDims("corner"), scale), i.e.
-  // 10 * invScale) — an earlier pass here used a `scale`-based formula
-  // instead (shrinking at low zoom rather than growing), which fixed an
-  // earlier "looks oversized" complaint but left line dots a visibly
-  // different size from every other selected item's resize dots at the
-  // same zoom level. Matching the corner-handle formula keeps them
-  // consistent across shape kinds. Desktop is untouched (still the flat
-  // 20px cap this was originally asked to stay under).
-  const lineEndpointDotPx = isMobile
-    ? zoomed(handleDims("corner"), scale).width
-    : Math.min(20, 20 * invScale);
+  // Line endpoint handles' VISIBLE dot — same on both platforms now, reusing
+  // the exact same size formula as the standard corner resize handles' own
+  // dot (getHandleVisualStyle → zoomed(handleDims("corner"), scale), i.e.
+  // 10 * invScale), so line endpoints read as visibly the same size as
+  // every other selected item's resize dots at the same zoom level.
+  const lineEndpointDotPx = zoomed(handleDims("corner"), scale).width;
   // Line shapes render a thin visual stroke (effectiveHeight defaults to
   // just 24 canvas-space px) but that same number is also this layer's
   // pointer-hit target height below — fine on desktop, but once the whole
@@ -5547,9 +5542,13 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
     ? { x: 0, y: -26 * invScale }
     : { x: topEndpoint.x, y: topEndpoint.y - 28 * invScale };
 
+  // Same 42px clearance as RotateMoveHandleRow's own docked case above
+  // (text/image/non-line shapes) — a line's Move/Rotate row used its own
+  // separate 26/34 offset here instead of routing through that shared
+  // value, so it hadn't picked up the same fix.
   const handlesPos = isNearlyHorizontal
-    ? { x: 0, y: 26 * invScale, orientation: "horizontal" as const }
-    : { x: 34 * invScale, y: 0, orientation: "vertical" as const };
+    ? { x: 0, y: 42 * invScale, orientation: "horizontal" as const }
+    : { x: 42 * invScale, y: 0, orientation: "vertical" as const };
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
   const update = (
@@ -5761,6 +5760,10 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               strokeWidth={shape.strokeWidth ?? 4}
               width={typeof shape.size === "number" && shape.size > 0 ? shape.size : 500}
               height={typeof effectiveHeight === "number" && effectiveHeight > 0 ? effectiveHeight : 24}
+              lineCap={shape.lineCap ?? "round"}
+              lineStyle={shape.lineStyle}
+              lineStartCap={shape.lineStartCap}
+              lineEndCap={shape.lineEndCap}
             />
           </div>
         ) : (
@@ -5987,19 +5990,13 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       >
                         <div
                           className={cn(
-                            "rounded-full shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
-                            // Mobile: solid white dot at rest, no border
-                            // ring — stays clearly visible on its own
-                            // against any canvas background without needing
-                            // an outline to read as "there". Turns solid
-                            // #0021ff on selection via the activeHandle
-                            // class below (unconditional, applies on both
-                            // platforms) — same as desktop's own
-                            // active/dragging state, just without desktop's
-                            // resting border+hover treatment.
-                            isMobile
-                              ? "bg-white"
-                              : "border-[2.5px] border-[#0021ff] bg-white group-hover:scale-125 group-hover:bg-[#0021ff]",
+                            // Solid white dot at rest, no border ring — same
+                            // on both platforms now — stays clearly visible
+                            // on its own against any canvas background
+                            // without needing an outline to read as "there".
+                            // Turns solid #0021ff on selection via the
+                            // activeHandle class below.
+                            "rounded-full bg-white shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
                             activeHandle === "line-start" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
                           style={{ width: lineEndpointDotPx, height: lineEndpointDotPx }}
@@ -6126,11 +6123,8 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       >
                         <div
                           className={cn(
-                            "rounded-full shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
                             // See the start handle's own comment above.
-                            isMobile
-                              ? "bg-white"
-                              : "border-[2.5px] border-[#0021ff] bg-white group-hover:scale-125 group-hover:bg-[#0021ff]",
+                            "rounded-full bg-white shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
                             activeHandle === "line-end" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
                           style={{ width: lineEndpointDotPx, height: lineEndpointDotPx }}

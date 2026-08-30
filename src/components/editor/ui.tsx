@@ -8,6 +8,7 @@ import { compressImageFile } from "@/lib/imageCompression";
 import { ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker } from "@/components/ui/color-picker";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { GRADIENTS, type GradientCategory } from "./types";
 
 export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker };
 
@@ -572,6 +573,70 @@ export function Toggle({
   );
 }
 
+// A minimal two-piece color field — a native <input type="color"> swatch
+// plus a plain hex text field — instead of the full inline ColorPickerContent
+// (color area + hue slider + presets). Built for spots like the Custom
+// Gradient stop fields, which are too narrow for that full picker's own
+// fixed layout, AND where ColorInput's own popover-based picker isn't safe
+// either (its Radix Popover portals to <body> as a DOM sibling of whatever
+// FloatingDropdown panel it's nested in, not a descendant — that panel's
+// own outside-click dismissal can't tell the popover apart from a genuine
+// outside click, and closes the whole thing out from under it; see the
+// matching comment on Custom Gradient's own color fields). A native color
+// input's own picker is a real OS-level UI, entirely outside the DOM, so it
+// can never trigger that same false-positive.
+export function CompactColorField({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  const [hexInput, setHexInput] = useState(value);
+  useEffect(() => {
+    setHexInput(value);
+  }, [value]);
+
+  const commitHex = () => {
+    const normalized = hexInput.startsWith("#") ? hexInput : `#${hexInput}`;
+    if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+      onChange(normalized.toLowerCase());
+    } else {
+      setHexInput(value);
+    }
+  };
+
+  return (
+    <div className={cn("flex items-center gap-2", className)}>
+      <div className="h-8 w-8 shrink-0 overflow-hidden rounded-[5px] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]">
+        <input
+          type="color"
+          value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : "#000000"}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-full w-full cursor-pointer border-none bg-transparent p-0"
+          title="Pick a color"
+        />
+      </div>
+      <input
+        type="text"
+        value={hexInput}
+        onChange={(e) => setHexInput(e.target.value)}
+        onBlur={commitHex}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commitHex();
+          }
+        }}
+        spellCheck={false}
+        className="h-8 flex-1 min-w-0 rounded-lg border border-border/70 bg-secondary/40 px-2.5 font-mono text-xs uppercase text-foreground outline-none transition-colors focus:border-primary"
+      />
+    </div>
+  );
+}
+
 export function Select({
   value,
   onChange,
@@ -933,5 +998,76 @@ export function UploadButton({
         }}
       />
     </label>
+  );
+}
+
+const GRADIENT_GROUPS: { category: GradientCategory; label: string }[] = [
+  { category: "monochromatic", label: "Monochromatic" },
+  { category: "cool", label: "Cool tones" },
+  { category: "warm", label: "Warm tones" },
+];
+
+// Grouped gradient-picker layout: rows for Cool tones / Warm tones /
+// Monochromatic (each auto-classified in types.ts — see classifyGradient's
+// own comment) followed by one "All gradients" grid with everything, using
+// the app's usual rounded-square swatches (see swatchClass's own comment
+// on why not circular). Shared by every gradient picker in the app (each
+// backed by the same GRADIENTS array) so all of them look and behave the
+// same rather than four separately-maintained grids drifting apart.
+export function GradientSwatchGrid({
+  value,
+  onChange,
+  columns = "grid-cols-6",
+}: {
+  value?: string | undefined;
+  onChange: (v: string) => void;
+  /** Tailwind grid-cols-N for every row. */
+  columns?: string;
+}) {
+  // Rounded-square, not circular — deliberately not matching Canva's own
+  // circular swatches (or the reference screenshots this whole picker's
+  // grouping/color-quality work was modeled on) pixel-for-pixel, to keep
+  // this looking like our own UI rather than a lookalike of theirs.
+  // No border — a subtle 1px inset white ring (via box-shadow, not an
+  // actual border) traces each swatch's own edge instead, softer and less
+  // "boxed-in" than a real border against a packed grid. Selected state
+  // layers its own ring on top the same way as before; Tailwind's ring-*
+  // utilities and this arbitrary inset shadow both compose into the same
+  // box-shadow property, so they stack rather than one overriding the other.
+  // aspect-square + w-full — NOT a fixed h-*/w-* pixel size — so each
+  // swatch always exactly fills its own grid track. A fixed pixel size
+  // that happened to add up wider than the popover (7 columns × a fixed
+  // 36px each easily exceeds a 256px-wide popover once padding/gaps are
+  // subtracted) forced swatches to overflow their tracks and crowd out the
+  // `gap` between them entirely — this is what "no gap" looked like.
+  const swatchClass = (active: boolean) =>
+    cn(
+      "aspect-square w-full rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-transform hover:scale-110 active:scale-95",
+      active && "ring-2 ring-primary ring-offset-1 ring-offset-background",
+    );
+  const row = (label: string, items: typeof GRADIENTS) => (
+    <div key={label} className="space-y-1.5">
+      <span className="text-[11px] font-semibold text-muted-foreground">{label}</span>
+      <div className={cn("grid gap-2", columns)}>
+        {items.map((g) => (
+          <button
+            key={g.label}
+            type="button"
+            title={g.label}
+            onClick={() => onChange(g.value)}
+            style={{ background: g.value }}
+            className={swatchClass(value === g.value)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="max-h-72 space-y-3 overflow-y-auto pr-0.5">
+      {GRADIENT_GROUPS.map(({ category, label }) =>
+        row(label, GRADIENTS.filter((g) => g.category === category)),
+      )}
+      {row("All gradients", GRADIENTS)}
+    </div>
   );
 }

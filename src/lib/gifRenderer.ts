@@ -130,6 +130,11 @@ export async function renderFullCanvasGif(
     height: s.height,
     cacheBust: false,
     skipAutoScale: true,
+    // Same reasoning as the PNG/JPG/WEBP path in index.tsx's renderExport —
+    // excludes the dashed margin guide (data-margin-guide) from every frame
+    // this GIF export renders, since it's a live editing aid tied to
+    // showMargins, not part of the actual canvas content.
+    filter: (node: HTMLElement) => !node.hasAttribute?.("data-margin-guide"),
   };
 
   const imageLayers = getImageLayers(s);

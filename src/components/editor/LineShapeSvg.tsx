@@ -1,5 +1,5 @@
 import React, { useId } from "react";
-import type { ShapeKind } from "./types";
+import type { LineEndCapKind, LineStrokeStyle, ShapeKind } from "./types";
 
 interface LineShapeSvgProps {
   kind: ShapeKind | string;
@@ -11,6 +11,18 @@ interface LineShapeSvgProps {
   preserveAspect?: boolean | undefined;
   className?: string | undefined;
   style?: React.CSSProperties | undefined;
+  // End-cap style for the plain stroke (line-solid/dashed/dotted and every
+  // arrow variant's tail) — see ShapeLayer.lineCap's own comment. Doesn't
+  // affect decorative end markers (circle/square/diamond/arrowhead/t-bar),
+  // which draw their own explicit shape regardless of this.
+  lineCap?: "round" | "butt" | undefined;
+  // Independent line model — see ShapeLayer's own comment. lineStyle's
+  // presence (not undefined) is what switches this component from the
+  // legacy `kind`-driven renderer over to the generic one that honors
+  // lineStartCap/lineEndCap independently.
+  lineStyle?: LineStrokeStyle | undefined;
+  lineStartCap?: LineEndCapKind | undefined;
+  lineEndCap?: LineEndCapKind | undefined;
 }
 
 interface GradientStop {
@@ -128,6 +140,10 @@ export function LineShapeSvg({
   preserveAspect = false,
   className = "",
   style = {},
+  lineCap = "round",
+  lineStyle,
+  lineStartCap = "none",
+  lineEndCap = "none",
 }: LineShapeSvgProps) {
   const reactId = useId();
   const gradientId = `line-grad-${reactId.replace(/[^a-zA-Z0-9-_]/g, "")}`;
@@ -164,13 +180,23 @@ export function LineShapeSvg({
           </linearGradient>
         </defs>
       )}
-      {renderLineContent(kind, effectiveColor, sw, w, h, preserveAspect)}
+      {lineStyle
+        ? renderGenericLineContent(lineStyle, effectiveColor, sw, w, h, preserveAspect, lineCap, lineStartCap, lineEndCap)
+        : renderLineContent(kind, effectiveColor, sw, w, h, preserveAspect, lineCap)}
     </svg>
   );
 }
 
-function renderLineContent(kind: string, color: string, sw: number, w: number, h: number, isPreview = false) {
-  const cap = "round";
+function renderLineContent(
+  kind: string,
+  color: string,
+  sw: number,
+  w: number,
+  h: number,
+  isPreview = false,
+  lineCap: "round" | "butt" = "round",
+) {
+  const cap = lineCap;
   const centerY = h / 2;
   const markerScale = isPreview ? 1 : Math.max(0.9, Math.min(2.5, sw / 3.2));
   const headSize = Math.max(10, Math.min(28, sw * 3.5 * (isPreview ? 0.7 : 1)));
@@ -191,6 +217,20 @@ function renderLineContent(kind: string, color: string, sw: number, w: number, h
           stroke={color}
           strokeWidth={sw}
           strokeDasharray={`${Math.max(8, sw * 3)} ${Math.max(6, sw * 2)}`}
+          strokeLinecap={cap}
+        />
+      );
+
+    case "line-dash-short":
+      return (
+        <line
+          x1={0}
+          y1={centerY}
+          x2={w}
+          y2={centerY}
+          stroke={color}
+          strokeWidth={sw}
+          strokeDasharray={`${Math.max(4, sw * 1.4)} ${Math.max(4, sw * 1.4)}`}
           strokeLinecap={cap}
         />
       );
@@ -385,4 +425,187 @@ function renderLineContent(kind: string, color: string, sw: number, w: number, h
         <line x1={0} y1={centerY} x2={w} y2={centerY} stroke={color} strokeWidth={sw} strokeLinecap={cap} />
       );
   }
+}
+
+// One end marker for the generic (lineStartCap/lineEndCap) renderer below —
+// `side` picks which edge (x=0 for start, x=w for end) and which direction
+// the marker's own shape points/backs off toward. Returns both the marker
+// itself and how far the base line should be inset from that edge, so a
+// circle/square/diamond/arrow marker never gets drawn on top of (or leaves
+// a gap before) the line feeding into it — same relationship every
+// hardcoded kind in renderLineContent above already keeps between its own
+// line segment and end decoration, just generalized to work at either end.
+function renderEndCap(
+  capKind: LineEndCapKind,
+  side: "start" | "end",
+  color: string,
+  sw: number,
+  w: number,
+  centerY: number,
+  headSize: number,
+): { marker: React.ReactNode; inset: number } {
+  const atStart = side === "start";
+  const tipX = atStart ? 0 : w;
+  const dir = atStart ? 1 : -1; // points from the tip back toward the line's own center
+
+  switch (capKind) {
+    case "none":
+      return { marker: null, inset: 0 };
+
+    case "arrow": {
+      const baseX = tipX + dir * headSize;
+      return {
+        marker: (
+          <polygon
+            points={`${baseX},${centerY - headSize * 0.5} ${tipX},${centerY} ${baseX},${centerY + headSize * 0.5}`}
+            fill={color}
+          />
+        ),
+        inset: headSize - 2,
+      };
+    }
+
+    case "arrow-open": {
+      const baseX = tipX + dir * headSize;
+      return {
+        marker: (
+          <polyline
+            points={`${baseX},${centerY - headSize * 0.5} ${tipX},${centerY} ${baseX},${centerY + headSize * 0.5}`}
+            fill="none"
+            stroke={color}
+            strokeWidth={sw}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ),
+        inset: 0,
+      };
+    }
+
+    case "circle":
+    case "circle-hollow": {
+      const cr = Math.max(3.5, Math.min(10, sw * 1.3));
+      const hollow = capKind === "circle-hollow";
+      return {
+        marker: (
+          <circle
+            cx={tipX + dir * cr}
+            cy={centerY}
+            r={cr}
+            fill={hollow ? "none" : color}
+            stroke={hollow ? color : undefined}
+            strokeWidth={hollow ? Math.max(1.5, sw * 0.8) : undefined}
+          />
+        ),
+        inset: cr,
+      };
+    }
+
+    case "square":
+    case "square-hollow": {
+      const sq = Math.max(6, Math.min(18, sw * 2.2));
+      const hollow = capKind === "square-hollow";
+      return {
+        marker: (
+          <rect
+            x={atStart ? 0 : w - sq}
+            y={centerY - sq / 2}
+            width={sq}
+            height={sq}
+            rx={Math.min(2, sq * 0.2)}
+            fill={hollow ? "none" : color}
+            stroke={hollow ? color : undefined}
+            strokeWidth={hollow ? Math.max(1.5, sw * 0.8) : undefined}
+          />
+        ),
+        inset: sq,
+      };
+    }
+
+    case "diamond":
+    case "diamond-hollow": {
+      const dia = Math.max(6, Math.min(18, sw * 2.2));
+      const hollow = capKind === "diamond-hollow";
+      const points = atStart
+        ? `${dia / 2},${centerY - dia / 2} ${dia},${centerY} ${dia / 2},${centerY + dia / 2} 0,${centerY}`
+        : `${w - dia / 2},${centerY - dia / 2} ${w},${centerY} ${w - dia / 2},${centerY + dia / 2} ${w - dia},${centerY}`;
+      return {
+        marker: (
+          <polygon
+            points={points}
+            fill={hollow ? "none" : color}
+            stroke={hollow ? color : undefined}
+            strokeWidth={hollow ? Math.max(1.5, sw * 0.8) : undefined}
+          />
+        ),
+        inset: dia,
+      };
+    }
+
+    case "tbar": {
+      const barH = Math.max(12, sw * 4);
+      return {
+        marker: (
+          <line
+            x1={tipX}
+            y1={centerY - barH / 2}
+            x2={tipX}
+            y2={centerY + barH / 2}
+            stroke={color}
+            strokeWidth={sw}
+            strokeLinecap="round"
+          />
+        ),
+        // The line runs the full width behind a t-bar (matches
+        // renderLineContent's own line-tbar case above) — the bar sits ON
+        // the line's own edge, not past it.
+        inset: 0,
+      };
+    }
+  }
+}
+
+function renderGenericLineContent(
+  lineStyle: LineStrokeStyle,
+  color: string,
+  sw: number,
+  w: number,
+  h: number,
+  isPreview: boolean,
+  lineCap: "round" | "butt",
+  startCap: LineEndCapKind,
+  endCap: LineEndCapKind,
+) {
+  const centerY = h / 2;
+  const headSize = Math.max(10, Math.min(28, sw * 3.5 * (isPreview ? 0.7 : 1)));
+  const strokeDasharray =
+    lineStyle === "dotted"
+      ? `0.1 ${Math.max(6, sw * 2.2)}`
+      : lineStyle === "dash-long"
+        ? `${Math.max(8, sw * 3)} ${Math.max(6, sw * 2)}`
+        : lineStyle === "dash-short"
+          ? `${Math.max(4, sw * 1.4)} ${Math.max(4, sw * 1.4)}`
+          : undefined;
+
+  const start = renderEndCap(startCap, "start", color, sw, w, centerY, headSize);
+  const end = renderEndCap(endCap, "end", color, sw, w, centerY, headSize);
+  const x1 = start.inset;
+  const x2 = Math.max(x1, w - end.inset);
+
+  return (
+    <>
+      <line
+        x1={x1}
+        y1={centerY}
+        x2={x2}
+        y2={centerY}
+        stroke={color}
+        strokeWidth={sw}
+        strokeDasharray={strokeDasharray}
+        strokeLinecap={lineCap}
+      />
+      {start.marker}
+      {end.marker}
+    </>
+  );
 }

@@ -2530,6 +2530,15 @@ function Index() {
       width: s.width,
       height: s.height,
       cacheBust: false,
+      // Excludes the Canva-style dashed margin guide (data-margin-guide,
+      // see QuoteCanvas) from the exported image — it's an editing aid
+      // toggled via showMargins, rendered live in the same canvas DOM node
+      // html-to-image snapshots, and unlike the selection handles (cleared
+      // by setCanvasSelection([]) before every export call site below) it
+      // has no selection tied to it, so it was staying visible — and
+      // getting baked into the downloaded file — for as long as the toggle
+      // itself stayed on.
+      filter: (node: HTMLElement) => !node.hasAttribute?.("data-margin-guide"),
     };
     try {
       if (s.exportFormat === "gif") {
