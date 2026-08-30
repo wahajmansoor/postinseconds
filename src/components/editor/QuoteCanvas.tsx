@@ -5882,14 +5882,17 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                         <div
                           className={cn(
                             "rounded-full shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
-                            // Mobile: solid filled dot, no border ring — stays
-                            // clearly visible on its own against any canvas
-                            // background at the smaller sizes above, without
-                            // needing an outline to read as "there". Desktop
-                            // keeps the original white-fill-plus-blue-border
-                            // look untouched.
+                            // Mobile: solid white dot at rest, no border
+                            // ring — stays clearly visible on its own
+                            // against any canvas background without needing
+                            // an outline to read as "there". Turns solid
+                            // #0021ff on selection via the activeHandle
+                            // class below (unconditional, applies on both
+                            // platforms) — same as desktop's own
+                            // active/dragging state, just without desktop's
+                            // resting border+hover treatment.
                             isMobile
-                              ? "bg-[#0021ff]"
+                              ? "bg-white"
                               : "border-[2.5px] border-[#0021ff] bg-white group-hover:scale-125 group-hover:bg-[#0021ff]",
                             activeHandle === "line-start" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
@@ -6020,7 +6023,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                             "rounded-full shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
                             // See the start handle's own comment above.
                             isMobile
-                              ? "bg-[#0021ff]"
+                              ? "bg-white"
                               : "border-[2.5px] border-[#0021ff] bg-white group-hover:scale-125 group-hover:bg-[#0021ff]",
                             activeHandle === "line-end" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
                           )}
