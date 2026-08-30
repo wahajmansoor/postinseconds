@@ -3060,6 +3060,41 @@ function Index() {
     [],
   );
 
+  // Mobile-only cleanup. Each per-kind selection toolbar below (Text/Image/
+  // Shape/Background) has no `detached` fallback slot on mobile the way
+  // desktop's sticky-top row does (see the pinnedOwners comment above) —
+  // the instant the live selection stops including a given kind, that
+  // kind's whole toolbar unmounts mid-render, including whichever of its
+  // own popovers was open, without ever getting the chance to fire
+  // onAnyPopoverOpenChange(false) itself. Left alone, that kind's
+  // pinnedOwners slot (and therefore anyPopoverOpen below) stays stuck true
+  // forever, permanently blocking the mobile "restore canvas to fit" effect
+  // — the canvas stays lifted for a drawer that isn't even showing anymore.
+  // This generalizes the same fix the Done/tick button already needed (see
+  // its own comment) to every path that can move the selection away from a
+  // kind — e.g. double-tapping the background to open its color drawer,
+  // then tapping a text/shape layer directly instead of tapping Done first.
+  useEffect(() => {
+    if (!isMobile) return;
+    const hasText = canvasSelection.some((sel) => sel.kind === "text");
+    const hasImage = canvasSelection.some((sel) => sel.kind === "image");
+    const hasShape = canvasSelection.some((sel) => sel.kind === "shape");
+    setPinnedOwners((prev) => {
+      const next = {
+        text: hasText ? prev.text : null,
+        image: hasImage ? prev.image : null,
+        shape: hasShape ? prev.shape : null,
+        background: isBackgroundSelected ? prev.background : null,
+      };
+      return next.text === prev.text &&
+        next.image === prev.image &&
+        next.shape === prev.shape &&
+        next.background === prev.background
+        ? prev
+        : next;
+    });
+  }, [isMobile, canvasSelection, isBackgroundSelected]);
+
   // "Is any FloatingDropdown popover open right now" (radius/opacity/
   // shadow/font/color/spacing/... across every selection toolbar) — any
   // `pinnedOwners` slot going non-null already means exactly that (see the
@@ -3737,6 +3772,7 @@ function Index() {
               setCanvasSelection([]);
               setIsBackgroundSelected(false);
             }}
+            onFitToScreen={fit}
           />
         </div>
 
@@ -4402,6 +4438,18 @@ function Index() {
                       onPointerDown={(e) => e.preventDefault()}
                       onClick={(e) => {
                         e.currentTarget.blur();
+                        // Force-closes the mobile on-screen keyboard if some
+                        // input still has it open underneath (e.g. a hex
+                        // color field inside the Custom color picker, or a
+                        // text layer mid-edit) — blurring the BUTTON itself
+                        // above doesn't touch whatever ELSE was focused, and
+                        // the onPointerDown preventDefault() below (there to
+                        // stop this tap from otherwise stealing focus oddly
+                        // on mobile) also suppresses the browser's own
+                        // default blur-on-tap-elsewhere behavior for that
+                        // other input, so nothing was ever telling it to
+                        // give up focus and let the keyboard dismiss.
+                        (document.activeElement as HTMLElement | null)?.blur();
                         setCanvasSelection([]);
                         setIsBackgroundSelected(false);
                         // This button unmounts whichever *SelectionToolbar
