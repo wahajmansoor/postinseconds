@@ -1533,6 +1533,16 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
               cursor: "move",
               pointerEvents: "auto",
               zIndex: 0,
+              // Every other draggable surface in this file sets this
+              // (getHandleStyle, the per-layer move wrappers, the line
+              // endpoint handles fixed earlier this session) — this one was
+              // missing it. Without it, the browser holds the first
+              // touchmove(s) back to decide whether the gesture is a page
+              // scroll before ever handing pointermove to updateGroupDrag,
+              // which is exactly the "stuck, not smooth" feel dragging a
+              // multi-selection on mobile had — the single most important
+              // draggable surface in the app to have this set correctly on.
+              touchAction: "none",
             }}
             onPointerDown={(e) => {
               // Only respond to primary pointer (left mouse / first touch).
