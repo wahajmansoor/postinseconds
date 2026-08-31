@@ -266,11 +266,11 @@ export function SignupPage() {
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-[#161B2E] p-8 lg:flex xl:p-12">
         {/* Background Image Grid */}
         <div
-          className="absolute inset-0 bg-cover bg-center opacity-25 mix-blend-luminosity pointer-events-none"
+          className="absolute inset-0 bg-cover bg-center opacity-25 pointer-events-none"
           style={{ backgroundImage: "url('/bg-post-in-second.png')" }}
         />
         {/* Dark Vignette Gradient */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#161B2E] via-[#161B2E]/75 to-[#161B2E]/50 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/30 pointer-events-none" />
 
         {/* Floating Format Cards */}
         <div className="relative z-10 my-auto">
