@@ -2775,7 +2775,9 @@ function RotateMoveHandleRow({
                 // covered the selection outline right above it while
                 // holding. Bumped up to give clear space between the
                 // outline and the row so it stays visible while dragging.
-                top: "calc(100% + 42px)",
+                // (42px still wasn't enough clearance on some layer types —
+                // bumped again to 60px.)
+                top: "calc(100% + 60px)",
                 marginTop: rotationExtraOffset,
                 transform: `translateX(-50%) scale(${invScale})`,
                 transformOrigin: "center top",
@@ -5542,13 +5544,13 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
     ? { x: 0, y: -26 * invScale }
     : { x: topEndpoint.x, y: topEndpoint.y - 28 * invScale };
 
-  // Same 42px clearance as RotateMoveHandleRow's own docked case above
+  // Same 60px clearance as RotateMoveHandleRow's own docked case above
   // (text/image/non-line shapes) — a line's Move/Rotate row used its own
   // separate 26/34 offset here instead of routing through that shared
   // value, so it hadn't picked up the same fix.
   const handlesPos = isNearlyHorizontal
-    ? { x: 0, y: 42 * invScale, orientation: "horizontal" as const }
-    : { x: 42 * invScale, y: 0, orientation: "vertical" as const };
+    ? { x: 0, y: 60 * invScale, orientation: "horizontal" as const }
+    : { x: 60 * invScale, y: 0, orientation: "vertical" as const };
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
   const update = (

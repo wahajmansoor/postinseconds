@@ -770,6 +770,14 @@ export type ExportFormat = "png" | "jpg" | "webp" | "gif";
 export type ImageLayer = {
   id: string;
   src: string;
+  // The image exactly as first uploaded, before any crop/erase/paint edit
+  // ever touched it — set once in makeImageLayer and never patched again
+  // afterward (withImageUpdated's crop/erase patches only ever touch
+  // `src`), so "Restore Original Image" in EraseImageDialog can undo every
+  // past edit rather than just whatever this one dialog session started
+  // from. Optional so layers saved before this field existed don't break;
+  // callers fall back to `src` itself in that case.
+  originalSrc?: string | undefined;
   x: number; // canvas %, center point
   y: number; // canvas %, center point
   size: number; // px width
@@ -2783,6 +2791,7 @@ function makeImageLayer(position: number, src: string, canvasWidth: number): Ima
   return {
     id: newLayerId(),
     src,
+    originalSrc: src,
     x: 50 + offset,
     y: 30 + offset,
     size: Math.round(Math.max(200, minVisibleWidth)),

@@ -1523,6 +1523,33 @@ function Index() {
     [commit],
   );
 
+  // Backfills originalSrc for an image layer created before that field
+  // existed (an older saved project/template, or one already on the canvas
+  // from earlier in a session that predates this code) — without it, such a
+  // layer has no recorded "true original" for EraseImageDialog's Restore
+  // Original Image to compare against, so the button looks permanently
+  // disabled on every reopen even after a real erase/paint edit was applied.
+  // This can't recover a pristine original that was genuinely never
+  // recorded, but treating "whatever the image currently is" as the
+  // baseline means every edit made from here on correctly enables Restore
+  // across close/reopen.
+  useEffect(() => {
+    if (!erasingImageLayer || erasingImageLayer.originalSrc) return;
+    // Functional updater (not withImageUpdated(s, ...)) deliberately, and
+    // `s` deliberately left out of the dependency array — erasingImageLayer
+    // itself never gains an originalSrc of its own (only the entry inside
+    // `images` does), so if this depended on `s` it would re-fire on every
+    // single state change forever, each one committing an identical no-op
+    // update and changing `s` again. Depending only on erasingImageLayer
+    // means it runs once per dialog-open, and the inner check keeps it a
+    // true no-op if that one run somehow doesn't need to do anything.
+    set("images", (prevImages) =>
+      (prevImages ?? []).map((img) =>
+        img.id === erasingImageLayer.id && !img.originalSrc ? { ...img, originalSrc: img.src } : img,
+      ),
+    );
+  }, [erasingImageLayer, set]);
+
   const undo = useCallback(() => {
     if (historyIdx.current > 0) {
       historyIdx.current -= 1;
@@ -5079,6 +5106,7 @@ function Index() {
             open={Boolean(erasingImageLayer)}
             onClose={() => setErasingImageLayer(null)}
             imageSrc={erasingImageLayer.src}
+            originalImageSrc={erasingImageLayer.originalSrc || erasingImageLayer.src}
             onErased={(erasedDataUrl) => {
               set("images", withImageUpdated(s, erasingImageLayer.id, { src: erasedDataUrl }));
               setErasingImageLayer(null);

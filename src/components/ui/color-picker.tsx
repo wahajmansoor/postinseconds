@@ -632,7 +632,14 @@ function InteractiveCanvasEyedropper({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={() => setLoupePos((p) => ({ ...p, visible: false }))}
-      style={{ touchAction: "none" }}
+      // Radix's DismissableLayer sets document.body.style.pointerEvents =
+      // "none" while a modal Dialog/Popover is open, re-enabling "auto"
+      // only on the layer node(s) it manages itself. This overlay is a
+      // separate portal straight to document.body, so without this
+      // override it silently inherits "none" whenever the eyedropper is
+      // opened from inside a modal (e.g. EraseImageDialog) — the crosshair
+      // shows, but no click/drag on it would ever register.
+      style={{ touchAction: "none", pointerEvents: "auto" }}
       className="fixed inset-0 z-[99999] cursor-crosshair select-none bg-black/20 backdrop-blur-[1px] animate-in fade-in duration-150"
     >
       {/* Top instruction header */}
@@ -778,10 +785,13 @@ export function ColorPickerContent({
     // just got silently clipped rather than wrapping or scrolling, which
     // is what "cut off on the right" was.
     <div className="flex w-full flex-col gap-3 p-3.5 max-md:gap-2.5 max-md:p-2.5 text-popover-foreground">
-      {/* 1. HeroUI 2D Color Area - Desktop only, hidden on mobile for clean compact layout */}
-      <div className="hidden md:block">
-        <ColorArea hsva={hsva} onChange={updateHsva} />
-      </div>
+      {/* 1. HeroUI 2D Color Area — shown on every breakpoint. This used to
+          be "hidden md:block" (Tailwind's md: is a viewport-width query,
+          not a container one, so on an actual phone it stayed hidden no
+          matter how this component was embedded), leaving touch users with
+          only a thin hue strip and numeric fields to pick a color from —
+          much harder to land on a precise shade by touch than a 2D area. */}
+      <ColorArea hsva={hsva} onChange={updateHsva} />
 
       {/* 2. Color Controls (Sliders + EyeDropper + Swatch) */}
       <div className="flex items-center gap-2.5">
