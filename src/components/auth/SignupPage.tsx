@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
@@ -8,6 +9,7 @@ import {
   CrownIcon,
   FlashIcon,
   Image01Icon,
+  SparklesIcon,
   Tick02Icon,
 } from "hugeicons-react";
 
@@ -507,40 +509,46 @@ export function SignupPage() {
           <RightBenefitsStack />
 
           <div className="w-full max-w-[380px] mx-auto space-y-2.5 sm:space-y-3 pt-2">
-            {/* Feature Badges under Checklist - Full Original Text */}
-            <div className="flex w-full items-center justify-between gap-1 sm:gap-1.5 pt-0.5">
-              <div className="flex flex-1 items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap rounded-full border border-emerald-200/80 bg-emerald-50/70 px-1 sm:px-2 py-1 text-[8.5px] min-[360px]:text-[9.5px] sm:text-[11.5px] font-medium text-emerald-800 shadow-2xs">
-                <FlashIcon size={10} className="shrink-0 text-emerald-600" />
+            {/* Feature Badges - 2 in One Row Grid */}
+            <div className="grid grid-cols-2 gap-1.5 sm:gap-2 w-full pt-0.5">
+              <div className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200/80 bg-emerald-50/70 px-2.5 py-1 text-[10px] min-[360px]:text-[11px] sm:text-[12px] font-medium text-emerald-800 shadow-2xs">
+                <FlashIcon size={12} className="shrink-0 text-emerald-600" />
                 <span>10x Faster Creation</span>
               </div>
-              <div className="flex flex-1 items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap rounded-full border border-amber-200/80 bg-amber-50/70 px-1 sm:px-2 py-1 text-[8.5px] min-[360px]:text-[9.5px] sm:text-[11.5px] font-medium text-amber-900 shadow-2xs">
-                <CrownIcon size={10} className="shrink-0 text-amber-600" />
+              <div className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200/80 bg-amber-50/70 px-2.5 py-1 text-[10px] min-[360px]:text-[11px] sm:text-[12px] font-medium text-amber-900 shadow-2xs">
+                <CrownIcon size={12} className="shrink-0 text-amber-600" />
                 <span>100+ Premium Templates</span>
               </div>
-              <div className="flex flex-1 items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap rounded-full border border-sky-200/80 bg-sky-50/70 px-1 sm:px-2 py-1 text-[8.5px] min-[360px]:text-[9.5px] sm:text-[11.5px] font-medium text-sky-900 shadow-2xs">
-                <Image01Icon size={10} className="shrink-0 text-sky-600" />
+              <div className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-sky-200/80 bg-sky-50/70 px-2.5 py-1 text-[10px] min-[360px]:text-[11px] sm:text-[12px] font-medium text-sky-900 shadow-2xs">
+                <Image01Icon size={12} className="shrink-0 text-sky-600" />
                 <span>Export Ultra HD Quality</span>
+              </div>
+              <div className="flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-purple-200/80 bg-purple-50/70 px-2.5 py-1 text-[10px] min-[360px]:text-[11px] sm:text-[12px] font-medium text-purple-900 shadow-2xs">
+                <SparklesIcon size={12} className="shrink-0 text-purple-600" />
+                <span>Smooth & Easy Editing</span>
               </div>
             </div>
 
-            {/* Mobile App Download on Right Area */}
-            <div className="pt-2 sm:pt-4 flex flex-col items-center justify-center gap-1 sm:gap-1.5 text-center">
-              <p className="text-[10.5px] sm:text-[12px] font-medium text-slate-500">
-                You can download and use on mobile app as well:
-              </p>
-              <a
-                href="https://play.google.com/store"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block transition-all hover:scale-[1.04] active:scale-[0.98] drop-shadow-sm"
-              >
-                <img
-                  src="/Google-Store-Icon.svg"
-                  alt="Get it on Google Play"
-                  className="h-8.5 sm:h-10 w-auto object-contain"
-                />
-              </a>
-            </div>
+            {/* Mobile App Download on Right Area (Hidden inside Native Mobile App) */}
+            {!Capacitor.isNativePlatform() && (
+              <div className="pt-2 sm:pt-4 flex flex-col items-center justify-center gap-1 sm:gap-1.5 text-center">
+                <p className="text-[10.5px] sm:text-[12px] font-medium text-slate-500">
+                  You can download and use on mobile app as well:
+                </p>
+                <a
+                  href="https://play.google.com/store"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block transition-all hover:scale-[1.04] active:scale-[0.98] drop-shadow-sm"
+                >
+                  <img
+                    src="/Google-Store-Icon.svg"
+                    alt="Get it on Google Play"
+                    className="h-8.5 sm:h-10 w-auto object-contain"
+                  />
+                </a>
+              </div>
+            )}
           </div>
         </div>
 
