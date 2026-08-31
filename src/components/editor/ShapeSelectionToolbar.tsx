@@ -11,6 +11,7 @@ import {
   SparklesIcon,
   SquareLock02Icon,
   SquareUnlock02Icon,
+  Tick02Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
 import {
@@ -27,6 +28,7 @@ import {
   type LineEndCapKind,
   type LineKind,
   type LineStrokeStyle,
+  type LineType,
   type ShapeLayer,
 } from "./types";
 import { LineShapeSvg } from "./LineShapeSvg";
@@ -101,6 +103,60 @@ function EndCapIcon({ capKind, side }: { capKind: LineEndCapKind; side: "start" 
   );
 }
 
+function StraightLineTypeIcon({ className }: { className?: string }) {
+  return (
+    <svg width={20} height={20} viewBox="0 0 20 20" fill="none" className={className}>
+      <line x1={4} y1={16} x2={16} y2={4} stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      <circle cx={4} cy={16} r={2} fill="none" stroke="currentColor" strokeWidth={1.5} />
+      <circle cx={16} cy={4} r={2} fill="none" stroke="currentColor" strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+function ElbowedLineTypeIcon({ className }: { className?: string }) {
+  return (
+    <svg width={20} height={20} viewBox="0 0 20 20" fill="none" className={className}>
+      <path
+        d="M 5 11 L 5 16 Q 5 17 6 17 L 10 17 Q 11 17 11 16 L 11 4 Q 11 3 12 3 L 16 3 Q 17 3 17 4 L 17 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <circle cx={5} cy={11} r={1.5} fill="none" stroke="currentColor" strokeWidth={1.25} />
+      <circle cx={17} cy={6} r={1.5} fill="none" stroke="currentColor" strokeWidth={1.25} />
+      <rect x={4.25} y={13} width={1.5} height={2.5} rx={0.5} fill="currentColor" />
+      <rect x={7.5} y={16.25} width={2.5} height={1.5} rx={0.5} fill="currentColor" />
+      <rect x={10.25} y={9} width={1.5} height={2.5} rx={0.5} fill="currentColor" />
+      <rect x={13.5} y={2.25} width={2.5} height={1.5} rx={0.5} fill="currentColor" />
+      <rect x={16.25} y={4.5} width={1.5} height={1.5} rx={0.5} fill="currentColor" />
+    </svg>
+  );
+}
+
+function CurvedLineTypeIcon({ className }: { className?: string }) {
+  return (
+    <svg width={20} height={20} viewBox="0 0 20 20" fill="none" className={className}>
+      <path
+        d="M 4 15 Q 10 4 16 15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <circle cx={4} cy={15} r={1.75} fill="none" stroke="currentColor" strokeWidth={1.25} />
+      <circle cx={10} cy={4} r={1.75} fill="none" stroke="currentColor" strokeWidth={1.25} />
+      <circle cx={16} cy={15} r={1.75} fill="none" stroke="currentColor" strokeWidth={1.25} />
+    </svg>
+  );
+}
+
+const LINE_TYPE_OPTIONS: { value: LineType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { value: "straight", label: "Straight", icon: StraightLineTypeIcon },
+  { value: "elbowed", label: "Elbowed", icon: ElbowedLineTypeIcon },
+  { value: "curved", label: "Curved", icon: CurvedLineTypeIcon },
+];
+
 interface ShapeSelectionToolbarProps {
   layer: ShapeLayer;
   onUpdate: (patch: Partial<Omit<ShapeLayer, "id">>) => void;
@@ -126,6 +182,7 @@ export function ShapeSelectionToolbar({
   onAnyPopoverOpenChange,
 }: ShapeSelectionToolbarProps) {
   const [shapePickerOpen, setShapePickerOpen] = useState(false);
+  const [lineTypeOpen, setLineTypeOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [strokeWidthOpen, setStrokeWidthOpen] = useState(false);
@@ -135,6 +192,7 @@ export function ShapeSelectionToolbar({
   const [arrangeOpen, setArrangeOpen] = useState(false);
 
   const [shapePickerPinned, setShapePickerPinned] = useState(false);
+  const [lineTypePinned, setLineTypePinned] = useState(false);
   const [stylePinned, setStylePinned] = useState(false);
   const [radiusPinned, setRadiusPinned] = useState(false);
   const [strokeWidthPinned, setStrokeWidthPinned] = useState(false);
@@ -144,6 +202,7 @@ export function ShapeSelectionToolbar({
   const [arrangePinned, setArrangePinned] = useState(false);
 
   const shapeDrag = useDraggableOffset();
+  const lineTypeDrag = useDraggableOffset();
   const styleDrag = useDraggableOffset();
   const radiusDrag = useDraggableOffset();
   const strokeWidthDrag = useDraggableOffset();
@@ -153,6 +212,7 @@ export function ShapeSelectionToolbar({
   const arrangeDrag = useDraggableOffset();
 
   const shapeTriggerRef = useRef<HTMLButtonElement>(null);
+  const lineTypeTriggerRef = useRef<HTMLButtonElement>(null);
   const styleTriggerRef = useRef<HTMLButtonElement>(null);
   const radiusTriggerRef = useRef<HTMLButtonElement>(null);
   const strokeWidthTriggerRef = useRef<HTMLButtonElement>(null);
@@ -161,6 +221,7 @@ export function ShapeSelectionToolbar({
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
   const shapeAnchor = useStableAnchor(shapePickerOpen, shapeTriggerRef);
+  const lineTypeAnchor = useStableAnchor(lineTypeOpen, lineTypeTriggerRef);
   const styleAnchor = useStableAnchor(styleOpen, styleTriggerRef);
   const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
   const strokeWidthAnchor = useStableAnchor(strokeWidthOpen, strokeWidthTriggerRef);
@@ -182,6 +243,7 @@ export function ShapeSelectionToolbar({
   // See the matching block's comment in TextSelectionToolbar.tsx.
   const anyPopoverOpen =
     shapePickerOpen ||
+    lineTypeOpen ||
     styleOpen ||
     radiusOpen ||
     strokeWidthOpen ||
@@ -261,6 +323,7 @@ export function ShapeSelectionToolbar({
                 lineStyle={layer.lineStyle}
                 lineStartCap={layer.lineStartCap}
                 lineEndCap={layer.lineEndCap}
+                lineType={layer.lineType}
               />
             </div>
           ) : (
@@ -387,6 +450,111 @@ export function ShapeSelectionToolbar({
           </div>
         </div>
       </FloatingDropdown>
+
+      {/* 1b. Line Type Popover (Straight / Elbowed / Curved) — lines only.
+          Used to live buried inside the Stroke Styles popover below; pulled
+          out to its own top-level toolbar button since which of the three
+          fundamentally different path shapes a line uses is at least as
+          important a property as its dash pattern or end caps. */}
+      {isLineShape(layer.kind) ? (
+        <>
+          <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
+          <AppTooltip content="Straight, elbowed, or curved line">
+            <button
+              ref={lineTypeTriggerRef}
+              type="button"
+              onClick={() => {
+                setLineTypeOpen((wasOpen) => {
+                  if (!wasOpen) {
+                    lineTypeDrag.reset();
+                    setLineTypePinned(false);
+                  }
+                  return !wasOpen;
+                });
+              }}
+              className={cn(btnClass, lineTypeOpen && "bg-secondary text-primary")}
+            >
+              {(() => {
+                const current = LINE_TYPE_OPTIONS.find((lt) => lt.value === (layer.lineType ?? "straight")) ?? LINE_TYPE_OPTIONS[0]!;
+                const Icon = current.icon;
+                return <Icon className="text-foreground" />;
+              })()}
+              <span className="text-xs font-semibold">
+                {(LINE_TYPE_OPTIONS.find((lt) => lt.value === (layer.lineType ?? "straight")) ?? LINE_TYPE_OPTIONS[0]!).label}
+              </span>
+              <span className="text-[10px] text-muted-foreground">▾</span>
+            </button>
+          </AppTooltip>
+          <FloatingDropdown
+            anchor={lineTypeAnchor}
+            offset={lineTypeDrag.offset}
+            align="start"
+            pinned={lineTypePinned}
+            onRequestClose={() => setLineTypeOpen(false)}
+            triggerRef={lineTypeTriggerRef}
+          >
+            <div
+              data-nopan=""
+              data-keep-text-editing=""
+              className="w-56 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+            >
+              <DragHandle
+                label="Line Type"
+                {...lineTypeDrag.dragHandleProps}
+                pinned={lineTypePinned}
+                onTogglePin={() => setLineTypePinned((p) => !p)}
+                onClose={() => setLineTypeOpen(false)}
+              />
+              <div className="space-y-1 p-3">
+                {LINE_TYPE_OPTIONS.map((lt) => {
+                  const active = (layer.lineType ?? "straight") === lt.value;
+                  const Icon = lt.icon;
+                  return (
+                    <button
+                      key={lt.value}
+                      type="button"
+                      onClick={() => {
+                        if (layer.lineStyle === undefined) {
+                          const inferred = inferLineStyleFromKind(layer.kind as LineKind);
+                          onUpdate({
+                            lineType: lt.value,
+                            lineStyle: inferred.style,
+                            lineStartCap: inferred.start,
+                            lineEndCap: inferred.end,
+                            lineWaypoints: undefined,
+                            ...(lt.value !== "straight" && (!layer.height || layer.height < 40) ? { height: 60 } : null),
+                          });
+                        } else {
+                          onUpdate({
+                            lineType: lt.value,
+                            lineWaypoints: undefined,
+                            ...(lt.value !== "straight" && (!layer.height || layer.height < 40) ? { height: 60 } : null),
+                          });
+                        }
+                        setLineTypeOpen(false);
+                      }}
+                      className={cn(
+                        "flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-xs font-medium transition-colors",
+                        active
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className={active ? "text-foreground" : "text-muted-foreground"} />
+                        <span className={active ? "text-foreground font-semibold" : "text-foreground/90"}>
+                          {lt.label}
+                        </span>
+                      </div>
+                      {active && <Tick02Icon size={16} className="text-foreground" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </FloatingDropdown>
+        </>
+      ) : null}
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

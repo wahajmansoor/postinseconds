@@ -42,7 +42,7 @@ export function OfflineGate({ children }: { children: ReactNode }) {
 
 function OfflineScreen() {
   return (
-    <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center gap-6 bg-background px-6 text-center animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[9999999] flex flex-col items-center justify-center gap-6 bg-background px-6 text-center animate-in fade-in duration-300">
       <img src="/logo.png" alt="Post In Seconds" className="h-12 w-auto" />
 
       {/* Gently bobbing icon badge — same friendly, non-alarming treatment

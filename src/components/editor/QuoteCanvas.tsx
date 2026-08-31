@@ -39,7 +39,7 @@ import {
   withTextUpdated,
 } from "./types";
 import { getTextEffectStyle } from "./textEffects";
-import { LineShapeSvg } from "./LineShapeSvg";
+import { LineShapeSvg, computeElbowConnectorPoints, simplifyPath } from "./LineShapeSvg";
 import { RotateRefreshIcon } from "./RotateRefreshIcon";
 import type { EditorState, ImageLayer, ShapeLayer, TextLayer } from "./types";
 
@@ -162,11 +162,11 @@ type HandleId = (typeof HANDLE_POSITIONS)[number]["id"];
 function handleDims(kind: "corner" | "edge-h" | "edge-v"): { width: number; height: number } {
   switch (kind) {
     case "corner":
-      return { width: 10, height: 10 };
+      return { width: 14, height: 14 };
     case "edge-h":
-      return { width: 16, height: 8 };
+      return { width: 22, height: 10 };
     case "edge-v":
-      return { width: 8, height: 16 };
+      return { width: 10, height: 22 };
   }
 }
 
@@ -239,7 +239,7 @@ function getHandleVisualStyle(h: (typeof HANDLE_POSITIONS)[number], scale: numbe
     top: "50%",
     transform: "translate(-50%, -50%)",
     ...dims,
-    boxShadow: "0 2px 10px 0 rgba(0,33,255,0.5), 0 0 0 2px rgba(255,255,255,0.9)",
+    boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
   };
 }
 
@@ -2669,6 +2669,7 @@ function RotateMoveHandleRow({
   isMoving = false,
   onRotatingChange,
   elementRotation = 0,
+  showRotate = true,
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
   onRotate: (deg: number) => void;
@@ -2686,6 +2687,7 @@ function RotateMoveHandleRow({
    *  of just the raw (unrotated) CSS height, so it never overlaps a
    *  vertically-rotated element whose visual extent exceeds its DOM height. */
   elementRotation?: number;
+  showRotate?: boolean;
 }) {
   const rotatingRef = useRef(false);
   const invScale = scale > 0 ? 1 / scale : 1;
@@ -2820,34 +2822,38 @@ function RotateMoveHandleRow({
               <MoveIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
             </button>
             {/* Rotate Button on Bottom */}
-            <button
-              type="button"
-              title="Drag to rotate"
-              onPointerDown={handleRotatePointerDown}
-              onPointerMove={handleRotatePointerMove}
-              onPointerUp={handleRotatePointerUp}
-              onPointerCancel={handleRotatePointerUp}
-              className={btn}
-              style={{ cursor: "default" }}
-            >
-              <RotateRefreshIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
-            </button>
+            {showRotate && (
+              <button
+                type="button"
+                title="Drag to rotate"
+                onPointerDown={handleRotatePointerDown}
+                onPointerMove={handleRotatePointerMove}
+                onPointerUp={handleRotatePointerUp}
+                onPointerCancel={handleRotatePointerUp}
+                className={btn}
+                style={{ cursor: "default" }}
+              >
+                <RotateRefreshIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
+              </button>
+            )}
           </>
         ) : (
           <>
             {/* Rotate Button on Left */}
-            <button
-              type="button"
-              title="Drag to rotate"
-              onPointerDown={handleRotatePointerDown}
-              onPointerMove={handleRotatePointerMove}
-              onPointerUp={handleRotatePointerUp}
-              onPointerCancel={handleRotatePointerUp}
-              className={btn}
-              style={{ cursor: "default" }}
-            >
-              <RotateRefreshIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
-            </button>
+            {showRotate && (
+              <button
+                type="button"
+                title="Drag to rotate"
+                onPointerDown={handleRotatePointerDown}
+                onPointerMove={handleRotatePointerMove}
+                onPointerUp={handleRotatePointerUp}
+                onPointerCancel={handleRotatePointerUp}
+                className={btn}
+                style={{ cursor: "default" }}
+              >
+                <RotateRefreshIcon size={18} className="text-[#454545] transition-colors group-hover:text-white" />
+              </button>
+            )}
             {/* Move Button on Right */}
             <button
               type="button"
@@ -5486,7 +5492,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   // HANDLE_POSITIONS' own comment) is currently being dragged, if any — the
   // other 7 hide for the duration so the one in use isn't competing for
   // attention with a ring of handles the user isn't touching.
-  const [activeHandle, setActiveHandle] = useState<HandleId | "line-start" | "line-end" | null>(null);
+  const [activeHandle, setActiveHandle] = useState<HandleId | "line-start" | "line-end" | "curve-arch" | string | null>(null);
   // True for the duration of an active move drag (single-item, group, or an
   // Alt+drag duplicate — every branch in handlePointerDown that actually
   // starts dragging) — used to hide LayerToolbar, the resize handles, and
@@ -5513,7 +5519,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const canInteract = interactive && !!set && !s.locked;
   const locked = shape.locked ?? false;
   const isLine = isLineShape(shape.kind);
-  const effectiveHeight = typeof shape.height === "number" ? shape.height : (isLine ? 24 : shape.size);
+  const effectiveHeight = typeof shape.height === "number" ? shape.height : (isLine ? (shape.lineType && shape.lineType !== "straight" ? 60 : 24) : shape.size);
   const rotation = shape.rotation ?? 0;
   const invScale = scale > 0 ? 1 / scale : 1;
   // Line endpoint handles' VISIBLE dot — same on both platforms now, reusing
@@ -5540,17 +5546,35 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
   const topEndpoint = p1.y < p2.y ? p1 : p2;
   const isNearlyHorizontal = Math.abs(Math.sin(lineRad)) < 0.35;
 
+  // `effectiveHeight` is the shape's overall box — but the auto-expand-on-
+  // drag handlers (see the segment/endpoint/arch handlers' own comments)
+  // only ever GROW that box to keep every point inside it; they never
+  // shrink it back down when points move away from an edge they used to
+  // sit tight against. Drag an elbow's bend from the top of its box down
+  // past its own endpoints (flipping a "table" shape into a "U"), and the
+  // box's top ends up mostly empty space the content abandoned — reported
+  // directly, with a screenshot of exactly that: the toolbar anchored off
+  // half the box's full height sat far above the connector's own visible
+  // top edge, a large dead gap between them. Anchoring off the REAL
+  // topmost waypoint instead of the box's own top edge stays tight no
+  // matter how much unused slack the box's history has left above the
+  // content — falling back to the old half-height guess only for a fresh
+  // line that has no real waypoints yet (during the flat/default preview
+  // before any drag). `TOOLBAR_GAP` is the extra constant clearance beyond
+  // that real top point, kept a fixed screen size via `invScale` — see the
+  // handles' own `36 * invScale` for the same pattern — while the rest of
+  // this offset is real design-space geometry that already shrinks with
+  // the canvas's own zoom, so it does NOT also get multiplied by invScale
+  // (an earlier version of this fix did, which double-counted zoom and
+  // inflated the gap further the more zoomed-out the canvas was).
+  const lineTopLocalY = shape.lineWaypoints && shape.lineWaypoints.length >= 2
+    ? Math.min(...shape.lineWaypoints.map((p) => p.y))
+    : effectiveHeight / 2;
+  const distanceAboveCenter = effectiveHeight / 2 - lineTopLocalY;
+  const TOOLBAR_GAP = 25;
   const toolbarPos = isNearlyHorizontal
-    ? { x: 0, y: -26 * invScale }
-    : { x: topEndpoint.x, y: topEndpoint.y - 28 * invScale };
-
-  // Same 60px clearance as RotateMoveHandleRow's own docked case above
-  // (text/image/non-line shapes) — a line's Move/Rotate row used its own
-  // separate 26/34 offset here instead of routing through that shared
-  // value, so it hadn't picked up the same fix.
-  const handlesPos = isNearlyHorizontal
-    ? { x: 0, y: 60 * invScale, orientation: "horizontal" as const }
-    : { x: 60 * invScale, y: 0, orientation: "vertical" as const };
+    ? { x: 0, y: -distanceAboveCenter - TOOLBAR_GAP * invScale }
+    : { x: topEndpoint.x, y: topEndpoint.y - distanceAboveCenter - TOOLBAR_GAP * invScale };
   const shapeRef = useRef(shape);
   shapeRef.current = shape;
   const update = (
@@ -5766,6 +5790,9 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               lineStyle={shape.lineStyle}
               lineStartCap={shape.lineStartCap}
               lineEndCap={shape.lineEndCap}
+              lineType={shape.lineType}
+              lineCurvature={shape.lineCurvature}
+              lineWaypoints={shape.lineWaypoints}
             />
           </div>
         ) : (
@@ -5832,7 +5859,13 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                       top: `calc(50% + ${toolbarPos.y}px)`,
                       transform: "translate(-50%, -100%)",
                       pointerEvents: "auto",
-                      zIndex: 90,
+                      // Above every line-specific handle (endpoint/arch/
+                      // segment-pill handles top out at zIndex 120 while
+                      // actively dragged) so this can never render behind
+                      // one regardless of how tall/bent the line currently
+                      // is — always-on-top, not just "usually clears them"
+                      // via vertical spacing alone.
+                      zIndex: 130,
                     }}
                   >
                     <LayerToolbar
@@ -5875,283 +5908,821 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                   !(isMoving || isRotating) ? (
                     <>
                       {/* Left (Start) Endpoint Handle — Always visible */}
-                      <div
-                        data-nopan=""
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                          setActiveHandle("line-start");
-                          lineEndpointDragRef.current = {
-                            isEnd: false,
-                            startLen: shape.size,
-                            startRot: rotation,
-                            startCenterX: (shape.x * s.width) / 100,
-                            startCenterY: (shape.y * s.height) / 100,
-                            startMouseX: e.clientX,
-                            startMouseY: e.clientY,
-                          };
-                        }}
-                        onPointerMove={(e) => {
-                          const drag = lineEndpointDragRef.current;
-                          if (!drag || drag.isEnd) return;
-                          e.stopPropagation();
-                          const rad = (drag.startRot * Math.PI) / 180;
-                          const halfLen = drag.startLen / 2;
-                          const fixedEndPt = {
-                            x: drag.startCenterX + halfLen * Math.cos(rad),
-                            y: drag.startCenterY + halfLen * Math.sin(rad),
-                          };
-                          const movingStartPt = {
-                            x: drag.startCenterX - halfLen * Math.cos(rad) + (e.clientX - drag.startMouseX) / scale,
-                            y: drag.startCenterY - halfLen * Math.sin(rad) + (e.clientY - drag.startMouseY) / scale,
-                          };
-                          const vx = fixedEndPt.x - movingStartPt.x;
-                          const vy = fixedEndPt.y - movingStartPt.y;
-                          const newLen = Math.max(20, Math.round(Math.hypot(vx, vy)));
-                          let newAngleDeg = (Math.atan2(vy, vx) * 180) / Math.PI;
-                          const snapAngles = [0, 45, 90, 135, 180, -45, -90, -135, -180, 360];
-                          for (const sa of snapAngles) {
-                            if (Math.abs(newAngleDeg - sa) <= 3) {
-                              newAngleDeg = sa;
-                              break;
-                            }
-                          }
-                          const finalRad = (newAngleDeg * Math.PI) / 180;
-                          const newCenterX = fixedEndPt.x - (newLen / 2) * Math.cos(finalRad);
-                          const newCenterY = fixedEndPt.y - (newLen / 2) * Math.sin(finalRad);
-                          const nextX = (newCenterX / s.width) * 100;
-                          const nextY = (newCenterY / s.height) * 100;
+                      {(() => {
+                        const margin = Math.max(6, (shape.strokeWidth ?? 4) * 1.5);
+                        // Curved lines carry THREE points once touched — [start, arch,
+                        // end] — the middle one (the "pill" the arch handle renders as) is
+                        // a real, freely-draggable 2D point in its own right, exactly like
+                        // elbowed's own interior bend points, rather than a scalar bow
+                        // amount constrained to move only perpendicular to the chord. That
+                        // matches Canva's own curved-line handle, which can be dragged
+                        // anywhere, not just along one axis.
+                        //
+                        // Critically, this middle point sits ON the visible curve (it's the
+                        // curve's actual peak, where you'd naturally expect to grab it) —
+                        // NOT the underlying quadratic Bézier control point a `Q` path
+                        // command takes. Those two are different points: a quadratic curve
+                        // only gets pulled HALFWAY toward its control point (the curve's own
+                        // midpoint, at t=0.5, is exactly `0.5*control + 0.5*chordMidpoint`),
+                        // so a handle drawn straight at the raw control point renders
+                        // floating well above/beside the curve it's supposedly editing —
+                        // exactly the bug reported (a screenshot showing the white handle
+                        // dot sitting well clear of the arc's actual peak). Storing the
+                        // on-curve point instead, and having LineShapeSvg's renderer reflect
+                        // it back into the real control point it needs
+                        // (`2*onCurvePoint - chordMidpoint`, the inverse of that same
+                        // halfway relationship), keeps the handle exactly on the curve and
+                        // makes dragging it move the visible peak 1:1 with the cursor.
+                        // `lineCurvature` only still matters for the untouched-default case
+                        // below (no lineWaypoints yet), to seed that first point from
+                        // exactly the same dome the old scalar-curvature formula drew.
+                        const curveDefaultPoints = (): { x: number; y: number }[] => {
+                          const p0 = { x: margin, y: effectiveHeight - margin };
+                          const p1 = { x: shape.size - margin, y: effectiveHeight - margin };
+                          const curvature = shape.lineCurvature !== undefined ? shape.lineCurvature : 1;
+                          const chordDx = p1.x - p0.x;
+                          const chordDy = p1.y - p0.y;
+                          const chordLen = Math.max(1, Math.hypot(chordDx, chordDy));
+                          const perpX = chordDy / chordLen;
+                          const perpY = -chordDx / chordLen;
+                          const archAmount = Math.max(10, effectiveHeight - margin * 2);
+                          const midX = (p0.x + p1.x) / 2;
+                          const midY = (p0.y + p1.y) / 2;
+                          // The raw Bézier control the old formula computed directly...
+                          const rawControl = { x: midX + perpX * archAmount * curvature, y: midY + perpY * archAmount * curvature };
+                          // ...halved back toward the chord to get the ON-CURVE point that
+                          // reflects (via the formula above) to that exact same rawControl,
+                          // so the rendered curve is pixel-identical to before this change —
+                          // only where the handle itself is drawn/dragged from changes.
+                          const onCurvePoint = { x: (rawControl.x + midX) / 2, y: (rawControl.y + midY) / 2 };
+                          return [p0, onCurvePoint, p1];
+                        };
+                        const rawLineAnchorPoints = shape.lineType === "curved"
+                          ? (shape.lineWaypoints && shape.lineWaypoints.length >= 3 ? shape.lineWaypoints : curveDefaultPoints())
+                          : (shape.lineWaypoints && shape.lineWaypoints.length >= 2)
+                            ? shape.lineWaypoints
+                            : [
+                                { x: margin, y: effectiveHeight / 2 },
+                                { x: shape.size - margin, y: effectiveHeight / 2 },
+                              ];
+                        // simplifyPath's collinearity check is an elbow-only heuristic (it
+                        // exists to drop redundant bend points on an otherwise-straight
+                        // orthogonal run) — running it on a curve's [start, control, end]
+                        // would risk treating the control point as "redundant" any time it
+                        // happens to land close to level with an endpoint, silently
+                        // flattening the curve. Curved lines skip it entirely.
+                        const lineAnchorPoints = shape.lineType === "curved" ? rawLineAnchorPoints : simplifyPath(rawLineAnchorPoints);
+                        const lastPtIdx = lineAnchorPoints.length - 1;
+                        const curveCpX = shape.lineType === "curved" ? lineAnchorPoints[1]!.x : 0;
+                        const curveCpY = shape.lineType === "curved" ? lineAnchorPoints[1]!.y : 0;
 
-                          const snapGuides = calculateLineSnapGuides({
-                            xPct: nextX,
-                            yPct: nextY,
-                            length: newLen,
-                            angleDeg: newAngleDeg,
-                            strokeHeight: effectiveHeight,
-                            canvasW: s.width,
-                            canvasH: s.height,
-                          });
-                          onGuides(snapGuides);
+                        return (
+                          <>
+                            <div
+                              data-nopan=""
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                setActiveHandle("line-start");
+                                if (shape.lineType === "elbowed" || shape.lineType === "curved") {
+                                  resizeRef.current = {
+                                    startWidth: shape.size,
+                                    startHeight: effectiveHeight,
+                                    startPosX: shape.x,
+                                    startPosY: shape.y,
+                                    startMouseX: e.clientX,
+                                    startMouseY: e.clientY,
+                                    handle: "line-start",
+                                    startWaypoints: lineAnchorPoints.map((p) => ({ ...p })),
+                                  } as any;
+                                } else {
+                                  lineEndpointDragRef.current = {
+                                    isEnd: false,
+                                    startLen: shape.size,
+                                    startRot: rotation,
+                                    startCenterX: (shape.x * s.width) / 100,
+                                    startCenterY: (shape.y * s.height) / 100,
+                                    startMouseX: e.clientX,
+                                    startMouseY: e.clientY,
+                                  };
+                                }
+                              }}
+                              onPointerMove={(e) => {
+                                // Curved lines treat their two endpoints as fully independent
+                                // points (like elbowed's own waypoints) — moving one never
+                                // drags the other along, unlike elbowed's own branch below
+                                // which deliberately keeps the near segment orthogonal. See
+                                // this block's own comment further up for why: the old model
+                                // (shared with straight lines) rotated/resized the whole
+                                // symmetric-dome bounding box as a rigid object instead, which
+                                // reads as a lopsided hook once the two ends stop matching.
+                                if (shape.lineType === "curved") {
+                                  const r = resizeRef.current as any;
+                                  if (!r || r.handle !== "line-start" || !r.startWaypoints) return;
+                                  e.stopPropagation();
+                                  const rawDx = (e.clientX - r.startMouseX) / scale;
+                                  const rawDy = (e.clientY - r.startMouseY) / scale;
+                                  const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                                  const movedPts = r.startWaypoints.map((p: any, pIdx: number) =>
+                                    pIdx === 0 ? { x: p.x + dx, y: p.y + dy } : p,
+                                  );
+                                  // Same auto-expand-the-bounding-box safety net as the elbow
+                                  // segment-pill handle uses (see its own comment) — without
+                                  // it, dragging this point past the shape's current box would
+                                  // just get clipped by the box's own overflow instead of
+                                  // actually following the cursor.
+                                  const margin2 = Math.max(6, (shape.strokeWidth ?? 4) * 1.5);
+                                  const minPtX = Math.min(...movedPts.map((p: any) => p.x));
+                                  const maxPtX = Math.max(...movedPts.map((p: any) => p.x));
+                                  const minPtY = Math.min(...movedPts.map((p: any) => p.y));
+                                  const maxPtY = Math.max(...movedPts.map((p: any) => p.y));
+                                  const dLeft2 = minPtX < margin2 ? margin2 - minPtX : 0;
+                                  const dTop2 = minPtY < margin2 ? margin2 - minPtY : 0;
+                                  const newW2 = Math.max(r.startWidth, maxPtX + margin2 + dLeft2);
+                                  const newH2 = Math.max(r.startHeight, maxPtY + margin2 + dTop2);
+                                  const shiftedPts2 = movedPts.map((p: any) => ({ x: p.x + dLeft2, y: p.y + dTop2 }));
+                                  // The container is positioned by its CENTER (translate(-50%,-50%)
+                                  // before rotate()), so a plain -dLeft2/-dTop2 undercorrects: it
+                                  // only cancels the shift needed to keep overflowing points inside
+                                  // the box, but growing the box's width/height AT ALL (even purely
+                                  // on the right/bottom, dLeft2/dTop2 both 0) already moves the
+                                  // center by half that growth. Left uncorrected, every untouched
+                                  // point (most visibly the curve's own control-point pill) visibly
+                                  // drifts on screen any time dragging one point grows the box —
+                                  // confirmed directly: a start-point drag that grew the box by
+                                  // ~150 local px left the control pill about 35 screen px off from
+                                  // where it started. Compensating by "half the growth minus the
+                                  // shift already applied" keeps every point that didn't move
+                                  // itself exactly where it was.
+                                  const rotRad2 = (rotation * Math.PI) / 180;
+                                  const compLocalX2 = (newW2 - r.startWidth) / 2 - dLeft2;
+                                  const compLocalY2 = (newH2 - r.startHeight) / 2 - dTop2;
+                                  const worldDx2 = compLocalX2 * Math.cos(rotRad2) - compLocalY2 * Math.sin(rotRad2);
+                                  const worldDy2 = compLocalX2 * Math.sin(rotRad2) + compLocalY2 * Math.cos(rotRad2);
+                                  update(
+                                    {
+                                      x: r.startPosX + (worldDx2 / s.width) * 100,
+                                      y: r.startPosY + (worldDy2 / s.height) * 100,
+                                      size: newW2,
+                                      height: newH2,
+                                      lineWaypoints: shiftedPts2,
+                                    },
+                                    { continuousKey: `line-start-${shape.id}` },
+                                  );
+                                  return;
+                                }
+                                if (shape.lineType === "elbowed") {
+                                  const r = resizeRef.current as any;
+                                  if (!r || r.handle !== "line-start" || !r.startWaypoints) return;
+                                  e.stopPropagation();
+                                  const rawDx = (e.clientX - r.startMouseX) / scale;
+                                  const rawDy = (e.clientY - r.startMouseY) / scale;
+                                  const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                                  const nextPts = r.startWaypoints.map((p: any, pIdx: number) => {
+                                    if (pIdx === 0) {
+                                      return {
+                                        x: p.x + dx,
+                                        y: p.y + dy,
+                                      };
+                                    }
+                                    if (pIdx === 1 && Math.abs(r.startWaypoints[0].y - r.startWaypoints[1].y) < 2) {
+                                      return { ...p, y: p.y + dy };
+                                    }
+                                    if (pIdx === 1 && Math.abs(r.startWaypoints[0].x - r.startWaypoints[1].x) < 2) {
+                                      return { ...p, x: p.x + dx };
+                                    }
+                                    return p;
+                                  });
+                                  update(
+                                    { lineWaypoints: nextPts },
+                                    { continuousKey: `elbow-pt0-${shape.id}` },
+                                  );
+                                  return;
+                                }
+                                const drag = lineEndpointDragRef.current;
+                                if (!drag || drag.isEnd) return;
+                                e.stopPropagation();
+                                const rad = (drag.startRot * Math.PI) / 180;
+                                const halfLen = drag.startLen / 2;
+                                const fixedEndPt = {
+                                  x: drag.startCenterX + halfLen * Math.cos(rad),
+                                  y: drag.startCenterY + halfLen * Math.sin(rad),
+                                };
+                                const movingStartPt = {
+                                  x: drag.startCenterX - halfLen * Math.cos(rad) + (e.clientX - drag.startMouseX) / scale,
+                                  y: drag.startCenterY - halfLen * Math.sin(rad) + (e.clientY - drag.startMouseY) / scale,
+                                };
+                                const vx = fixedEndPt.x - movingStartPt.x;
+                                const vy = fixedEndPt.y - movingStartPt.y;
+                                const newLen = Math.max(20, Math.round(Math.hypot(vx, vy)));
+                                let newAngleDeg = (Math.atan2(vy, vx) * 180) / Math.PI;
+                                const snapAngles = [0, 45, 90, 135, 180, -45, -90, -135, -180, 360];
+                                for (const sa of snapAngles) {
+                                  if (Math.abs(newAngleDeg - sa) <= 3) {
+                                    newAngleDeg = sa;
+                                    break;
+                                  }
+                                }
+                                const finalRad = (newAngleDeg * Math.PI) / 180;
+                                const newCenterX = fixedEndPt.x - (newLen / 2) * Math.cos(finalRad);
+                                const newCenterY = fixedEndPt.y - (newLen / 2) * Math.sin(finalRad);
+                                const nextX = (newCenterX / s.width) * 100;
+                                const nextY = (newCenterY / s.height) * 100;
 
-                          update(
-                            { size: newLen, rotation: Math.round(newAngleDeg * 10) / 10, x: nextX, y: nextY },
-                            { continuousKey: `line-endpoint-${shape.id}` },
-                          );
-                        }}
-                        onPointerUp={(e) => {
-                          e.stopPropagation();
-                          lineEndpointDragRef.current = null;
-                          setActiveHandle(null);
-                          onGuides({ vCenter: false, hCenter: false, lines: [] });
-                        }}
-                        onPointerCancel={(e) => {
-                          e.stopPropagation();
-                          lineEndpointDragRef.current = null;
-                          setActiveHandle(null);
-                          onGuides({ vCenter: false, hCenter: false, lines: [] });
-                        }}
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          top: "50%",
-                          transform: "translate(-50%, -50%)",
-                          // Hit box scaled by invScale (same zoomed()
-                          // compensation the 8 corner/edge resize handles
-                          // already use, see getHandleStyle) — without it,
-                          // this stayed a fixed 28 canvas-space px, which
-                          // shrinks along with everything else once the
-                          // whole canvas is scaled down to fit a small
-                          // mobile screen, leaving too small a target to tap
-                          // reliably. The visible dot below is capped at
-                          // 20px real screen size instead of scaling
-                          // unbounded with it — same split the corner
-                          // handles use (big invisible hit target, small
-                          // visible dot), so a zoomed-out canvas gets an
-                          // easier-to-tap handle without the circle itself
-                          // ballooning.
-                          width: 28 * invScale,
-                          height: 28 * invScale,
-                          pointerEvents: "auto",
-                          cursor: "crosshair",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          zIndex: activeHandle === "line-start" ? 120 : 100,
-                          // Without this, mobile browsers hold the very first
-                          // touchmove(s) back to decide whether the gesture is
-                          // a page scroll before handing pointermove to us —
-                          // that's the "lag before the drag catches up" feel.
-                          // The 8 corner/edge handles already set this via
-                          // getHandleStyle (line ~220); these two line
-                          // endpoints build their style object by hand and
-                          // had been missing it.
-                          touchAction: "none",
-                        }}
-                        className="group"
-                        title="Drag endpoint to resize length or angle"
-                      >
-                        <div
-                          className={cn(
-                            // Solid white dot at rest, no border ring — same
-                            // on both platforms now — stays clearly visible
-                            // on its own against any canvas background
-                            // without needing an outline to read as "there".
-                            // Turns solid #0021ff on selection via the
-                            // activeHandle class below.
-                            "rounded-full bg-white shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
-                            activeHandle === "line-start" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
-                          )}
-                          style={{ width: lineEndpointDotPx, height: lineEndpointDotPx }}
-                        />
-                        {/* Live Measurement Badge anchored outward past start tip */}
-                        {activeHandle === "line-start" && (
-                          <div
-                            style={{
-                              position: "absolute",
-                              left: Math.abs(rotation % 180) === 90 ? "50%" : `calc(-100% - ${16 * invScale}px)`,
-                              top: Math.abs(rotation % 180) === 90 ? `calc(-100% - ${16 * invScale}px)` : "50%",
-                              transform: `translate(${Math.abs(rotation % 180) === 90 ? '-50%' : '-100%'}, -50%) rotate(${-rotation}deg) scale(${invScale})`,
-                              pointerEvents: "none",
-                              zIndex: 250,
-                            }}
-                            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-[#18181b]/95 px-3 py-1 text-xs font-mono font-medium tracking-tight text-white shadow-xl backdrop-blur-md ring-1 ring-white/20 animate-in fade-in zoom-in-95 duration-100"
-                          >
-                            <span className="text-zinc-400 font-normal">L:</span>
-                            <span className="text-white font-semibold">{Math.round(shape.size)}px</span>
-                            <span className="text-zinc-600 font-light">•</span>
-                            <span className="text-zinc-400 font-normal">∠</span>
-                            <span className="text-white font-semibold">{Math.round(rotation)}°</span>
-                          </div>
-                        )}
-                      </div>
+                                const snapGuides = calculateLineSnapGuides({
+                                  xPct: nextX,
+                                  yPct: nextY,
+                                  length: newLen,
+                                  angleDeg: newAngleDeg,
+                                  strokeHeight: effectiveHeight,
+                                  canvasW: s.width,
+                                  canvasH: s.height,
+                                });
+                                onGuides(snapGuides);
 
-                      {/* Right (End) Endpoint Handle — Always visible */}
-                      <div
-                        data-nopan=""
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                          setActiveHandle("line-end");
-                          lineEndpointDragRef.current = {
-                            isEnd: true,
-                            startLen: shape.size,
-                            startRot: rotation,
-                            startCenterX: (shape.x * s.width) / 100,
-                            startCenterY: (shape.y * s.height) / 100,
-                            startMouseX: e.clientX,
-                            startMouseY: e.clientY,
-                          };
-                        }}
-                        onPointerMove={(e) => {
-                          const drag = lineEndpointDragRef.current;
-                          if (!drag || !drag.isEnd) return;
-                          e.stopPropagation();
-                          const rad = (drag.startRot * Math.PI) / 180;
-                          const halfLen = drag.startLen / 2;
-                          const fixedStartPt = {
-                            x: drag.startCenterX - halfLen * Math.cos(rad),
-                            y: drag.startCenterY - halfLen * Math.sin(rad),
-                          };
-                          const movingEndPt = {
-                            x: drag.startCenterX + halfLen * Math.cos(rad) + (e.clientX - drag.startMouseX) / scale,
-                            y: drag.startCenterY + halfLen * Math.sin(rad) + (e.clientY - drag.startMouseY) / scale,
-                          };
-                          const vx = movingEndPt.x - fixedStartPt.x;
-                          const vy = movingEndPt.y - fixedStartPt.y;
-                          const newLen = Math.max(20, Math.round(Math.hypot(vx, vy)));
-                          let newAngleDeg = (Math.atan2(vy, vx) * 180) / Math.PI;
-                          const snapAngles = [0, 45, 90, 135, 180, -45, -90, -135, -180, 360];
-                          for (const sa of snapAngles) {
-                            if (Math.abs(newAngleDeg - sa) <= 3) {
-                              newAngleDeg = sa;
-                              break;
-                            }
-                          }
-                          const finalRad = (newAngleDeg * Math.PI) / 180;
-                          const newCenterX = fixedStartPt.x + (newLen / 2) * Math.cos(finalRad);
-                          const newCenterY = fixedStartPt.y + (newLen / 2) * Math.sin(finalRad);
-                          const nextX = (newCenterX / s.width) * 100;
-                          const nextY = (newCenterY / s.height) * 100;
+                                update(
+                                  { size: newLen, rotation: Math.round(newAngleDeg * 10) / 10, x: nextX, y: nextY },
+                                  { continuousKey: `line-endpoint-${shape.id}` },
+                                );
+                              }}
+                              onPointerUp={(e) => {
+                                e.stopPropagation();
+                                lineEndpointDragRef.current = null;
+                                resizeRef.current = null;
+                                setActiveHandle(null);
+                                onGuides({ vCenter: false, hCenter: false, lines: [] });
+                              }}
+                              onPointerCancel={(e) => {
+                                e.stopPropagation();
+                                lineEndpointDragRef.current = null;
+                                resizeRef.current = null;
+                                setActiveHandle(null);
+                                onGuides({ vCenter: false, hCenter: false, lines: [] });
+                              }}
+                              style={{
+                                position: "absolute",
+                                left: shape.lineType === "elbowed" || shape.lineType === "curved" ? `${((lineAnchorPoints[0]?.x ?? 0) / shape.size) * 100}%` : 0,
+                                top: shape.lineType === "elbowed" || shape.lineType === "curved" ? `${((lineAnchorPoints[0]?.y ?? 0) / effectiveHeight) * 100}%` : "50%",
+                                transform: "translate(-50%, -50%)",
+                                width: 36 * invScale,
+                                height: 36 * invScale,
+                                pointerEvents: "auto",
+                                cursor: "crosshair",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: activeHandle === "line-start" ? 120 : 100,
+                                touchAction: "none",
+                              }}
+                              className="group"
+                              title="Drag start endpoint"
+                            >
+                              <div
+                                className={cn(
+                                  "rounded-full bg-white transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
+                                  activeHandle === "line-start" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
+                                )}
+                                style={{
+                                  width: lineEndpointDotPx,
+                                  height: lineEndpointDotPx,
+                                  boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                }}
+                              />
+                            </div>
 
-                          const snapGuides = calculateLineSnapGuides({
-                            xPct: nextX,
-                            yPct: nextY,
-                            length: newLen,
-                            angleDeg: newAngleDeg,
-                            strokeHeight: effectiveHeight,
-                            canvasW: s.width,
-                            canvasH: s.height,
-                          });
-                          onGuides(snapGuides);
+                            {/* Right (End) Endpoint Handle — Always visible */}
+                            <div
+                              data-nopan=""
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                setActiveHandle("line-end");
+                                if (shape.lineType === "elbowed" || shape.lineType === "curved") {
+                                  resizeRef.current = {
+                                    startWidth: shape.size,
+                                    startHeight: effectiveHeight,
+                                    startPosX: shape.x,
+                                    startPosY: shape.y,
+                                    startMouseX: e.clientX,
+                                    startMouseY: e.clientY,
+                                    handle: "line-end",
+                                    startWaypoints: lineAnchorPoints.map((p) => ({ ...p })),
+                                  } as any;
+                                } else {
+                                  lineEndpointDragRef.current = {
+                                    isEnd: true,
+                                    startLen: shape.size,
+                                    startRot: rotation,
+                                    startCenterX: (shape.x * s.width) / 100,
+                                    startCenterY: (shape.y * s.height) / 100,
+                                    startMouseX: e.clientX,
+                                    startMouseY: e.clientY,
+                                  };
+                                }
+                              }}
+                              onPointerMove={(e) => {
+                                // See the start handle's matching branch just above for why
+                                // curved gets its own independent-point branch instead of
+                                // reusing either the elbow orthogonal-preserving logic or the
+                                // old rotate-the-whole-box straight-line logic.
+                                if (shape.lineType === "curved") {
+                                  const r = resizeRef.current as any;
+                                  if (!r || r.handle !== "line-end" || !r.startWaypoints) return;
+                                  e.stopPropagation();
+                                  const rawDx = (e.clientX - r.startMouseX) / scale;
+                                  const rawDy = (e.clientY - r.startMouseY) / scale;
+                                  const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                                  const lastIdx2 = r.startWaypoints.length - 1;
+                                  const movedPts = r.startWaypoints.map((p: any, pIdx: number) =>
+                                    pIdx === lastIdx2 ? { x: p.x + dx, y: p.y + dy } : p,
+                                  );
+                                  const margin2 = Math.max(6, (shape.strokeWidth ?? 4) * 1.5);
+                                  const minPtX = Math.min(...movedPts.map((p: any) => p.x));
+                                  const maxPtX = Math.max(...movedPts.map((p: any) => p.x));
+                                  const minPtY = Math.min(...movedPts.map((p: any) => p.y));
+                                  const maxPtY = Math.max(...movedPts.map((p: any) => p.y));
+                                  const dLeft2 = minPtX < margin2 ? margin2 - minPtX : 0;
+                                  const dTop2 = minPtY < margin2 ? margin2 - minPtY : 0;
+                                  const newW2 = Math.max(r.startWidth, maxPtX + margin2 + dLeft2);
+                                  const newH2 = Math.max(r.startHeight, maxPtY + margin2 + dTop2);
+                                  const shiftedPts2 = movedPts.map((p: any) => ({ x: p.x + dLeft2, y: p.y + dTop2 }));
+                                  // The container is positioned by its CENTER (translate(-50%,-50%)
+                                  // before rotate()), so a plain -dLeft2/-dTop2 undercorrects: it
+                                  // only cancels the shift needed to keep overflowing points inside
+                                  // the box, but growing the box's width/height AT ALL (even purely
+                                  // on the right/bottom, dLeft2/dTop2 both 0) already moves the
+                                  // center by half that growth. Left uncorrected, every untouched
+                                  // point (most visibly the curve's own control-point pill) visibly
+                                  // drifts on screen any time dragging one point grows the box —
+                                  // confirmed directly: a start-point drag that grew the box by
+                                  // ~150 local px left the control pill about 35 screen px off from
+                                  // where it started. Compensating by "half the growth minus the
+                                  // shift already applied" keeps every point that didn't move
+                                  // itself exactly where it was.
+                                  const rotRad2 = (rotation * Math.PI) / 180;
+                                  const compLocalX2 = (newW2 - r.startWidth) / 2 - dLeft2;
+                                  const compLocalY2 = (newH2 - r.startHeight) / 2 - dTop2;
+                                  const worldDx2 = compLocalX2 * Math.cos(rotRad2) - compLocalY2 * Math.sin(rotRad2);
+                                  const worldDy2 = compLocalX2 * Math.sin(rotRad2) + compLocalY2 * Math.cos(rotRad2);
+                                  update(
+                                    {
+                                      x: r.startPosX + (worldDx2 / s.width) * 100,
+                                      y: r.startPosY + (worldDy2 / s.height) * 100,
+                                      size: newW2,
+                                      height: newH2,
+                                      lineWaypoints: shiftedPts2,
+                                    },
+                                    { continuousKey: `line-end-${shape.id}` },
+                                  );
+                                  return;
+                                }
+                                if (shape.lineType === "elbowed") {
+                                  const r = resizeRef.current as any;
+                                  if (!r || r.handle !== "line-end" || !r.startWaypoints) return;
+                                  e.stopPropagation();
+                                  const rawDx = (e.clientX - r.startMouseX) / scale;
+                                  const rawDy = (e.clientY - r.startMouseY) / scale;
+                                  const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                                  const nextPts = r.startWaypoints.map((p: any, pIdx: number) => {
+                                    if (pIdx === lastPtIdx) {
+                                      return {
+                                        x: p.x + dx,
+                                        y: p.y + dy,
+                                      };
+                                    }
+                                    if (pIdx === lastPtIdx - 1 && Math.abs(r.startWaypoints[lastPtIdx].y - r.startWaypoints[lastPtIdx - 1].y) < 2) {
+                                      return { ...p, y: p.y + dy };
+                                    }
+                                    if (pIdx === lastPtIdx - 1 && Math.abs(r.startWaypoints[lastPtIdx].x - r.startWaypoints[lastPtIdx - 1].x) < 2) {
+                                      return { ...p, x: p.x + dx };
+                                    }
+                                    return p;
+                                  });
+                                  update(
+                                    { lineWaypoints: nextPts },
+                                    { continuousKey: `elbow-ptLast-${shape.id}` },
+                                  );
+                                  return;
+                                }
+                                const drag = lineEndpointDragRef.current;
+                                // Copy-pasted from the start handle's own onPointerMove just above
+                                // without flipping the condition — this handle's own onPointerDown
+                                // always sets isEnd:true, so `drag.isEnd` bailing here meant dragging
+                                // the end endpoint of any straight or curved line (elbowed lines take
+                                // the separate early-return branch above and were unaffected) never
+                                // did anything at all.
+                                if (!drag || !drag.isEnd) return;
+                                e.stopPropagation();
+                                const rad = (drag.startRot * Math.PI) / 180;
+                                const halfLen = drag.startLen / 2;
+                                const fixedStartPt = {
+                                  x: drag.startCenterX - halfLen * Math.cos(rad),
+                                  y: drag.startCenterY - halfLen * Math.sin(rad),
+                                };
+                                const movingEndPt = {
+                                  x: drag.startCenterX + halfLen * Math.cos(rad) + (e.clientX - drag.startMouseX) / scale,
+                                  y: drag.startCenterY + halfLen * Math.sin(rad) + (e.clientY - drag.startMouseY) / scale,
+                                };
+                                const vx = movingEndPt.x - fixedStartPt.x;
+                                const vy = movingEndPt.y - fixedStartPt.y;
+                                const newLen = Math.max(20, Math.round(Math.hypot(vx, vy)));
+                                let newAngleDeg = (Math.atan2(vy, vx) * 180) / Math.PI;
+                                const snapAngles = [0, 45, 90, 135, 180, -45, -90, -135, -180, 360];
+                                for (const sa of snapAngles) {
+                                  if (Math.abs(newAngleDeg - sa) <= 3) {
+                                    newAngleDeg = sa;
+                                    break;
+                                  }
+                                }
+                                const finalRad = (newAngleDeg * Math.PI) / 180;
+                                const newCenterX = fixedStartPt.x + (newLen / 2) * Math.cos(finalRad);
+                                const newCenterY = fixedStartPt.y + (newLen / 2) * Math.sin(finalRad);
+                                const nextX = (newCenterX / s.width) * 100;
+                                const nextY = (newCenterY / s.height) * 100;
 
-                          update(
-                            { size: newLen, rotation: Math.round(newAngleDeg * 10) / 10, x: nextX, y: nextY },
-                            { continuousKey: `line-endpoint-${shape.id}` },
-                          );
-                        }}
-                        onPointerUp={(e) => {
-                          e.stopPropagation();
-                          lineEndpointDragRef.current = null;
-                          setActiveHandle(null);
-                          onGuides({ vCenter: false, hCenter: false, lines: [] });
-                        }}
-                        onPointerCancel={(e) => {
-                          e.stopPropagation();
-                          lineEndpointDragRef.current = null;
-                          setActiveHandle(null);
-                          onGuides({ vCenter: false, hCenter: false, lines: [] });
-                        }}
-                        style={{
-                          position: "absolute",
-                          left: "100%",
-                          top: "50%",
-                          transform: "translate(-50%, -50%)",
-                          // See the start handle's own comment above — same
-                          // invScale compensation so this stays a real ~28px
-                          // tap target on screen at any canvas zoom level.
-                          width: 28 * invScale,
-                          height: 28 * invScale,
-                          pointerEvents: "auto",
-                          cursor: "crosshair",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          zIndex: activeHandle === "line-end" ? 120 : 100,
-                          // See the start handle's own comment above.
-                          touchAction: "none",
-                        }}
-                        className="group"
-                        title="Drag endpoint to resize length or angle"
-                      >
-                        <div
-                          className={cn(
-                            // See the start handle's own comment above.
-                            "rounded-full bg-white shadow-md transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
-                            activeHandle === "line-end" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
-                          )}
-                          style={{ width: lineEndpointDotPx, height: lineEndpointDotPx }}
-                        />
-                        {/* Live Measurement Badge anchored outward past end tip */}
-                        {activeHandle === "line-end" && (
-                          <div
-                            style={{
-                              position: "absolute",
-                              left: `calc(100% + ${16 * invScale}px)`,
-                              top: "50%",
-                              transform: `translate(0%, -50%) rotate(${-rotation}deg) scale(${invScale})`,
-                              pointerEvents: "none",
-                              zIndex: 250,
-                            }}
-                            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-[#18181b]/95 px-3 py-1 text-xs font-mono font-medium tracking-tight text-white shadow-xl backdrop-blur-md ring-1 ring-white/20 animate-in fade-in zoom-in-95 duration-100"
-                          >
-                            <span className="text-zinc-400 font-normal">L:</span>
-                            <span className="text-white font-semibold">{Math.round(shape.size)}px</span>
-                            <span className="text-zinc-600 font-light">•</span>
-                            <span className="text-zinc-400 font-normal">∠</span>
-                            <span className="text-white font-semibold">{Math.round(rotation)}°</span>
-                          </div>
-                        )}
-                      </div>
+                                const snapGuides = calculateLineSnapGuides({
+                                  xPct: nextX,
+                                  yPct: nextY,
+                                  length: newLen,
+                                  angleDeg: newAngleDeg,
+                                  strokeHeight: effectiveHeight,
+                                  canvasW: s.width,
+                                  canvasH: s.height,
+                                });
+                                onGuides(snapGuides);
+
+                                update(
+                                  { size: newLen, rotation: Math.round(newAngleDeg * 10) / 10, x: nextX, y: nextY },
+                                  { continuousKey: `line-endpoint-${shape.id}` },
+                                );
+                              }}
+                              onPointerUp={(e) => {
+                                e.stopPropagation();
+                                lineEndpointDragRef.current = null;
+                                resizeRef.current = null;
+                                setActiveHandle(null);
+                                onGuides({ vCenter: false, hCenter: false, lines: [] });
+                              }}
+                              onPointerCancel={(e) => {
+                                e.stopPropagation();
+                                lineEndpointDragRef.current = null;
+                                resizeRef.current = null;
+                                setActiveHandle(null);
+                                onGuides({ vCenter: false, hCenter: false, lines: [] });
+                              }}
+                              style={{
+                                position: "absolute",
+                                left: shape.lineType === "elbowed" || shape.lineType === "curved" ? `${((lineAnchorPoints[lastPtIdx]?.x ?? shape.size) / shape.size) * 100}%` : "100%",
+                                top: shape.lineType === "elbowed" || shape.lineType === "curved" ? `${((lineAnchorPoints[lastPtIdx]?.y ?? effectiveHeight) / effectiveHeight) * 100}%` : "50%",
+                                transform: "translate(-50%, -50%)",
+                                width: 36 * invScale,
+                                height: 36 * invScale,
+                                pointerEvents: "auto",
+                                cursor: "crosshair",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: activeHandle === "line-end" ? 120 : 100,
+                                touchAction: "none",
+                              }}
+                              className="group"
+                              title="Drag endpoint"
+                            >
+                              <div
+                                className={cn(
+                                  "rounded-full bg-white transition-all group-active:scale-135 group-active:ring-4 group-active:ring-[#0021ff]/40",
+                                  activeHandle === "line-end" && "scale-125 bg-[#0021ff] ring-4 ring-[#0021ff]/40",
+                                )}
+                                style={{
+                                  width: lineEndpointDotPx,
+                                  height: lineEndpointDotPx,
+                                  boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                }}
+                              />
+                            </div>
+
+                            {/* Center Arch Circle Handle for Curved lines */}
+                            {shape.lineType === "curved" && (
+                              <div
+                                data-nopan=""
+                                onPointerDown={(e) => {
+                                  e.stopPropagation();
+                                  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                  setActiveHandle("curve-arch");
+                                  resizeRef.current = {
+                                    startWidth: shape.size,
+                                    startHeight: effectiveHeight,
+                                    startPosX: shape.x,
+                                    startPosY: shape.y,
+                                    startMouseX: e.clientX,
+                                    startMouseY: e.clientY,
+                                    handle: "curve-arch",
+                                    startWaypoints: lineAnchorPoints.map((p) => ({ ...p })),
+                                  } as any;
+                                }}
+                                onPointerMove={(e) => {
+                                  // Fully free 2D drag, same as Canva's own curved-line control
+                                  // handle — earlier this projected the drag onto the chord's
+                                  // perpendicular and stored just a scalar bow amount, which
+                                  // meant the pill could only move up/down (or left/right)
+                                  // along one axis instead of going wherever the cursor does.
+                                  const r = resizeRef.current as any;
+                                  if (!r || r.handle !== "curve-arch" || !r.startWaypoints) return;
+                                  e.stopPropagation();
+                                  const rawDx = (e.clientX - r.startMouseX) / scale;
+                                  const rawDy = (e.clientY - r.startMouseY) / scale;
+                                  const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+                                  const movedPts = r.startWaypoints.map((p: any, pIdx: number) =>
+                                    pIdx === 1 ? { x: p.x + dx, y: p.y + dy } : p,
+                                  );
+                                  // Same auto-expand-the-bounding-box safety net as the other
+                                  // free-point drags on this shape (see the start/end handles'
+                                  // own comment) — the control point can be pulled well outside
+                                  // the shape's current box, especially with a tight curve.
+                                  const margin2 = Math.max(6, (shape.strokeWidth ?? 4) * 1.5);
+                                  const minPtX = Math.min(...movedPts.map((p: any) => p.x));
+                                  const maxPtX = Math.max(...movedPts.map((p: any) => p.x));
+                                  const minPtY = Math.min(...movedPts.map((p: any) => p.y));
+                                  const maxPtY = Math.max(...movedPts.map((p: any) => p.y));
+                                  const dLeft2 = minPtX < margin2 ? margin2 - minPtX : 0;
+                                  const dTop2 = minPtY < margin2 ? margin2 - minPtY : 0;
+                                  const newW2 = Math.max(r.startWidth, maxPtX + margin2 + dLeft2);
+                                  const newH2 = Math.max(r.startHeight, maxPtY + margin2 + dTop2);
+                                  const shiftedPts2 = movedPts.map((p: any) => ({ x: p.x + dLeft2, y: p.y + dTop2 }));
+                                  // The container is positioned by its CENTER (translate(-50%,-50%)
+                                  // before rotate()), so a plain -dLeft2/-dTop2 undercorrects: it
+                                  // only cancels the shift needed to keep overflowing points inside
+                                  // the box, but growing the box's width/height AT ALL (even purely
+                                  // on the right/bottom, dLeft2/dTop2 both 0) already moves the
+                                  // center by half that growth. Left uncorrected, every untouched
+                                  // point (most visibly the curve's own control-point pill) visibly
+                                  // drifts on screen any time dragging one point grows the box —
+                                  // confirmed directly: a start-point drag that grew the box by
+                                  // ~150 local px left the control pill about 35 screen px off from
+                                  // where it started. Compensating by "half the growth minus the
+                                  // shift already applied" keeps every point that didn't move
+                                  // itself exactly where it was.
+                                  const rotRad2 = (rotation * Math.PI) / 180;
+                                  const compLocalX2 = (newW2 - r.startWidth) / 2 - dLeft2;
+                                  const compLocalY2 = (newH2 - r.startHeight) / 2 - dTop2;
+                                  const worldDx2 = compLocalX2 * Math.cos(rotRad2) - compLocalY2 * Math.sin(rotRad2);
+                                  const worldDy2 = compLocalX2 * Math.sin(rotRad2) + compLocalY2 * Math.cos(rotRad2);
+                                  update(
+                                    {
+                                      x: r.startPosX + (worldDx2 / s.width) * 100,
+                                      y: r.startPosY + (worldDy2 / s.height) * 100,
+                                      size: newW2,
+                                      height: newH2,
+                                      lineWaypoints: shiftedPts2,
+                                    },
+                                    { continuousKey: `line-curvature-${shape.id}` },
+                                  );
+                                }}
+                                onPointerUp={(e) => {
+                                  e.stopPropagation();
+                                  resizeRef.current = null;
+                                  setActiveHandle(null);
+                                }}
+                                onPointerCancel={(e) => {
+                                  e.stopPropagation();
+                                  resizeRef.current = null;
+                                  setActiveHandle(null);
+                                }}
+                                style={{
+                                  position: "absolute",
+                                  left: `${(curveCpX / shape.size) * 100}%`,
+                                  top: `${(curveCpY / effectiveHeight) * 100}%`,
+                                  transform: "translate(-50%, -50%)",
+                                  width: 36 * invScale,
+                                  height: 36 * invScale,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  cursor: "crosshair",
+                                  zIndex: 110,
+                                  pointerEvents: "auto",
+                                  touchAction: "none",
+                                }}
+                                className="group"
+                                title="Drag to bend curve arch"
+                              >
+                                <div
+                                  className="pointer-events-none rounded-full bg-white transition-all hover:scale-125"
+                                  style={{
+                                    width: lineEndpointDotPx,
+                                    height: lineEndpointDotPx,
+                                    boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {/* Interactive Segment Pill Handles for Elbowed lines — Every segment has its own pill handle */}
+                            {shape.lineType === "elbowed" && (
+                              <>
+                                {lineAnchorPoints.slice(0, -1).map((pA, segIdx) => {
+                                  const pB = lineAnchorPoints[segIdx + 1] ?? pA;
+                                  const midX = (pA.x + pB.x) / 2;
+                                  const midY = (pA.y + pB.y) / 2;
+                                  const isVert = Math.abs(pA.x - pB.x) <= Math.abs(pA.y - pB.y);
+
+                                  return (
+                                    <div
+                                      key={segIdx}
+                                      data-nopan=""
+                                      onPointerDown={(e) => {
+                                        e.stopPropagation();
+                                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                        setActiveHandle(`elbow-seg-${segIdx}`);
+                                        resizeRef.current = {
+                                          startWidth: shape.size,
+                                          startHeight: effectiveHeight,
+                                          startPosX: shape.x,
+                                          startPosY: shape.y,
+                                          startMouseX: e.clientX,
+                                          startMouseY: e.clientY,
+                                          handle: `elbow-seg-${segIdx}`,
+                                          startWaypoints: lineAnchorPoints.map((p) => ({ ...p })),
+                                        } as any;
+                                      }}
+                                      onPointerMove={(e) => {
+                                        const r = resizeRef.current as any;
+                                        if (!r || r.handle !== `elbow-seg-${segIdx}` || !r.startWaypoints) return;
+                                        e.stopPropagation();
+                                        const rawDx = (e.clientX - r.startMouseX) / scale;
+                                        const rawDy = (e.clientY - r.startMouseY) / scale;
+                                        const { dx, dy } = rotateVector(rawDx, rawDy, -rotation);
+
+                                        const pts = [...r.startWaypoints];
+                                        const ptA = pts[segIdx];
+                                        const ptB = pts[segIdx + 1];
+                                        // Frozen at gesture-start from ptA/ptB (both come from the
+                                        // immutable r.startWaypoints snapshot above), NOT from the
+                                        // outer .map()'s live `isVert` — that one is recomputed every
+                                        // render from the shape's CURRENT lineWaypoints, which this
+                                        // very gesture is in the middle of changing. Using the live
+                                        // value here meant segment 0's orientation classification
+                                        // flipped between "horizontal" and "vertical" every single
+                                        // pointermove (once the first move turned a 2-point straight
+                                        // line into a 4-point bend, the next render's pA/pB for index
+                                        // 0 became the new short near-vertical piece, flipping isVert
+                                        // true; that closure then computed nextPts from the ORIGINAL
+                                        // frozen ptA/ptB again but along the wrong axis, collapsing
+                                        // the bend back near-flat) — net effect was every other move
+                                        // undoing the previous one, so the line always sprang back to
+                                        // its start shape by pointerup. Freezing the axis decision
+                                        // once, same as ptA/ptB themselves, fixes that oscillation.
+                                        const isVertFrozen = Math.abs(ptA.x - ptB.x) <= Math.abs(ptA.y - ptB.y);
+                                                const margin = Math.max(6, (shape.strokeWidth ?? 4) * 1.5);
+                                        const minX = margin;
+                                        const maxX = Math.max(margin + 10, shape.size - margin);
+                                        const minY = margin;
+                                        const maxY = Math.max(margin + 10, effectiveHeight - margin);
+                                        const isFirstSeg = segIdx === 0;
+                                        const isLastSeg = segIdx === pts.length - 2;
+                                        let nextPts: { x: number; y: number }[];
+
+                                        if (isFirstSeg && pts.length >= 2) {
+                                          const p0 = pts[0]!;
+                                          if (isVertFrozen) {
+                                            const targetX = p0.x + dx;
+                                            nextPts = [
+                                              { x: p0.x, y: p0.y },
+                                              { x: targetX, y: p0.y },
+                                              { x: targetX, y: ptB.y },
+                                              ...(pts.length === 2 ? [{ x: ptB.x, y: ptB.y }] : pts.slice(2)),
+                                            ];
+                                          } else {
+                                            const targetY = p0.y + dy;
+                                            nextPts = [
+                                              { x: p0.x, y: p0.y },
+                                              { x: p0.x, y: targetY },
+                                              { x: ptB.x, y: targetY },
+                                              ...(pts.length === 2 ? [{ x: ptB.x, y: ptB.y }] : pts.slice(2)),
+                                            ];
+                                          }
+                                        } else if (isLastSeg && pts.length >= 2) {
+                                          const pLast = pts[pts.length - 1]!;
+                                          if (isVertFrozen) {
+                                            const targetX = pLast.x + dx;
+                                            nextPts = [
+                                              ...pts.slice(0, pts.length - 2),
+                                              { x: targetX, y: ptA.y },
+                                              { x: targetX, y: pLast.y },
+                                              { x: pLast.x, y: pLast.y },
+                                            ];
+                                          } else {
+                                            const targetY = pLast.y + dy;
+                                            nextPts = [
+                                              ...pts.slice(0, pts.length - 2),
+                                              { x: ptA.x, y: targetY },
+                                              { x: pLast.x, y: targetY },
+                                              { x: pLast.x, y: pLast.y },
+                                            ];
+                                          }
+                                        } else {
+                                          const lastIdx = pts.length - 1;
+                                          nextPts = pts.map((p: any, pIdx: number) => {
+                                            // Circle endpoints at 0 and lastIdx are ALWAYS 100% FIXED
+                                            if (pIdx === 0 || pIdx === lastIdx) return p;
+                                            if (pIdx === segIdx || pIdx === segIdx + 1) {
+                                              if (isVertFrozen) {
+                                                return { ...p, x: p.x + dx };
+                                              } else {
+                                                return { ...p, y: p.y + dy };
+                                              }
+                                            }
+                                            return p;
+                                          });
+                                        }
+
+                                        // Auto-expand bounding box dynamically so dragging never gets stuck
+                                        const minPtX = Math.min(...nextPts.map((p) => p.x));
+                                        const maxPtX = Math.max(...nextPts.map((p) => p.x));
+                                        const minPtY = Math.min(...nextPts.map((p) => p.y));
+                                        const maxPtY = Math.max(...nextPts.map((p) => p.y));
+
+                                        const pad = Math.max(6, (shape.strokeWidth ?? 4) * 1.5);
+                                        const dLeft = minPtX < pad ? pad - minPtX : 0;
+                                        const dTop = minPtY < pad ? pad - minPtY : 0;
+                                        const newW = Math.max(r.startWidth, maxPtX + pad + dLeft);
+                                        const newH = Math.max(r.startHeight, maxPtY + pad + dTop);
+
+                                        const shiftedPts = nextPts.map((p) => ({
+                                          x: p.x + dLeft,
+                                          y: p.y + dTop,
+                                        }));
+
+                                        const rotRad = (rotation * Math.PI) / 180;
+                                        const worldDx = -dLeft * Math.cos(rotRad) - -dTop * Math.sin(rotRad);
+                                        const worldDy = -dLeft * Math.sin(rotRad) + -dTop * Math.cos(rotRad);
+
+                                        const nextX = r.startPosX + (worldDx / s.width) * 100;
+                                        const nextY = r.startPosY + (worldDy / s.height) * 100;
+
+                                        update(
+                                          {
+                                            x: nextX,
+                                            y: nextY,
+                                            size: newW,
+                                            height: newH,
+                                            lineWaypoints: shiftedPts,
+                                          },
+                                          { continuousKey: `elbow-seg-${shape.id}` },
+                                        );
+                                      }}
+                                      onPointerUp={(e) => {
+                                        e.stopPropagation();
+                                        if (shape.lineWaypoints) {
+                                          const cleaned = simplifyPath(shape.lineWaypoints);
+                                          update({ lineWaypoints: cleaned });
+                                        }
+                                        resizeRef.current = null;
+                                        setActiveHandle(null);
+                                      }}
+                                      onPointerCancel={(e) => {
+                                        e.stopPropagation();
+                                        if (shape.lineWaypoints) {
+                                          const cleaned = simplifyPath(shape.lineWaypoints);
+                                          update({ lineWaypoints: cleaned });
+                                        }
+                                        resizeRef.current = null;
+                                        setActiveHandle(null);
+                                      }}
+                                      style={{
+                                        position: "absolute",
+                                        left: `${(midX / shape.size) * 100}%`,
+                                        top: `${(midY / effectiveHeight) * 100}%`,
+                                        transform: "translate(-50%, -50%)",
+                                        width: 36 * invScale,
+                                        height: 36 * invScale,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        cursor: isVert ? "ew-resize" : "ns-resize",
+                                        zIndex: 110,
+                                        pointerEvents: "auto",
+                                        touchAction: "none",
+                                      }}
+                                      className="group"
+                                      title="Drag to shift bend position"
+                                    >
+                                      <div
+                                        className="pointer-events-none rounded-full bg-white transition-all group-hover:scale-125"
+                                        style={{
+                                          width: (isVert ? 10 : 22) * invScale,
+                                          height: (isVert ? 22 : 10) * invScale,
+                                          boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                        }}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </>
+                            )}
+                          </>
+                        );
+                      })()}
                     </>
                   ) : null
                 ) : (
@@ -6262,62 +6833,28 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
 
                 {/* Rotate & Move Handle Row */}
                 {activeHandle === null ? (
-                  isLine ? (
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        transform: `rotate(${-rotation}deg)`,
-                        pointerEvents: "none",
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: "absolute",
-                          left: `calc(50% + ${handlesPos.x}px)`,
-                          top: `calc(50% + ${handlesPos.y}px)`,
-                          transform: "translate(-50%, -50%)",
-                          pointerEvents: "auto",
-                          zIndex: 90,
-                        }}
-                      >
-                        <RotateMoveHandleRow
-                          containerRef={containerRef}
-                          scale={scale}
-                          orientation={handlesPos.orientation}
-                          docked={false}
-                          onRotate={(deg) => update({ rotation: deg })}
-                          onGuides={onGuides}
-                          onMovePointerDown={handlePointerDown}
-                          onMovePointerMove={handlePointerMove}
-                          onMovePointerUp={handlePointerUp}
-                          isMoving={isMoving}
-                          onRotatingChange={setIsRotating}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        transform: `rotate(${-rotation}deg)`,
-                        pointerEvents: "none",
-                      }}
-                    >
-                      <RotateMoveHandleRow
-                        containerRef={containerRef}
-                        scale={scale}
-                        onRotate={(deg) => update({ rotation: deg })}
-                        onMovePointerDown={handlePointerDown}
-                        onMovePointerMove={handlePointerMove}
-                        onMovePointerUp={handlePointerUp}
-                        isMoving={isMoving}
-                        onRotatingChange={setIsRotating}
-                        elementRotation={rotation}
-                      />
-                    </div>
-                  )
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      transform: `rotate(${-rotation}deg)`,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <RotateMoveHandleRow
+                      containerRef={containerRef}
+                      scale={scale}
+                      showRotate={shape.lineType !== "elbowed"}
+                      onRotate={(deg) => update({ rotation: deg })}
+                      onGuides={onGuides}
+                      onMovePointerDown={handlePointerDown}
+                      onMovePointerMove={handlePointerMove}
+                      onMovePointerUp={handlePointerUp}
+                      isMoving={isMoving}
+                      onRotatingChange={setIsRotating}
+                      elementRotation={rotation}
+                    />
+                  </div>
                 ) : null}
               </>
             ) : null}

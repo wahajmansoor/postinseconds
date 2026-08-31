@@ -936,7 +936,7 @@ export function isLineShape(kind: ShapeKind | string): boolean {
 // through the legacy `kind`-driven switch in LineShapeSvg instead — kind
 // itself no longer changes for a line once these are in play, so a shape
 // can't end up in a mixed/inconsistent state. `lineStyle` presence is what
-// LineShapeSvg checks to decide which renderer a given shape uses.
+export type LineType = "straight" | "curved" | "elbowed";
 export type LineStrokeStyle = "solid" | "dash-long" | "dash-short" | "dotted";
 export type LineEndCapKind =
   | "none"
@@ -1838,6 +1838,9 @@ export type ShapeLayer = {
   lineStyle?: LineStrokeStyle | undefined;
   lineStartCap?: LineEndCapKind | undefined;
   lineEndCap?: LineEndCapKind | undefined;
+  lineType?: LineType | undefined;
+  lineCurvature?: number | undefined;
+  lineWaypoints?: { x: number; y: number }[] | undefined;
 };
 
 export type EditorState = {
@@ -2741,6 +2744,12 @@ export function resizeEditorStateToNewSize(
     shadowX: scaleOptPx(sh.shadowX),
     shadowY: scaleOptPx(sh.shadowY),
     shadowSpread: scaleOptPx(sh.shadowSpread),
+    // An elbowed/curved line's waypoints are absolute pixel coordinates
+    // inside its own size/height box (see withMultipleLayersScaled's
+    // matching comment) — size/height above already scale by this same
+    // factor, so the waypoints need to as well or the line's actual bend/
+    // curve shape stops matching its own (correctly resized) box.
+    ...(sh.lineWaypoints ? { lineWaypoints: sh.lineWaypoints.map((p) => ({ x: p.x * scale, y: p.y * scale })) } : {}),
   }));
 
   return {
@@ -3645,8 +3654,27 @@ export function withMultipleLayersScaled(
 
     const isLine = isLineShape(sh.kind);
     const nextSize = Math.max(10, Math.round(orig.size * (isLine ? uniformScale : scaleX)));
-    const nextHeight = orig.height !== undefined ? Math.max(4, Math.round(orig.height * scaleY)) : undefined;
+    // A line's `height` isn't decorative padding — for an elbowed or curved
+    // line it's the tight-fit bounding box the auto-expand-on-drag handlers
+    // (see QuoteCanvas's own comments on those) size to just barely contain
+    // the actual waypoints. Scaling it by the group's raw scaleY while
+    // `size` scales by the uniform (width+height averaged) factor meant the
+    // two could drift apart the moment a group resize wasn't perfectly
+    // proportional — the box then no longer matched the line's own aspect
+    // ratio, leaving visible slack around it instead of staying tight.
+    // Lines use the same uniformScale as `size` for exactly that reason;
+    // every other shape kind keeps the independent scaleY it always had.
+    const nextHeight = orig.height !== undefined ? Math.max(4, Math.round(orig.height * (isLine ? uniformScale : scaleY))) : undefined;
     const nextStrokeWidth = orig.strokeWidth !== undefined ? Math.max(1, Math.min(24, Math.round(orig.strokeWidth * uniformScale))) : undefined;
+    // The waypoints themselves are stored as absolute pixel coordinates in
+    // the shape's OLD size/height box — left un-scaled here, they'd stay
+    // anchored to their old positions while size/height (and therefore the
+    // percentages LineShapeSvg/QuoteCanvas's handles measure them against)
+    // change underneath them, distorting the actual bend/curve shape rather
+    // than just resizing its box uniformly around it.
+    const nextWaypoints = isLine && sh.lineWaypoints
+      ? sh.lineWaypoints.map((p) => ({ x: p.x * uniformScale, y: p.y * uniformScale }))
+      : undefined;
 
     return {
       ...sh,
@@ -3655,6 +3683,7 @@ export function withMultipleLayersScaled(
       size: nextSize,
       ...(nextHeight !== undefined ? { height: nextHeight } : {}),
       ...(nextStrokeWidth !== undefined ? { strokeWidth: nextStrokeWidth } : {}),
+      ...(nextWaypoints !== undefined ? { lineWaypoints: nextWaypoints } : {}),
     };
   });
 
