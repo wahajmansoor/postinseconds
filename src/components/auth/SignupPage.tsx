@@ -133,6 +133,116 @@ function LeftReviewStack() {
   );
 }
 
+interface BenefitItem {
+  id: string;
+  title: string;
+  desc: string;
+  tag: string;
+  iconBg: string;
+}
+
+const BENEFIT_ITEMS: BenefitItem[] = [
+  {
+    id: "everywhere",
+    title: "You can design, everywhere!",
+    desc: "Your projects sync automatically, so you can pick up on any device.",
+    tag: "Auto Sync",
+    iconBg: "bg-emerald-50 text-emerald-600 border-emerald-200",
+  },
+  {
+    id: "templates",
+    title: "100+ premium templates!",
+    desc: "New layouts added every week, built for fast daily posting.",
+    tag: "Weekly New",
+    iconBg: "bg-amber-50 text-amber-600 border-amber-200",
+  },
+  {
+    id: "export",
+    title: "Export without limits!",
+    desc: "Download high-resolution PNG, JPG, GIF or WEBP files, no watermark.",
+    tag: "Ultra HD 4K",
+    iconBg: "bg-sky-50 text-sky-600 border-sky-200",
+  },
+];
+
+function RightBenefitsStack() {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+
+  useEffect(() => {
+    if (isPaused) return;
+    const timer = setInterval(() => {
+      setActiveIdx((prev) => (prev + 1) % BENEFIT_ITEMS.length);
+    }, 3800);
+    return () => clearInterval(timer);
+  }, [isPaused]);
+
+  return (
+    <div
+      className="relative w-full max-w-[380px] mx-auto text-left h-[76px] sm:h-[82px] mt-6 sm:mt-8 px-1 cursor-pointer select-none"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onClick={() => setActiveIdx((prev) => (prev + 1) % BENEFIT_ITEMS.length)}
+    >
+      {BENEFIT_ITEMS.map((item, idx) => {
+        const offset = (idx - activeIdx + BENEFIT_ITEMS.length) % BENEFIT_ITEMS.length;
+        const isFront = offset === 0;
+        const isMiddle = offset === 1;
+
+        let transformClasses = "";
+        let visualClasses = "";
+
+        if (isFront) {
+          transformClasses = "z-30 translate-y-0 scale-100 opacity-100";
+          visualClasses =
+            "bg-white border-slate-200/90 shadow-[0_8px_25px_-5px_rgba(0,0,0,0.06),0_1px_3px_rgba(0,0,0,0.03)]";
+        } else if (isMiddle) {
+          transformClasses = "z-20 -translate-y-2 scale-[0.97] opacity-80 pointer-events-none";
+          visualClasses = "bg-slate-50/95 border-slate-200/80 shadow-xs";
+        } else {
+          transformClasses = "z-10 -translate-y-4 scale-[0.94] opacity-50 pointer-events-none";
+          visualClasses = "bg-slate-100/80 border-slate-200/60 shadow-2xs";
+        }
+
+        return (
+          <div
+            key={item.id}
+            className={cn(
+              "absolute inset-x-1 top-0 rounded-2xl border p-3 sm:p-3.5 transition-all duration-500 ease-out",
+              transformClasses,
+              visualClasses,
+            )}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                <div
+                  className={cn(
+                    "mt-0.5 flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 items-center justify-center rounded-xl border shadow-2xs",
+                    item.iconBg,
+                  )}
+                >
+                  <CheckmarkCircle02Icon size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11.5px] sm:text-[13px] font-bold text-slate-900 leading-snug">
+                    {item.title}
+                  </p>
+                  <p className="text-[10.5px] sm:text-[11.5px] text-slate-500 mt-0.5 leading-tight line-clamp-2">
+                    {item.desc}
+                  </p>
+                </div>
+              </div>
+              <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-1.5 sm:px-2 py-0.5 text-[8.5px] sm:text-[9.5px] font-semibold text-slate-600">
+                {item.tag}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function FloatingCanvasCards() {
   const [activeCard, setActiveCard] = useState(2); // Story by default
   const [isPaused, setIsPaused] = useState(false);
@@ -313,12 +423,12 @@ export function SignupPage() {
       </div>
 
       {/* RIGHT COLUMN: Clean White Sign-in */}
-      <div className="flex flex-1 flex-col justify-between bg-slate-50/40 px-4 py-6 sm:p-10 lg:p-12 min-h-screen">
+      <div className="flex flex-1 flex-col justify-between bg-slate-50/40 px-3 py-5 sm:p-10 lg:p-12 min-h-screen w-full max-w-full overflow-x-hidden">
         <div className="hidden sm:block" />
 
         <div className="mx-auto flex w-full max-w-lg flex-col items-center text-center my-auto">
           {/* Logo - Outside Top */}
-          <img src="/logo.png" alt="Post In Seconds" className="h-16 w-16 sm:h-20 sm:w-20 object-contain drop-shadow-xs" />
+          <img src="/logo.png" alt="Post In Seconds" className="h-20 w-20 sm:h-24 sm:w-24 object-contain drop-shadow-md" />
 
           {/* Header Title - Outside Top */}
           <h1 className="mt-2.5 sm:mt-3.5 text-xl sm:text-[26px] font-bold tracking-tight text-slate-900">
@@ -329,7 +439,7 @@ export function SignupPage() {
           </p>
 
           {/* Card Container with Elegant Border - Compact Width */}
-          <div className="mt-4 sm:mt-5 w-full max-w-[380px] rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-6 shadow-[0_8px_30px_-5px_rgba(0,0,0,0.04),0_1px_3px_rgba(0,0,0,0.02)]">
+          <div className="mt-3.5 sm:mt-5 w-full max-w-[380px] rounded-2xl border border-slate-200/90 bg-white p-3.5 sm:p-6 shadow-[0_8px_30px_-5px_rgba(0,0,0,0.04),0_1px_3px_rgba(0,0,0,0.02)] overflow-hidden">
             {isAuthenticated && user ? (
               <div className="w-full rounded-2xl border border-emerald-200 bg-emerald-50/90 p-4 sm:p-5 text-center shadow-sm">
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -352,7 +462,7 @@ export function SignupPage() {
                 </Link>
               </div>
             ) : (
-              <div className="w-full space-y-3.5">
+              <div className="w-full space-y-3">
                 {/* Header text above Google button - 2 Clean Lines */}
                 <p className="text-center text-xs sm:text-sm font-medium text-slate-600 leading-snug">
                   Sign in to start creating <br />
@@ -360,15 +470,15 @@ export function SignupPage() {
                 </p>
 
                 {/* Google Identity Services Button with User Dropdown & Avatar */}
-                <div ref={googleButtonContainerRef} className="flex w-full justify-center" />
+                <div ref={googleButtonContainerRef} className="flex w-full justify-center overflow-hidden max-w-full" />
                 {!isGoogleButtonReady && (
                   <button
                     type="button"
                     disabled={isLoading}
                     onClick={() => loginWithGoogle()}
-                    className="mx-auto flex w-full max-w-[260px] items-center justify-center gap-2.5 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-xs sm:text-sm font-medium text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.99] disabled:opacity-50"
+                    className="mx-auto flex w-full max-w-[260px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs sm:text-sm font-medium text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 active:scale-[0.99] disabled:opacity-50"
                   >
-                    <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
+                    <svg className="h-4.5 w-4.5 shrink-0" viewBox="0 0 24 24">
                       <path
                         fill="#4285F4"
                         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -393,61 +503,29 @@ export function SignupPage() {
             )}
           </div>
 
-          {/* Benefits Checklist - Responsive & Spacious */}
-          <div className="mt-6 sm:mt-8 w-full text-left space-y-3.5 sm:space-y-4 px-1 sm:px-4">
-            <div className="flex items-start gap-2.5 sm:gap-3">
-              <CheckmarkCircle02Icon size={17} className="text-emerald-500 mt-0.5 shrink-0" />
-              <div className="leading-snug">
-                <p className="text-xs sm:text-[13.5px] font-semibold text-slate-800">
-                  You can design, everywhere!
-                </p>
-                <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                  Your projects sync automatically, so you can pick up on any device.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5 sm:gap-3">
-              <CheckmarkCircle02Icon size={17} className="text-emerald-500 mt-0.5 shrink-0" />
-              <div className="leading-snug">
-                <p className="text-xs sm:text-[13.5px] font-semibold text-slate-800">
-                  100+ premium templates!
-                </p>
-                <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                  New layouts added every week, built for fast daily posting.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-2.5 sm:gap-3">
-              <CheckmarkCircle02Icon size={17} className="text-emerald-500 mt-0.5 shrink-0" />
-              <div className="leading-snug">
-                <p className="text-xs sm:text-[13.5px] font-semibold text-slate-800">
-                  Export without limits!
-                </p>
-                <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                  Download high-resolution PNG, JPG, GIF or WEBP files, no watermark.
-                </p>
-              </div>
-            </div>
+          {/* Stacked Interactive Benefits */}
+          <RightBenefitsStack />
 
-            {/* Feature Badges under Checklist - Single Line on Mobile */}
-            <div className="flex w-full items-center justify-between gap-1 sm:gap-1.5 pt-2">
-              <div className="flex flex-1 items-center justify-center gap-0.5 min-[360px]:gap-1 whitespace-nowrap rounded-full border border-emerald-200/80 bg-emerald-50/70 px-1 min-[360px]:px-1.5 sm:px-2 py-1 text-[9px] min-[360px]:text-[10px] sm:text-[11.5px] font-medium text-emerald-800 shadow-xs">
-                <FlashIcon size={11} className="shrink-0 text-emerald-600" />
+          <div className="w-full max-w-[380px] mx-auto space-y-2.5 sm:space-y-3 pt-2">
+            {/* Feature Badges under Checklist - Full Original Text */}
+            <div className="flex w-full items-center justify-between gap-1 sm:gap-1.5 pt-0.5">
+              <div className="flex flex-1 items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap rounded-full border border-emerald-200/80 bg-emerald-50/70 px-1 sm:px-2 py-1 text-[8.5px] min-[360px]:text-[9.5px] sm:text-[11.5px] font-medium text-emerald-800 shadow-2xs">
+                <FlashIcon size={10} className="shrink-0 text-emerald-600" />
                 <span>10x Faster Creation</span>
               </div>
-              <div className="flex flex-1 items-center justify-center gap-0.5 min-[360px]:gap-1 whitespace-nowrap rounded-full border border-amber-200/80 bg-amber-50/70 px-1 min-[360px]:px-1.5 sm:px-2 py-1 text-[9px] min-[360px]:text-[10px] sm:text-[11.5px] font-medium text-amber-900 shadow-xs">
-                <CrownIcon size={11} className="shrink-0 text-amber-600" />
+              <div className="flex flex-1 items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap rounded-full border border-amber-200/80 bg-amber-50/70 px-1 sm:px-2 py-1 text-[8.5px] min-[360px]:text-[9.5px] sm:text-[11.5px] font-medium text-amber-900 shadow-2xs">
+                <CrownIcon size={10} className="shrink-0 text-amber-600" />
                 <span>100+ Premium Templates</span>
               </div>
-              <div className="flex flex-1 items-center justify-center gap-0.5 min-[360px]:gap-1 whitespace-nowrap rounded-full border border-sky-200/80 bg-sky-50/70 px-1 min-[360px]:px-1.5 sm:px-2 py-1 text-[9px] min-[360px]:text-[10px] sm:text-[11.5px] font-medium text-sky-900 shadow-xs">
-                <Image01Icon size={11} className="shrink-0 text-sky-600" />
+              <div className="flex flex-1 items-center justify-center gap-0.5 sm:gap-1 whitespace-nowrap rounded-full border border-sky-200/80 bg-sky-50/70 px-1 sm:px-2 py-1 text-[8.5px] min-[360px]:text-[9.5px] sm:text-[11.5px] font-medium text-sky-900 shadow-2xs">
+                <Image01Icon size={10} className="shrink-0 text-sky-600" />
                 <span>Export Ultra HD Quality</span>
               </div>
             </div>
 
             {/* Mobile App Download on Right Area */}
-            <div className="pt-4 sm:pt-5 flex flex-col items-center justify-center gap-1.5 sm:gap-2 text-center">
-              <p className="text-[11px] sm:text-[12.5px] font-medium text-slate-500">
+            <div className="pt-2 sm:pt-4 flex flex-col items-center justify-center gap-1 sm:gap-1.5 text-center">
+              <p className="text-[10.5px] sm:text-[12px] font-medium text-slate-500">
                 You can download and use on mobile app as well:
               </p>
               <a
@@ -459,7 +537,7 @@ export function SignupPage() {
                 <img
                   src="/Google-Store-Icon.svg"
                   alt="Get it on Google Play"
-                  className="h-9 sm:h-11 w-auto object-contain"
+                  className="h-8.5 sm:h-10 w-auto object-contain"
                 />
               </a>
             </div>
@@ -467,7 +545,7 @@ export function SignupPage() {
         </div>
 
         {/* Footer */}
-        <div className="mt-6 sm:mt-8 border-t border-slate-200/60 pt-4 sm:pt-6 text-center text-xs text-slate-400">
+        <div className="mt-5 sm:mt-7 border-t border-slate-200/60 pt-3 sm:pt-5 text-center text-xs text-slate-400">
           <p>© {new Date().getFullYear()} Post In Seconds. All Rights Reserved.</p>
         </div>
       </div>
