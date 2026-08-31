@@ -86,11 +86,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no, viewport-fit=cover",
       },
-      { title: "Quote Canvas Studio" },
-      { name: "description", content: "Modern canvas editor for shareable quote images." },
+      { title: "Post In Seconds - Premium Templates Made Easy" },
+      {
+        name: "description",
+        content:
+          "Design stunning posts in seconds with premium templates and an easy-to-use editor. Customize, edit, and create faster.",
+      },
       { name: "author", content: "Post In Seconds" },
-      { property: "og:title", content: "Quote Canvas Studio" },
-      { property: "og:description", content: "Modern canvas editor for shareable quote images." },
+      { property: "og:title", content: "Post In Seconds - Premium Templates Made Easy" },
+      {
+        property: "og:description",
+        content:
+          "Design stunning posts in seconds with premium templates and an easy-to-use editor. Customize, edit, and create faster.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -105,7 +113,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800;900&family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Space+Grotesk:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/logo.png", type: "image/png" },
+      { rel: "apple-touch-icon", href: "/logo.png" },
     ],
   }),
   shellComponent: RootShell,

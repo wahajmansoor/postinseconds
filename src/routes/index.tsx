@@ -153,17 +153,17 @@ import { Drawer, DrawerClose, DrawerContent } from "@/components/ui/drawer";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Quote Canvas Studio — Design Shareable Quote Images" },
+      { title: "Post In Seconds - Premium Templates Made Easy" },
       {
         name: "description",
         content:
-          "A modern canvas editor for turning quotes into polished social images: gradients, typography, layout controls and one-click PNG export.",
+          "Design stunning posts in seconds with premium templates and an easy-to-use editor. Customize, edit, and create faster.",
       },
-      { property: "og:title", content: "Quote Canvas Studio — Design Shareable Quote Images" },
+      { property: "og:title", content: "Post In Seconds - Premium Templates Made Easy" },
       {
         property: "og:description",
         content:
-          "Craft quote graphics with live canvas controls, gradient backgrounds and instant PNG download.",
+          "Design stunning posts in seconds with premium templates and an easy-to-use editor. Customize, edit, and create faster.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

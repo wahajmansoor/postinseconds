@@ -227,14 +227,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const container = pendingButtonContainerRef.current;
     if (!gisReadyRef.current || !container || container.childElementCount > 0) return;
     try {
+      const isMobile = typeof window !== "undefined" && window.innerWidth < 400;
+      const targetWidth = isMobile
+        ? Math.max(240, Math.min(300, window.innerWidth - 60))
+        : 320;
+
       (window as any).google.accounts.id.renderButton(container, {
         type: "standard",
         theme: "outline",
         size: "large",
         shape: "pill",
-        text: "signin_with",
+        text: "continue_with",
         logo_alignment: "left",
-        width: Math.round(container.offsetWidth) || 320,
+        width: targetWidth,
       });
       setIsGoogleButtonReady(true);
     } catch (err) {
@@ -254,6 +259,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           client_id: GOOGLE_WEB_CLIENT_ID,
           callback: handleGisCredential,
           nonce: hashedNonce,
+          auto_select: false,
+          itp_support: true,
+          context: "signin",
         });
         gisReadyRef.current = true;
         setIsGisReady(true);
@@ -339,6 +347,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     setUser(authUser);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(authUser));
+    try {
+      localStorage.setItem(
+        "postinseconds_last_account",
+        JSON.stringify({ name: authUser.name, email: authUser.email, avatar: authUser.avatar })
+      );
+    } catch {}
   };
 
   const updateLocalUser = (partial: Partial<Pick<AuthUser, "name" | "avatar">>) => {
