@@ -3474,6 +3474,8 @@ function Index() {
                 <ImageSelectionToolbar
                   layer={(selectedImageLayer ?? pinnedImageLayer)!}
                   detached={imageDetached}
+                  canvasWidth={s.width}
+                  canvasHeight={s.height}
                   onArrange={(dir) =>
                     handleSingleArrange((selectedImageLayer ?? pinnedImageLayer)!.id, dir)
                   }
@@ -3505,6 +3507,8 @@ function Index() {
                 <ShapeSelectionToolbar
                   layer={(selectedShapeLayer ?? pinnedShapeLayer)!}
                   detached={shapeDetached}
+                  canvasWidth={s.width}
+                  canvasHeight={s.height}
                   onArrange={(dir) =>
                     handleSingleArrange((selectedShapeLayer ?? pinnedShapeLayer)!.id, dir)
                   }
@@ -4390,6 +4394,8 @@ function Index() {
                       ) : selectedImageLayer ? (
                         <ImageSelectionToolbar
                           layer={selectedImageLayer}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
                           onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
                           canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
                           onAnyPopoverOpenChange={(open) =>
@@ -4406,6 +4412,8 @@ function Index() {
                       ) : selectedShapeLayer ? (
                         <ShapeSelectionToolbar
                           layer={selectedShapeLayer}
+                          canvasWidth={s.width}
+                          canvasHeight={s.height}
                           onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
                           canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
                           onAnyPopoverOpenChange={(open) =>

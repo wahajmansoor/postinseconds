@@ -1,6 +1,6 @@
-import { forwardRef, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { forwardRef, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
-import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinIcon, Upload01Icon } from "hugeicons-react";
+import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinIcon, Search01Icon, Tick02Icon, Upload01Icon } from "hugeicons-react";
 import { GripHorizontal, Minimize2, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppTooltip, InfoTooltip } from "@/components/ui/tooltip";
@@ -9,7 +9,7 @@ import { compressImageFile } from "@/lib/imageCompression";
 import { ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker } from "@/components/ui/color-picker";
 import { Drawer, DrawerContent } from "@/components/ui/drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { GRADIENTS, type GradientCategory } from "./types";
+import { findFontOption, fontFamilyToLabel, getFontPool, GRADIENTS, isSameFontFamily, searchAllFonts, type FontOption, type GradientCategory } from "./types";
 
 export { AppTooltip, InfoTooltip, ColorPicker, ColorPickerContent, ColorArea, ColorSlider, ColorSwatch, ColorSwatchPicker };
 
@@ -277,15 +277,16 @@ export function ToolbarDragGrip({
   dragHandleProps: ReturnType<typeof useDraggableOffset>["dragHandleProps"];
 }) {
   return (
-    <div
-      {...dragHandleProps}
-      data-nopan=""
-      title="Drag to move toolbar"
-      className="group flex h-8 w-6 shrink-0 cursor-grab items-center justify-center active:cursor-grabbing"
-      style={{ touchAction: "none" }}
-    >
-      <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-foreground" />
-    </div>
+    <AppTooltip content="Drag to move toolbar">
+      <div
+        {...dragHandleProps}
+        data-nopan=""
+        className="group flex h-8 w-6 shrink-0 cursor-grab items-center justify-center active:cursor-grabbing"
+        style={{ touchAction: "none" }}
+      >
+        <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-foreground" />
+      </div>
+    </AppTooltip>
   );
 }
 
@@ -399,15 +400,16 @@ export function FloatingToolbarPortal({
 // than needing special handling to force them shut first.
 export function MinimizeToolbarButton({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      type="button"
-      data-nopan=""
-      title="Minimize toolbar"
-      onClick={onClick}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-    >
-      <Minimize2 className="h-3.5 w-3.5" />
-    </button>
+    <AppTooltip content="Minimize toolbar">
+      <button
+        type="button"
+        data-nopan=""
+        onClick={onClick}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      >
+        <Minimize2 className="h-3.5 w-3.5" />
+      </button>
+    </AppTooltip>
   );
 }
 
@@ -460,27 +462,28 @@ export function MinimizedToolbarButton({
   onClick: () => void;
 }) {
   return createPortal(
-    <button
-      type="button"
-      {...dragHandleProps}
-      data-nopan=""
-      title="Expand toolbar"
-      onClick={onClick}
-      style={{
-        position: "fixed",
-        top: baseTop + offset.y,
-        left: baseLeft + offset.x,
-        touchAction: "none",
-        zIndex: 200,
-      }}
-      className="flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] backdrop-blur-xl transition-transform active:scale-95 active:cursor-grabbing"
-    >
-      <Settings2 className="h-4 w-4" />
-      <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-500 opacity-75" />
-        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
-      </span>
-    </button>,
+    <AppTooltip content="Maximize toolbar">
+      <button
+        type="button"
+        {...dragHandleProps}
+        data-nopan=""
+        onClick={onClick}
+        style={{
+          position: "fixed",
+          top: baseTop + offset.y,
+          left: baseLeft + offset.x,
+          touchAction: "none",
+          zIndex: 200,
+        }}
+        className="flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] backdrop-blur-xl transition-transform active:scale-95 active:cursor-grabbing"
+      >
+        <Settings2 className="h-4 w-4" />
+        <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-500 opacity-75" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+        </span>
+      </button>
+    </AppTooltip>,
     document.body,
   );
 }
@@ -878,10 +881,19 @@ export function CompactColorField({
     setHexInput(value);
   }, [value]);
 
-  const commitHex = () => {
-    const normalized = hexInput.startsWith("#") ? hexInput : `#${hexInput}`;
-    if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
-      onChange(normalized.toLowerCase());
+  // Tolerant of exactly what a pasted hex code actually looks like coming
+  // from somewhere else — a leading '#' or not, any case, stray
+  // whitespace, and the 3-digit shorthand (e.g. "f00") — instead of the
+  // old strict `/^#[0-9a-fA-F]{6}$/` which silently reverted the field for
+  // anything but a lowercase-or-mixed 6-digit value with a '#' and nothing
+  // else, shorthand codes included.
+  const commitHex = (raw: string = hexInput) => {
+    const cleaned = raw.trim().replace(/^#/, "").replace(/[^0-9A-Fa-f]/g, "");
+    if (cleaned.length === 3 || cleaned.length === 6) {
+      const expanded = cleaned.length === 3 ? cleaned.split("").map((c) => c + c).join("") : cleaned;
+      const hex = `#${expanded.toLowerCase()}`;
+      setHexInput(hex);
+      onChange(hex);
     } else {
       setHexInput(value);
     }
@@ -900,9 +912,21 @@ export function CompactColorField({
       </div>
       <input
         type="text"
+        inputMode="text"
+        autoComplete="off"
+        autoCapitalize="off"
         value={hexInput}
         onChange={(e) => setHexInput(e.target.value)}
-        onBlur={commitHex}
+        onPaste={(e) => {
+          const pasted = e.clipboardData.getData("text");
+          if (!pasted.trim()) return;
+          e.preventDefault();
+          // Paste delivers the whole code at once (no "still typing more"
+          // ambiguity the way a bare 3-character prefix while typing would
+          // have), so it commits immediately instead of waiting for blur.
+          commitHex(pasted);
+        }}
+        onBlur={() => commitHex()}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -950,6 +974,289 @@ export function Select({
         </option>
       ))}
     </select>
+  );
+}
+
+// One row in a font search/browse list — shared by every font picker in
+// the app (see FontPickerField below, plus TextSelectionToolbar and
+// MultiMixedSelectionToolbar's own font popovers). Browsing the full
+// Google Fonts catalog can mean well over a thousand rows in the list at
+// once, and every earlier version of these pickers eagerly fetched a
+// stylesheet — and thus, the instant anything renders text in it, the
+// actual font FILE — for every row the moment the list appeared, which was
+// fine for the ~50 curated fonts but would mean hundreds+ of concurrent
+// font downloads once "all fonts" is on the table. Each row instead only
+// calls loadGoogleFont (and only then adopts the real font-family, versus
+// just showing its plain-text label in the UI font) once it's actually
+// scrolled near the visible area, via IntersectionObserver — so scrolling
+// through the full list loads previews progressively instead of all at
+// once, and a name never dispatched into view never costs a request at all.
+export const FontRow = memo(function FontRow({
+  font,
+  active,
+  isFocused,
+  onSelect,
+  scrollRef,
+  className,
+  activeClassName,
+  idleClassName,
+}: {
+  font: FontOption;
+  active: boolean;
+  isFocused?: boolean;
+  onSelect: (value: string) => void;
+  scrollRef?: React.RefObject<HTMLElement | null>;
+  className?: string;
+  activeClassName?: string;
+  idleClassName?: string;
+}) {
+  const rowRef = useRef<HTMLButtonElement>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (isFocused && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [isFocused]);
+
+  useEffect(() => {
+    if (ready) return;
+    const el = rowRef.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setReady(true);
+      loadGoogleFont(font.value);
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setReady(true);
+          loadGoogleFont(font.value);
+          obs.disconnect();
+        }
+      },
+      { root: scrollRef?.current ?? null, rootMargin: "300px 0px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [font.value, ready, scrollRef]);
+
+  return (
+    <button
+      ref={rowRef}
+      type="button"
+      onClick={() => onSelect(font.value)}
+      style={ready ? { fontFamily: font.value } : undefined}
+      className={cn(
+        className,
+        active ? activeClassName : isFocused ? "bg-secondary text-foreground ring-1 ring-primary/40" : idleClassName,
+      )}
+    >
+      <span className="min-w-0 flex-1 truncate">{font.label}</span>
+      {active ? <Tick02Icon size={13} className="shrink-0 text-primary" /> : null}
+    </button>
+  );
+});
+
+// Searchable Font Family field for static sidebar panels (LeftPanel) —
+// same search-then-browse-the-full-catalog behavior as the floating
+// toolbars' own font popovers (searchAllFonts/FontRow), just packaged as a
+// self-contained trigger + portal panel instead of needing those toolbars'
+// drag/pin machinery, which a sidebar field has no use for. `catalog` is
+// the caller's already-loaded (or still-null, i.e. curated-only-so-far)
+// Google Fonts catalog — see loadGoogleFontsCatalog in types.ts; this
+// component doesn't fetch it itself so several fields on the same page
+// share one fetch instead of each re-requesting the chunk.
+export function FontPickerField({
+  value,
+  onChange,
+  catalog,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  catalog?: FontOption[] | null;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const [renderLimit, setRenderLimit] = useState<number>(80);
+  const [optimisticVal, setOptimisticVal] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<{ top: number; left: number; bottom: number; width: number } | null>(null);
+
+  useEffect(() => {
+    setOptimisticVal(null);
+  }, [value]);
+
+  const activeValue = optimisticVal ?? value;
+
+  const results = useMemo(() => searchAllFonts(search, catalog), [search, catalog]);
+  const currentLabel = useMemo(() => {
+    const found = findFontOption(getFontPool(catalog), activeValue);
+    return found?.label ?? fontFamilyToLabel(activeValue);
+  }, [catalog, activeValue]);
+
+  useLayoutEffect(() => {
+    if (open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setRect({ top: r.top, left: r.left, bottom: r.bottom, width: r.width });
+      const idx = results.findIndex((f) => isSameFontFamily(f.value, activeValue));
+      setFocusedIndex(idx >= 0 ? idx : 0);
+      setRenderLimit(Math.max(80, idx + 30));
+    } else if (!open) {
+      setRect(null);
+      setSearch("");
+    }
+  }, [open, results, activeValue]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          "flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-input px-3 py-2 text-xs text-foreground outline-none transition-colors focus:border-primary",
+          className,
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate text-left" style={{ fontFamily: activeValue }}>
+          {currentLabel}
+        </span>
+        <ArrowDown01Icon
+          size={14}
+          className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && rect && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={panelRef}
+              data-keep-text-editing=""
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                position: "fixed",
+                top: Math.min(rect.bottom + 6, window.innerHeight - 340),
+                left: Math.min(rect.left, window.innerWidth - Math.max(rect.width, 240) - 8),
+                width: Math.max(rect.width, 240),
+                zIndex: 50,
+              }}
+              className="overflow-hidden rounded-2xl border border-border bg-background shadow-2xl space-y-2 p-2"
+            >
+              {/* Currently Selected Font Card on top */}
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-secondary/80 border border-border/80 px-2.5 py-1.5 shadow-sm">
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block leading-tight">
+                    Selected Font
+                  </span>
+                  <span className="truncate text-xs font-semibold text-foreground block mt-0.5" style={{ fontFamily: activeValue }}>
+                    {currentLabel}
+                  </span>
+                </div>
+                <span className="shrink-0 flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                  <Tick02Icon size={11} />
+                  Active
+                </span>
+              </div>
+
+              <div className="relative">
+                <Search01Icon
+                  size={13}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <input
+                  autoFocus
+                  type="text"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setFocusedIndex(0);
+                    setRenderLimit(80);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setFocusedIndex((i) => {
+                        const next = results.length > 0 ? (i < results.length - 1 ? i + 1 : 0) : 0;
+                        if (next >= renderLimit - 5) setRenderLimit((lim) => lim + 60);
+                        return next;
+                      });
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setFocusedIndex((i) => (results.length > 0 ? (i > 0 ? i - 1 : results.length - 1) : 0));
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (results[focusedIndex]) {
+                        setOptimisticVal(results[focusedIndex].value);
+                        onChange(results[focusedIndex].value);
+                        setOpen(false);
+                      }
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setOpen(false);
+                    }
+                  }}
+                  placeholder="Search fonts…"
+                  className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
+                />
+              </div>
+              <div
+                ref={scrollRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  if (el.scrollHeight - el.scrollTop - el.clientHeight < 250) {
+                    setRenderLimit((lim) => (lim < results.length ? lim + 60 : lim));
+                  }
+                }}
+                className="max-h-60 space-y-0.5 overflow-y-auto pr-0.5"
+              >
+                {results.length ? (
+                  results.slice(0, renderLimit).map((f, idx) => (
+                    <FontRow
+                      key={f.value}
+                      font={f}
+                      active={isSameFontFamily(f.value, activeValue)}
+                      isFocused={idx === focusedIndex}
+                      onSelect={(v) => {
+                        setOptimisticVal(v);
+                        onChange(v);
+                        setOpen(false);
+                      }}
+                      scrollRef={scrollRef}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors"
+                      activeClassName="bg-primary/15 text-primary font-semibold"
+                      idleClassName="text-foreground hover:bg-secondary"
+                    />
+                  ))
+                ) : (
+                  <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
+                    No fonts match "{search}"
+                  </p>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -1001,6 +1308,78 @@ export function TextInput({ id, name, ...props }: React.InputHTMLAttributes<HTML
         props.className,
       )}
     />
+  );
+}
+
+// A number input with a static unit label (px, °, ...) pinned inside its
+// own right edge — Advanced panel's Width/Height/X/Y/Rotate fields (Shape
+// and Image toolbars), where the value needs to read as "795.4 px" in one
+// box, not a separate label off to the side. Free typing in between commits
+// only on blur/Enter, same reasoning as Range's own numeric field: clamping
+// mid-keystroke (e.g. while the field is briefly empty, or the user is
+// typing "-" before a negative number) would fight the user's own typing.
+export function UnitInput({
+  value,
+  onChange,
+  unit,
+  step = 1,
+  min,
+  max,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  unit?: string | undefined;
+  step?: number | undefined;
+  min?: number | undefined;
+  max?: number | undefined;
+}) {
+  const display = (n: number) => String(Math.round(n * 10) / 10);
+  const [inputValue, setInputValue] = useState(display(value));
+
+  useEffect(() => {
+    setInputValue(display(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const commit = () => {
+    const n = Number(inputValue);
+    if (Number.isFinite(n)) {
+      let clamped = n;
+      if (min !== undefined) clamped = Math.max(min, clamped);
+      if (max !== undefined) clamped = Math.min(max, clamped);
+      onChange(clamped);
+    } else {
+      setInputValue(display(value));
+    }
+  };
+
+  const autoId = useId();
+
+  return (
+    <div className="relative">
+      <input
+        type="number"
+        id={autoId}
+        name={autoId}
+        value={inputValue}
+        step={step}
+        onChange={(e) => setInputValue(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            commit();
+            e.currentTarget.blur();
+          }
+        }}
+        className="w-full rounded-xl border border-border/80 bg-secondary/40 py-2 pl-3 pr-7 text-sm font-medium text-foreground outline-none transition-colors focus:border-primary [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      />
+      {unit ? (
+        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          {unit}
+        </span>
+      ) : null}
+    </div>
   );
 }
 

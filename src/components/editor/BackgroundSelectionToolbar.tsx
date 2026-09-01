@@ -1,6 +1,8 @@
 import { ArrowDown01Icon, ArrowLeft01Icon, Image01Icon, ReloadIcon } from "hugeicons-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { AppTooltip } from "@/components/ui/tooltip";
 import { ColorPickerContent } from "@/components/ui/color-picker";
 import {
   Chip,
@@ -49,6 +51,7 @@ export function BackgroundSelectionToolbar({
   detached?: boolean;
   onAnyPopoverOpenChange?: (open: boolean) => void;
 }) {
+  const isMobile = useIsMobile();
   const applyColor = (v: string) => {
     set("background", v);
     set("bgImage", null);
@@ -188,44 +191,51 @@ export function BackgroundSelectionToolbar({
 
   const rowContent = (
     <>
-      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
-      <MinimizeToolbarButton
-        onClick={() => {
-          if (rowRef.current) {
-            const r = rowRef.current.getBoundingClientRect();
-            minimizeBaseRef.current = { top: r.top, left: r.left };
-          }
-          toolbarDrag.reset();
-          setMinimized(true);
-        }}
-      />
+      {/* Drag grip + minimize both hidden on mobile — see the matching
+          comment in ShapeSelectionToolbar.tsx. */}
+      {!isMobile ? (
+        <>
+          <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+          <MinimizeToolbarButton
+            onClick={() => {
+              if (rowRef.current) {
+                const r = rowRef.current.getBoundingClientRect();
+                minimizeBaseRef.current = { top: r.top, left: r.left };
+              }
+              toolbarDrag.reset();
+              setMinimized(true);
+            }}
+          />
+        </>
+      ) : null}
 
       <span className="px-1.5 text-[11px] font-bold text-muted-foreground">Background</span>
 
       {/* Solid — the app's real color picker (color area, hue slider,
           hex/rgb/hsb/hsl, eyedropper, presets), not a stripped-down grid. */}
-      <button
-        ref={solidTriggerRef}
-        type="button"
-        onClick={() => {
-          setSolidOpen((wasOpen) => {
-            if (!wasOpen) {
-              solidDrag.reset();
-              setSolidPinned(false);
-            }
-            return !wasOpen;
-          });
-        }}
-        className={cn(btnBase, isSolidActive && "bg-secondary")}
-        title="Solid color"
-      >
-        <span
-          className="h-4 w-4 shrink-0 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
-          style={{ background: isSolidActive ? currentSwatch : "#ffffff" }}
-        />
-        Solid
-        <ArrowDown01Icon size={12} className="text-muted-foreground" />
-      </button>
+      <AppTooltip content="Solid color">
+        <button
+          ref={solidTriggerRef}
+          type="button"
+          onClick={() => {
+            setSolidOpen((wasOpen) => {
+              if (!wasOpen) {
+                solidDrag.reset();
+                setSolidPinned(false);
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(btnBase, isSolidActive && "bg-secondary")}
+        >
+          <span
+            className="h-4 w-4 shrink-0 rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
+            style={{ background: isSolidActive ? currentSwatch : "#ffffff" }}
+          />
+          Solid
+          <ArrowDown01Icon size={12} className="text-muted-foreground" />
+        </button>
+      </AppTooltip>
       <FloatingDropdown
         anchor={solidAnchor}
         offset={solidDrag.offset}
@@ -247,31 +257,32 @@ export function BackgroundSelectionToolbar({
       </FloatingDropdown>
 
       {/* Gradient */}
-      <button
-        ref={gradientTriggerRef}
-        type="button"
-        onClick={() => {
-          setGradientOpen((wasOpen) => {
-            if (!wasOpen) {
-              // Reopening always starts back at the preset grid, not
-              // wherever Custom was left last time.
-              setShowCustomGradient(false);
-              gradientDrag.reset();
-              setGradientPinned(false);
-            }
-            return !wasOpen;
-          });
-        }}
-        className={cn(btnBase, isGradientActive && "bg-secondary")}
-        title="Gradient"
-      >
-        <span
-          className="h-4 w-4 shrink-0 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
-          style={{ background: isGradientActive ? currentSwatch : GRADIENTS[0]?.value }}
-        />
-        Gradient
-        <ArrowDown01Icon size={12} className="text-muted-foreground" />
-      </button>
+      <AppTooltip content="Gradient fill">
+        <button
+          ref={gradientTriggerRef}
+          type="button"
+          onClick={() => {
+            setGradientOpen((wasOpen) => {
+              if (!wasOpen) {
+                // Reopening always starts back at the preset grid, not
+                // wherever Custom was left last time.
+                setShowCustomGradient(false);
+                gradientDrag.reset();
+                setGradientPinned(false);
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(btnBase, isGradientActive && "bg-secondary")}
+        >
+          <span
+            className="h-4 w-4 shrink-0 rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]"
+            style={{ background: isGradientActive ? currentSwatch : GRADIENTS[0]?.value }}
+          />
+          Gradient
+          <ArrowDown01Icon size={12} className="text-muted-foreground" />
+        </button>
+      </AppTooltip>
       <FloatingDropdown
         anchor={gradientAnchor}
         offset={gradientDrag.offset}
@@ -464,24 +475,25 @@ export function BackgroundSelectionToolbar({
       <div className="mx-0.5 h-5 w-px bg-border/60" />
 
       {/* Image — a real drop zone/click-to-upload area, not a bare hidden input. */}
-      <button
-        ref={imageTriggerRef}
-        type="button"
-        onClick={() => {
-          setImagePopoverOpen((wasOpen) => {
-            if (!wasOpen) {
-              imageDrag.reset();
-              setImagePinned(false);
-            }
-            return !wasOpen;
-          });
-        }}
-        className={cn(btnBase, s.bgImage && "bg-secondary")}
-        title="Set a background image"
-      >
-        <Image01Icon size={15} />
-        Image
-      </button>
+      <AppTooltip content="Set a background image">
+        <button
+          ref={imageTriggerRef}
+          type="button"
+          onClick={() => {
+            setImagePopoverOpen((wasOpen) => {
+              if (!wasOpen) {
+                imageDrag.reset();
+                setImagePinned(false);
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(btnBase, s.bgImage && "bg-secondary")}
+        >
+          <Image01Icon size={15} />
+          Image
+        </button>
+      </AppTooltip>
       <FloatingDropdown
         anchor={imageAnchor}
         offset={imageDrag.offset}
@@ -622,9 +634,11 @@ export function BackgroundSelectionToolbar({
       <div className="mx-0.5 h-5 w-px bg-border/60" />
 
       {/* More — jumps to the full Background tab for blur/dim/position/zoom */}
-      <button type="button" onClick={onOpenBackgroundTab} className={btnBase}>
-        More
-      </button>
+      <AppTooltip content="More background options">
+        <button type="button" onClick={onOpenBackgroundTab} className={btnBase}>
+          More
+        </button>
+      </AppTooltip>
     </>
   );
 

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   AlignBottomIcon,
   AlignHorizontalCenterIcon,
@@ -91,6 +92,7 @@ export function MultiImageSelectionToolbar({
   detached = false,
   onAnyPopoverOpenChange,
 }: MultiImageSelectionToolbarProps) {
+  const isMobile = useIsMobile();
   const [arrangeOpen, setArrangeOpen] = useState(false);
   const [alignOpen, setAlignOpen] = useState(false);
   const [spaceEvenlyOpen, setSpaceEvenlyOpen] = useState(false);
@@ -220,17 +222,23 @@ export function MultiImageSelectionToolbar({
 
   const rowContent = (
     <>
-      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
-      <MinimizeToolbarButton
-        onClick={() => {
-          if (rowRef.current) {
-            const r = rowRef.current.getBoundingClientRect();
-            minimizeBaseRef.current = { top: r.top, left: r.left };
-          }
-          toolbarDrag.reset();
-          setMinimized(true);
-        }}
-      />
+      {/* Drag grip + minimize both hidden on mobile — see the matching
+          comment in ShapeSelectionToolbar.tsx. */}
+      {!isMobile ? (
+        <>
+          <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+          <MinimizeToolbarButton
+            onClick={() => {
+              if (rowRef.current) {
+                const r = rowRef.current.getBoundingClientRect();
+                minimizeBaseRef.current = { top: r.top, left: r.left };
+              }
+              toolbarDrag.reset();
+              setMinimized(true);
+            }}
+          />
+        </>
+      ) : null}
 
       <span className="shrink-0 px-1.5 text-xs font-semibold text-muted-foreground">
         {layers.length} Images Selected
@@ -777,46 +785,11 @@ export function MultiImageSelectionToolbar({
         </div>
       </FloatingDropdown>
 
-      {/* Lock / Delete — mirrors the single-image toolbar's own pair, just
-          applied to the whole selection at once. */}
-      {onToggleLockAll ? (
-        <>
-          <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
-          <AppTooltip content={allLocked ? "Unlock all selected" : "Lock all selected"}>
-            <button
-              type="button"
-              onClick={onToggleLockAll}
-              className={cn(btnClass, "px-2 text-muted-foreground hover:text-foreground")}
-            >
-              {allLocked ? <SquareLock02Icon size={15} /> : <SquareUnlock02Icon size={15} />}
-            </button>
-          </AppTooltip>
-        </>
-      ) : null}
-
-      {onDuplicateAll ? (
-        <AppTooltip content="Duplicate all selected images">
-          <button
-            type="button"
-            onClick={onDuplicateAll}
-            className={cn(btnClass, "px-2 text-muted-foreground hover:text-foreground")}
-          >
-            <Copy01Icon size={15} />
-          </button>
-        </AppTooltip>
-      ) : null}
-
-      {onDeleteAll ? (
-        <AppTooltip content="Delete all selected images">
-          <button
-            type="button"
-            onClick={onDeleteAll}
-            className={cn(btnClass, "px-2 text-destructive hover:bg-destructive/10 hover:text-destructive")}
-          >
-            <Delete02Icon size={15} />
-          </button>
-        </AppTooltip>
-      ) : null}
+      {/* Lock All/Duplicate All/Delete All dropped from this row for more
+          space — Delete still works via the Delete/Backspace keyboard
+          shortcut (QuoteCanvas's own selection handler, respects locked
+          layers already); bulk Lock/Duplicate have no equivalent path left
+          once removed here. */}
     </>
   );
 

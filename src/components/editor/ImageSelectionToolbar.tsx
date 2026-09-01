@@ -1,5 +1,6 @@
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   CropIcon,
   Eraser01Icon,
@@ -9,6 +10,7 @@ import {
   Layers01Icon,
   LayerSendBackwardIcon,
   LayerSendToBackIcon,
+  Link03Icon,
   Upload01Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
@@ -26,6 +28,7 @@ import {
   MinimizedToolbarButton,
   MinimizeToolbarButton,
   ToolbarDragGrip,
+  UnitInput,
   useDraggableOffset,
   useStableAnchor,
 } from "./ui";
@@ -51,6 +54,9 @@ interface ImageSelectionToolbarProps {
   // See the matching props' comments in TextSelectionToolbar.tsx.
   detached?: boolean;
   onAnyPopoverOpenChange?: (open: boolean) => void;
+  // See the matching props' comment in ShapeSelectionToolbar.tsx.
+  canvasWidth?: number | undefined;
+  canvasHeight?: number | undefined;
 }
 
 export function ImageSelectionToolbar({
@@ -62,7 +68,10 @@ export function ImageSelectionToolbar({
   onOpenErase,
   detached = false,
   onAnyPopoverOpenChange,
+  canvasWidth = 1080,
+  canvasHeight = 1350,
 }: ImageSelectionToolbarProps) {
+  const isMobile = useIsMobile();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [eraseOpen, setEraseOpen] = useState(false);
@@ -70,6 +79,10 @@ export function ImageSelectionToolbar({
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Ephemeral, not persisted — see the matching state's comment in
+  // ShapeSelectionToolbar.tsx.
+  const [ratioLocked, setRatioLocked] = useState(false);
 
   // Each dropdown opens unpinned by default — see DragHandle's own comment
   // on `onTogglePin` for what that means.
@@ -77,6 +90,7 @@ export function ImageSelectionToolbar({
   const [opacityPinned, setOpacityPinned] = useState(false);
   const [shadowPinned, setShadowPinned] = useState(false);
   const [arrangePinned, setArrangePinned] = useState(false);
+  const [advancedPinned, setAdvancedPinned] = useState(false);
 
   // Every popover below can be dragged to wherever the user wants — see
   // useDraggableOffset's own comment in ui.tsx for why the offset applies
@@ -91,15 +105,18 @@ export function ImageSelectionToolbar({
   const opacityDrag = useDraggableOffset();
   const shadowDrag = useDraggableOffset();
   const arrangeDrag = useDraggableOffset();
+  const advancedDrag = useDraggableOffset();
 
   const radiusTriggerRef = useRef<HTMLButtonElement>(null);
   const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
+  const advancedTriggerRef = useRef<HTMLButtonElement>(null);
   const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
   const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
   const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
+  const advancedAnchor = useStableAnchor(advancedOpen, advancedTriggerRef);
 
   // Each popover blocks Radix's own click/focus-outside auto-dismiss (see
   // onPointerDownOutside/onInteractOutside below) — a fast drag was tripping
@@ -112,7 +129,7 @@ export function ImageSelectionToolbar({
   // wherever the user actually left it.
 
   // See the matching block's comment in TextSelectionToolbar.tsx.
-  const anyPopoverOpen = radiusOpen || opacityOpen || shadowOpen || arrangeOpen;
+  const anyPopoverOpen = radiusOpen || opacityOpen || shadowOpen || arrangeOpen || advancedOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,6 +159,38 @@ export function ImageSelectionToolbar({
   const btnClass =
     "flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors hover:bg-secondary";
 
+  // Advanced panel — see the matching block's comment in
+  // ShapeSelectionToolbar.tsx for the X/Y <-> canvas-% conversion.
+  const advWidth = layer.size;
+  const advHeight = layer.height ?? layer.size;
+  const advX = (layer.x / 100) * canvasWidth - advWidth / 2;
+  const advY = (layer.y / 100) * canvasHeight - advHeight / 2;
+  const advRotation = layer.rotation ?? 0;
+  const setAdvWidth = (v: number) => {
+    const nextWidth = Math.max(1, v);
+    if (ratioLocked && advWidth > 0) {
+      onUpdate({ size: nextWidth, height: Math.max(1, Math.round((nextWidth * (advHeight / advWidth)) * 10) / 10) });
+    } else {
+      onUpdate({ size: nextWidth });
+    }
+  };
+  const setAdvHeight = (v: number) => {
+    const nextHeight = Math.max(1, v);
+    if (ratioLocked && advHeight > 0) {
+      onUpdate({ size: Math.max(1, Math.round((nextHeight * (advWidth / advHeight)) * 10) / 10), height: nextHeight });
+    } else {
+      onUpdate({ height: nextHeight });
+    }
+  };
+  const setAdvX = (v: number) => {
+    if (canvasWidth <= 0) return;
+    onUpdate({ x: ((v + advWidth / 2) / canvasWidth) * 100 });
+  };
+  const setAdvY = (v: number) => {
+    if (canvasHeight <= 0) return;
+    onUpdate({ y: ((v + advHeight / 2) / canvasHeight) * 100 });
+  };
+
   // Collapsed form — see MinimizedToolbarButton's own comment in ui.tsx.
   if (minimized && !detached) {
     return (
@@ -166,17 +215,23 @@ export function ImageSelectionToolbar({
 
   const rowContent = (
     <>
-      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
-      <MinimizeToolbarButton
-        onClick={() => {
-          if (rowRef.current) {
-            const r = rowRef.current.getBoundingClientRect();
-            minimizeBaseRef.current = { top: r.top, left: r.left };
-          }
-          toolbarDrag.reset();
-          setMinimized(true);
-        }}
-      />
+      {/* Drag grip + minimize both hidden on mobile — see the matching
+          comment in ShapeSelectionToolbar.tsx. */}
+      {!isMobile ? (
+        <>
+          <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+          <MinimizeToolbarButton
+            onClick={() => {
+              if (rowRef.current) {
+                const r = rowRef.current.getBoundingClientRect();
+                minimizeBaseRef.current = { top: r.top, left: r.left };
+              }
+              toolbarDrag.reset();
+              setMinimized(true);
+            }}
+          />
+        </>
+      ) : null}
 
       {/* Hidden file input for Replace Image */}
       <input
@@ -670,6 +725,93 @@ export function ImageSelectionToolbar({
           </FloatingDropdown>
         </>
       ) : null}
+
+      <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
+
+      {/* Advanced — Width/Height (with an aspect-ratio lock), X/Y, and
+          Rotate as exact, directly-typeable values. See the matching block
+          in ShapeSelectionToolbar.tsx. */}
+      <AppTooltip content="Width, height, position, and rotation">
+        <button
+          ref={advancedTriggerRef}
+          type="button"
+          onClick={() => {
+            setAdvancedOpen((wasOpen) => {
+              if (!wasOpen) {
+                advancedDrag.reset();
+                setAdvancedPinned(false);
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(btnClass, advancedOpen && "bg-secondary text-primary")}
+        >
+          <span className="text-xs font-semibold">Advanced</span>
+        </button>
+      </AppTooltip>
+      <FloatingDropdown
+        anchor={advancedAnchor}
+        offset={advancedDrag.offset}
+        align="start"
+        pinned={advancedPinned}
+        onRequestClose={() => setAdvancedOpen(false)}
+        triggerRef={advancedTriggerRef}
+      >
+        <div
+          data-nopan=""
+          data-keep-text-editing=""
+          className="w-72 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+        >
+          <DragHandle
+            label="Advanced"
+            {...advancedDrag.dragHandleProps}
+            pinned={advancedPinned}
+            onTogglePin={() => setAdvancedPinned((p) => !p)}
+            onClose={() => setAdvancedOpen(false)}
+          />
+          <div className="space-y-3 p-3">
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="Width">
+                <UnitInput value={advWidth} unit="px" min={1} onChange={setAdvWidth} />
+              </Field>
+              <Field label="Height">
+                <UnitInput value={advHeight} unit="px" min={1} onChange={setAdvHeight} />
+              </Field>
+              <Field label="Ratio">
+                <AppTooltip content={ratioLocked ? "Unlock aspect ratio" : "Lock aspect ratio"}>
+                  <button
+                    type="button"
+                    onClick={() => setRatioLocked((v) => !v)}
+                    className={cn(
+                      "grid h-[38px] w-full place-items-center rounded-xl border transition-colors",
+                      ratioLocked
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border/80 bg-secondary/40 text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Link03Icon size={15} />
+                  </button>
+                </AppTooltip>
+              </Field>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="X">
+                <UnitInput value={advX} unit="px" onChange={setAdvX} />
+              </Field>
+              <Field label="Y">
+                <UnitInput value={advY} unit="px" onChange={setAdvY} />
+              </Field>
+              <Field label="Rotate">
+                <UnitInput
+                  value={advRotation}
+                  unit="°"
+                  onChange={(v) => onUpdate({ rotation: ((v % 360) + 360) % 360 })}
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+      </FloatingDropdown>
     </>
   );
 

@@ -704,10 +704,18 @@ export const FONTS: FontOption[] = [
   { label: "Pacifico", value: '"Pacifico", cursive', category: "handwriting", weights: [400] },
 ];
 
-export function getAvailableFontWeights(fontFamily?: string): { label: string; value: number }[] {
+// `extraCatalog` lets callers that have already loaded the full Google
+// Fonts catalog (see loadGoogleFontsCatalog below) get a real per-family
+// weight list for a font outside the curated FONTS set too, instead of
+// always falling back to "offer all 9 weights" for anything not hand-picked.
+export function getAvailableFontWeights(
+  fontFamily?: string,
+  extraCatalog?: FontOption[] | null,
+): { label: string; value: number }[] {
   if (!fontFamily) return ALL_FONT_WEIGHTS;
   const clean = fontFamily.replace(/['"]/g, "").split(",")[0]?.trim().toLowerCase();
-  const found = FONTS.find((f) => {
+  const pool = extraCatalog && extraCatalog.length > 0 ? FONTS.concat(extraCatalog) : FONTS;
+  const found = pool.find((f) => {
     const fClean = f.value.replace(/['"]/g, "").split(",")[0]?.trim().toLowerCase();
     return fClean === clean || f.label.toLowerCase() === clean;
   });
@@ -715,6 +723,85 @@ export function getAvailableFontWeights(fontFamily?: string): { label: string; v
     return ALL_FONT_WEIGHTS.filter((w) => found.weights!.includes(w.value));
   }
   return ALL_FONT_WEIGHTS;
+}
+
+// Best-effort display name for a raw fontFamily CSS value (e.g.
+// '"Zilla Slab", serif') when it doesn't match anything in FONTS or a
+// loaded catalog — pulls out the quoted/first family name instead of
+// falling back to a generic label, so a font picked from the full Google
+// Fonts catalog still shows its real name in triggers/labels even before
+// (or without) that catalog being loaded in the component asking.
+export function cleanFontFamily(val?: string): string {
+  if (!val) return "";
+  const match = val.match(/["']([^"']+)["']/);
+  const name = (match?.[1] ?? val.split(",")[0])?.replace(/['"]/g, "")?.trim();
+  return name || val.trim();
+}
+
+export function isSameFontFamily(a?: string, b?: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const cleanA = cleanFontFamily(a).toLowerCase();
+  const cleanB = cleanFontFamily(b).toLowerCase();
+  return !!cleanA && cleanA === cleanB;
+}
+
+export function findFontOption(fonts: FontOption[], value?: string): FontOption | undefined {
+  if (!value) return undefined;
+  const clean = cleanFontFamily(value).toLowerCase();
+  if (!clean) return undefined;
+  return fonts.find((f) => {
+    return isSameFontFamily(f.value, value) || f.label.toLowerCase() === clean || cleanFontFamily(f.value).toLowerCase() === clean;
+  });
+}
+
+export function fontFamilyToLabel(fontFamily?: string): string {
+  if (!fontFamily) return "Text Font";
+  const name = cleanFontFamily(fontFamily);
+  return name || "Text Font";
+}
+
+// Lazily loads the full ~1,900-family Google Fonts catalog (see
+// googleFontsCatalog.ts for where the data comes from and why it lives in
+// its own module) — call this once a font picker is actually opened, not
+// eagerly, so the data chunk is fetched on demand instead of bloating
+// every editor page load. Safe to call from several components at once:
+// dynamic import() is cached by the module system, so calls after the
+// first just resolve from that cache instead of re-fetching.
+export async function loadGoogleFontsCatalog(): Promise<FontOption[]> {
+  const mod = await import("./googleFontsCatalog");
+  return mod.GOOGLE_FONTS_CATALOG;
+}
+
+// The curated FONTS plus (once loaded) the full Google Fonts catalog, as
+// one deduped pool — every font picker's "what font is this value?" lookup
+// and its search box both read from this same combined list.
+export function getFontPool(catalog?: FontOption[] | null): FontOption[] {
+  return catalog && catalog.length > 0 ? FONTS.concat(catalog) : FONTS;
+}
+
+// Shared search/browse behavior for every font picker in the app —
+// alphabetical (not popularity/category order, and not "curated only until
+// you type") so a picker reads the same way whether you're scanning the
+// full list or narrowing it with a query: pass the loaded catalog (see
+// loadGoogleFontsCatalog above) once it resolves, or omit/pass null before
+// then to browse/search the curated list alone in the meantime. Callers
+// render the (potentially ~1,900-long) result with per-row lazy preview
+// loading — see FontRow in ui.tsx — rather than eagerly fetching a
+// stylesheet for every row up front.
+export function searchAllFonts(query: string, catalog?: FontOption[] | null): FontOption[] {
+  const q = query.trim().toLowerCase();
+  const seen = new Set<string>();
+  const results: FontOption[] = [];
+  for (const f of getFontPool(catalog)) {
+    const key = f.label.toLowerCase();
+    if (seen.has(key)) continue;
+    if (q && !key.includes(q)) continue;
+    seen.add(key);
+    results.push(f);
+  }
+  results.sort((a, b) => a.label.localeCompare(b.label));
+  return results;
 }
 
 export const WEIGHTS = ALL_FONT_WEIGHTS;
@@ -1841,6 +1928,13 @@ export type ShapeLayer = {
   lineType?: LineType | undefined;
   lineCurvature?: number | undefined;
   lineWaypoints?: { x: number; y: number }[] | undefined;
+  // Elbowed lines only — Canva's own "corner rounding" slider for
+  // connector-style lines: how much each interior bend gets filleted into
+  // an arc instead of a sharp 90° corner. Pixels, unset means the old
+  // hardcoded auto-computed radius (see LineShapeSvg's own cornerR
+  // fallback), so every elbow line drawn before this existed keeps its
+  // original look with no migration needed.
+  lineCornerRadius?: number | undefined;
 };
 
 export type EditorState = {
@@ -2741,6 +2835,7 @@ export function resizeEditorStateToNewSize(
     radius: scalePx(sh.radius),
     shadowBlur: scalePx(sh.shadowBlur),
     strokeWidth: scaleOptPx(sh.strokeWidth),
+    lineCornerRadius: scaleOptPx(sh.lineCornerRadius),
     shadowX: scaleOptPx(sh.shadowX),
     shadowY: scaleOptPx(sh.shadowY),
     shadowSpread: scaleOptPx(sh.shadowSpread),
@@ -3573,6 +3668,7 @@ export function withMultipleLayersScaled(
     width?: number | undefined;
     height?: number | undefined;
     strokeWidth?: number | undefined;
+    lineCornerRadius?: number | undefined;
   }[],
   origBounds: { left: number; top: number; width: number; height: number },
   newBounds: { left: number; top: number; width: number; height: number },
@@ -3666,6 +3762,10 @@ export function withMultipleLayersScaled(
     // every other shape kind keeps the independent scaleY it always had.
     const nextHeight = orig.height !== undefined ? Math.max(4, Math.round(orig.height * (isLine ? uniformScale : scaleY))) : undefined;
     const nextStrokeWidth = orig.strokeWidth !== undefined ? Math.max(1, Math.min(24, Math.round(orig.strokeWidth * uniformScale))) : undefined;
+    // Same uniformScale as the waypoints it fillets — a corner radius set
+    // relative to a small elbow box would otherwise swallow the whole bend
+    // (or vanish to a hard corner) the instant the group scales up or down.
+    const nextCornerRadius = orig.lineCornerRadius !== undefined ? Math.max(0, Math.round(orig.lineCornerRadius * uniformScale)) : undefined;
     // The waypoints themselves are stored as absolute pixel coordinates in
     // the shape's OLD size/height box — left un-scaled here, they'd stay
     // anchored to their old positions while size/height (and therefore the
@@ -3683,6 +3783,7 @@ export function withMultipleLayersScaled(
       size: nextSize,
       ...(nextHeight !== undefined ? { height: nextHeight } : {}),
       ...(nextStrokeWidth !== undefined ? { strokeWidth: nextStrokeWidth } : {}),
+      ...(nextCornerRadius !== undefined ? { lineCornerRadius: nextCornerRadius } : {}),
       ...(nextWaypoints !== undefined ? { lineWaypoints: nextWaypoints } : {}),
     };
   });

@@ -18,6 +18,7 @@ interface LineShapeSvgProps {
   lineType?: LineType | undefined;
   lineCurvature?: number | undefined;
   lineWaypoints?: { x: number; y: number }[] | undefined;
+  lineCornerRadius?: number | undefined;
 }
 
 interface GradientStop {
@@ -142,6 +143,7 @@ export function LineShapeSvg({
   lineType = "straight",
   lineCurvature,
   lineWaypoints,
+  lineCornerRadius,
 }: LineShapeSvgProps) {
   const reactId = useId();
   const gradientId = `line-grad-${reactId.replace(/[^a-zA-Z0-9-_]/g, "")}`;
@@ -192,6 +194,7 @@ export function LineShapeSvg({
             lineType,
             lineCurvature,
             lineWaypoints,
+            lineCornerRadius,
           )
         : renderLineContent(kind, effectiveColor, sw, w, h, false, lineCap)}
     </svg>
@@ -676,6 +679,7 @@ function renderGenericLineContent(
   lineType: LineType = "straight",
   lineCurvature?: number,
   lineWaypoints?: { x: number; y: number }[],
+  lineCornerRadius?: number,
 ) {
   const centerY = h / 2;
   const headSize = Math.max(10, Math.min(28, sw * 3.5 * (isPreview ? 0.7 : 1)));
@@ -782,7 +786,19 @@ function renderGenericLineContent(
 
   if (lineType === "elbowed") {
     const margin = Math.max(6, sw * 1.5);
-    const cornerR = Math.min(16, Math.max(4, Math.min((w - margin * 2) * 0.25, (h - margin * 2) * 0.25)));
+    // Canva's own "corner rounding" control (ShapeSelectionToolbar's Line
+    // Type popover) sets this explicitly, in real pixels, once the user
+    // touches the slider — buildFilletedOrthogonalPath itself already
+    // clamps a too-large radius down to half of whichever adjoining
+    // segment is shorter, so an oversized value here just fillets as far
+    // as each corner's own bend allows rather than distorting the path.
+    // Undefined (every elbow line drawn before this slider existed, plus
+    // this component's own small toolbar-icon preview call sites) keeps
+    // the original auto-computed radius so nothing changes look with no
+    // migration needed.
+    const cornerR = lineCornerRadius !== undefined
+      ? Math.max(0, lineCornerRadius)
+      : Math.min(16, Math.max(4, Math.min((w - margin * 2) * 0.25, (h - margin * 2) * 0.25)));
 
     const rawPts = lineWaypoints && lineWaypoints.length >= 2
       ? lineWaypoints

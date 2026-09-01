@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   AlignBottomIcon,
   AlignHorizontalCenterIcon,
@@ -15,16 +16,27 @@ import {
   Search01Icon,
   SquareLock02Icon,
   SquareUnlock02Icon,
-  Tick02Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
-import { FONTS, normalizeColorToHex, type ShapeAlignEdge, type SpaceEvenlyDirection, type TextLayer } from "./types";
+import {
+  findFontOption,
+  fontFamilyToLabel,
+  getFontPool,
+  loadGoogleFontsCatalog,
+  normalizeColorToHex,
+  searchAllFonts,
+  type FontOption,
+  type ShapeAlignEdge,
+  type SpaceEvenlyDirection,
+  type TextLayer,
+} from "./types";
 import type { ShapeArrangeDirection } from "./MultiShapeSelectionToolbar";
 import {
   ColorPickerContent,
   DragHandle,
   FloatingDropdown,
   FloatingToolbarPortal,
+  FontRow,
   Range,
   MinimizedToolbarButton,
   MinimizeToolbarButton,
@@ -33,7 +45,6 @@ import {
   useStableAnchor,
 } from "./ui";
 import { cn } from "@/lib/utils";
-import { loadGoogleFont } from "@/lib/fontLoader";
 
 // Returns the shared value across every item, or undefined when they differ.
 function uniformValue<T>(values: T[]): T | undefined {
@@ -93,6 +104,7 @@ export function MultiMixedSelectionToolbar({
   detached = false,
   onAnyPopoverOpenChange,
 }: MultiMixedSelectionToolbarProps) {
+  const isMobile = useIsMobile();
   // ---- popover open / pin / drag states ----
   const [alignOpen, setAlignOpen]         = useState(false);
   const [alignPinned, setAlignPinned]     = useState(false);
@@ -142,6 +154,21 @@ export function MultiMixedSelectionToolbar({
   const fontDrag = useDraggableOffset();
   const fontTriggerRef = useRef<HTMLButtonElement>(null);
   const fontAnchor = useStableAnchor(fontOpen, fontTriggerRef);
+  // Full Google Fonts catalog (~1,900 families beyond the curated FONTS
+  // list) — loaded lazily once this popover actually opens. See
+  // loadGoogleFontsCatalog/searchAllFonts in types.ts.
+  const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  useEffect(() => {
+    if (!fontOpen) return;
+    if (fontCatalog) return;
+    let cancelled = false;
+    loadGoogleFontsCatalog().then((list) => {
+      if (!cancelled) setFontCatalog(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fontOpen, fontCatalog]);
 
   const anyPopoverOpen = alignOpen || spaceEvenlyOpen || rotateOpen || arrangeOpen || colorOpen || fontOpen;
   useEffect(() => {
@@ -169,18 +196,21 @@ export function MultiMixedSelectionToolbar({
   const fontLabel = (() => {
     if (!allText || textLayers.length === 0) return null;
     if (!uniformFont) return "Mixed Fonts";
-    const found = FONTS.find((f) => f.value === uniformFont);
-    return found?.label ?? uniformFont.split(",")[0]?.replace(/['"]/g, "").trim() ?? "Text Font";
+    const found = findFontOption(getFontPool(fontCatalog), uniformFont);
+    return found?.label ?? fontFamilyToLabel(uniformFont);
   })();
 
-  // Pre-load every font in the filtered list when the font popover opens
-  useEffect(() => {
-    if (!fontOpen || !allText) return;
-    const visible = FONTS.filter((f) =>
-      !fontSearch || f.label.toLowerCase().includes(fontSearch.toLowerCase()),
-    );
-    visible.forEach((f) => loadGoogleFont(f.value));
-  }, [fontOpen, fontSearch, allText]);
+  // Alphabetical, full-catalog-aware font list (see searchAllFonts in
+  // types.ts) — browsable in full once fontCatalog has loaded, not just
+  // searchable. No bulk preload effect for it: with ~1,900 possible rows,
+  // eagerly fetching a stylesheet for every one on open would be a real
+  // network/jank hit. Each row (FontRow, in ui.tsx) instead loads its own
+  // font lazily via IntersectionObserver as it scrolls into view.
+  const filteredFonts = useMemo(
+    () => searchAllFonts(fontSearch, fontCatalog),
+    [fontSearch, fontCatalog],
+  );
+  const fontListScrollRef = useRef<HTMLDivElement>(null);
 
   // Button class helpers (matching MultiShapeSelectionToolbar conventions)
   const btnClass =
@@ -216,17 +246,23 @@ export function MultiMixedSelectionToolbar({
 
   const rowContent = (
     <>
-      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
-      <MinimizeToolbarButton
-        onClick={() => {
-          if (rowRef.current) {
-            const r = rowRef.current.getBoundingClientRect();
-            minimizeBaseRef.current = { top: r.top, left: r.left };
-          }
-          toolbarDrag.reset();
-          setMinimized(true);
-        }}
-      />
+      {/* Drag grip + minimize both hidden on mobile — see the matching
+          comment in ShapeSelectionToolbar.tsx. */}
+      {!isMobile ? (
+        <>
+          <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+          <MinimizeToolbarButton
+            onClick={() => {
+              if (rowRef.current) {
+                const r = rowRef.current.getBoundingClientRect();
+                minimizeBaseRef.current = { top: r.top, left: r.left };
+              }
+              toolbarDrag.reset();
+              setMinimized(true);
+            }}
+          />
+        </>
+      ) : null}
 
       {/* Selection count label */}
       <span className="shrink-0 px-1.5 text-xs font-semibold text-muted-foreground">
@@ -254,8 +290,10 @@ export function MultiMixedSelectionToolbar({
                 colorOpen && "border-primary text-primary",
               )}
             >
-              {/* Color swatch — splits if mixed */}
-              <div className="relative h-4.5 w-4.5 shrink-0 overflow-hidden rounded-full border border-border shadow-xs">
+              {/* Color swatch — splits if mixed. Square + light inset
+                  border, matching every other toolbar's main color-picker
+                  trigger (was the odd circular, regular-shadow one out). */}
+              <div className="relative h-4.5 w-4.5 shrink-0 overflow-hidden rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)]">
                 {uniformColor ? (
                   <div className="absolute inset-0" style={{ background: displayColor }} />
                 ) : (
@@ -359,29 +397,18 @@ export function MultiMixedSelectionToolbar({
                 />
               </div>
               {/* Font list */}
-              <div className="flex max-h-64 flex-col overflow-y-auto">
-                {FONTS.filter((f) =>
-                  !fontSearch || f.label.toLowerCase().includes(fontSearch.toLowerCase()),
-                ).map((f) => {
-                  const isActive = uniformFont === f.value;
-                  return (
-                    <button
-                      key={f.value}
-                      type="button"
-                      onClick={() => {
-                        onUpdateAllTexts({ fontFamily: f.value });
-                        loadGoogleFont(f.value);
-                      }}
-                      className={cn(
-                        "flex items-center justify-between px-3 py-2 text-sm transition-colors hover:bg-secondary",
-                        isActive && "bg-primary/10 text-primary",
-                      )}
-                    >
-                      <span style={{ fontFamily: f.value }}>{f.label}</span>
-                      {isActive && <Tick02Icon size={14} />}
-                    </button>
-                  );
-                })}
+              <div ref={fontListScrollRef} className="flex max-h-64 flex-col overflow-y-auto">
+                {filteredFonts.map((f) => (
+                  <FontRow
+                    key={f.value}
+                    font={f}
+                    active={uniformFont === f.value}
+                    onSelect={(v) => onUpdateAllTexts({ fontFamily: v })}
+                    scrollRef={fontListScrollRef}
+                    className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-secondary"
+                    activeClassName="bg-primary/10 text-primary"
+                  />
+                ))}
               </div>
             </div>
           </FloatingDropdown>
@@ -825,45 +852,11 @@ export function MultiMixedSelectionToolbar({
         </>
       )}
 
-      {/* ──── Lock / Delete ──── */}
-      {onToggleLockAll && (
-        <>
-          <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
-          <AppTooltip content={allLocked ? "Unlock all selected" : "Lock all selected"}>
-            <button
-              type="button"
-              onClick={onToggleLockAll}
-              className={cn(btnClass, "px-2 text-muted-foreground hover:text-foreground")}
-            >
-              {allLocked ? <SquareLock02Icon size={15} /> : <SquareUnlock02Icon size={15} />}
-            </button>
-          </AppTooltip>
-        </>
-      )}
-
-      {onDuplicateAll && (
-        <AppTooltip content="Duplicate all selected layers">
-          <button
-            type="button"
-            onClick={onDuplicateAll}
-            className={cn(btnClass, "px-2 text-muted-foreground hover:text-foreground")}
-          >
-            <Copy01Icon size={15} />
-          </button>
-        </AppTooltip>
-      )}
-
-      {onDeleteAll && (
-        <AppTooltip content="Delete all selected layers">
-          <button
-            type="button"
-            onClick={onDeleteAll}
-            className={cn(btnClass, "px-2 text-destructive hover:bg-destructive/10 hover:text-destructive")}
-          >
-            <Delete02Icon size={15} />
-          </button>
-        </AppTooltip>
-      )}
+      {/* Lock All/Duplicate All/Delete All dropped from this row for more
+          space — Delete still works via the Delete/Backspace keyboard
+          shortcut (QuoteCanvas's own selection handler, respects locked
+          layers already); bulk Lock/Duplicate have no equivalent path left
+          once removed here. */}
     </>
   );
 

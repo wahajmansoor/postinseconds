@@ -23,15 +23,27 @@ import {
 } from "hugeicons-react";
 import { CaseUpper } from "lucide-react";
 import type React from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AppTooltip } from "@/components/ui/tooltip";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
-import { FONTS, getAvailableFontWeights, normalizeColorToHex, type TextLayer } from "./types";
-import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, FloatingToolbarPortal, MinimizedToolbarButton, MinimizeToolbarButton, ToolbarDragGrip, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
+import {
+  FONTS,
+  findFontOption,
+  fontFamilyToLabel,
+  getAvailableFontWeights,
+  getFontPool,
+  isSameFontFamily,
+  loadGoogleFontsCatalog,
+  normalizeColorToHex,
+  searchAllFonts,
+  type FontOption,
+  type TextLayer,
+} from "./types";
+import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, FloatingToolbarPortal, FontRow, MinimizedToolbarButton, MinimizeToolbarButton, ToolbarDragGrip, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
 
 // Canva-style top-docked toolbar: appears the instant a single free-floating
 // text layer is selected (a plain click — well before, or entirely without,
@@ -123,9 +135,22 @@ export function TextSelectionToolbar({
   const [fontOpen, setFontOpen] = useState(false);
   const [fontPinned, setFontPinned] = useState(false);
   const [fontSearch, setFontSearch] = useState("");
+  const [fontFocusedIndex, setFontFocusedIndex] = useState<number>(0);
+  const [fontRenderLimit, setFontRenderLimit] = useState<number>(80);
   const fontDrag = useDraggableOffset();
   const fontTriggerRef = useRef<HTMLButtonElement>(null);
   const fontAnchor = useStableAnchor(fontOpen, fontTriggerRef);
+  // Full Google Fonts catalog (~1,900 families beyond the curated FONTS
+  // list) — loaded lazily once the font picker actually opens (see the
+  // effect below, placed after fontStripOpen exists), not on mount, so
+  // pages that never touch the font picker never pay for the chunk.
+  const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  // Root for FontRow's IntersectionObserver below — without an explicit
+  // scrollable root, IO defaults to the browser viewport, which would
+  // count a row as "visible" the instant this popover's fixed-position
+  // panel overlaps the viewport at all, defeating the point of scrolling
+  // through the list progressively.
+  const fontListScrollRef = useRef<HTMLDivElement>(null);
 
   // Mirrors handle.getActiveFormat() live so Bold/Italic/Underline/
   // Strikethrough/list here light up for whatever's actually under the
@@ -136,63 +161,97 @@ export function TextSelectionToolbar({
   // the selected layer changed), which also pushes that new layer's
   // current format immediately.
   const [activeFormat, setActiveFormat] = useState<LiveTextFormat>(() => handle.getActiveFormat());
+  const [optimisticFont, setOptimisticFont] = useState<string | null>(null);
+  const [optimisticColor, setOptimisticColor] = useState<string | null>(null);
+
+  useEffect(() => {
+    setOptimisticFont(null);
+    setOptimisticColor(null);
+  }, [layer.id]);
+
+  useEffect(() => {
+    setOptimisticFont(null);
+  }, [layer.fontFamily]);
+
+  useEffect(() => {
+    setOptimisticColor(null);
+  }, [layer.color]);
+
   useEffect(() => handle.subscribeActiveFormat(setActiveFormat), [handle]);
 
+  const handleSetFontFamily = useCallback(
+    (v: string) => {
+      setOptimisticFont(v);
+      setActiveFormat((prev) => ({ ...prev, fontFamily: v }));
+      handle.setFontFamily(v);
+    },
+    [handle],
+  );
+
+  const handleSetColor = useCallback(
+    (c: string) => {
+      setOptimisticColor(c);
+      setActiveFormat((prev) => ({ ...prev, color: c, colors: [c] }));
+      handle.setColor(c);
+    },
+    [handle],
+  );
+
   const currentFontLabel = useMemo(() => {
-    if (activeFormat.fontFamily === "multiple") {
-      return "Multiple fonts";
+    if (optimisticFont) {
+      const fontPool = getFontPool(fontCatalog);
+      const match = findFontOption(fontPool, optimisticFont);
+      return match?.label ?? fontFamilyToLabel(optimisticFont);
     }
-    if (activeFormat.fontFamily) {
-      const cleanActive = activeFormat.fontFamily.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase() || "";
-      const match = FONTS.find((f) => f.value.toLowerCase().includes(cleanActive) || f.label.toLowerCase() === cleanActive);
+    if (activeFormat.fontFamily === "multiple") {
+      return "Mixed Font";
+    }
+    const fontPool = getFontPool(fontCatalog);
+    const targetFont = (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily;
+    if (targetFont) {
+      const match = findFontOption(fontPool, targetFont);
       if (match) return match.label;
     }
 
-    if (layer.html) {
-      const fontsInHtml = new Set<string>();
-      const basePrimary = (layer.fontFamily || "").split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase() || "";
-
-      const matches = layer.html.matchAll(/font-family:\s*([^;"]+)/gi);
-      for (const match of matches) {
-        const rawFont = match?.[1]?.trim().replace(/^['"]|['"]$/g, "");
-        if (rawFont) {
-          const primary = rawFont.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase();
-          if (primary) fontsInHtml.add(primary);
+    if (layer.html && typeof document !== "undefined") {
+      try {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = layer.html;
+        const fontSpans = tmp.querySelectorAll<HTMLElement>("[style*='font-family']");
+        const fontsInHtml = new Set<string>();
+        let totalSpanTextLen = 0;
+        fontSpans.forEach((s) => {
+          const ff = s.style.fontFamily;
+          if (ff) {
+            const primary = ff.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase();
+            if (primary) fontsInHtml.add(primary);
+          }
+          totalSpanTextLen += s.textContent?.length || 0;
+        });
+        const totalTextLen = tmp.textContent?.length || 0;
+        const basePrimary = (layer.fontFamily || "").split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase() || "";
+        if (totalTextLen > totalSpanTextLen && basePrimary) {
+          fontsInHtml.add(basePrimary);
         }
-      }
-
-      if (fontsInHtml.size > 0) {
-        if (typeof document !== "undefined") {
-          try {
-            const tmp = document.createElement("div");
-            tmp.innerHTML = layer.html;
-            const fontSpans = tmp.querySelectorAll<HTMLElement>("[style*='font-family']");
-            let totalSpanTextLen = 0;
-            fontSpans.forEach((s) => (totalSpanTextLen += s.textContent?.length || 0));
-            const totalTextLen = tmp.textContent?.length || 0;
-            if (totalTextLen > totalSpanTextLen) {
-              fontsInHtml.add(basePrimary);
-            }
-          } catch { }
+        if (fontsInHtml.size > 1) {
+          return "Mixed Font";
         }
-      }
-
-      if (fontsInHtml.size > 1) {
-        return "Multiple fonts";
-      }
-      if (fontsInHtml.size === 1) {
-        const singleFont = Array.from(fontsInHtml)[0];
-        if (singleFont) {
-          const match = FONTS.find((f) => f.value.toLowerCase().includes(singleFont) || f.label.toLowerCase() === singleFont);
+        if (fontsInHtml.size === 1) {
+          const singleFont = Array.from(fontsInHtml)[0];
+          const match = findFontOption(fontPool, singleFont);
           if (match) return match.label;
         }
-      }
+      } catch {}
     }
 
-    return FONTS.find((f) => f.value === layer.fontFamily)?.label ?? "Text Font";
-  }, [activeFormat.fontFamily, layer.fontFamily, layer.html]);
+    const match = findFontOption(fontPool, layer.fontFamily);
+    return match?.label ?? fontFamilyToLabel(layer.fontFamily);
+  }, [optimisticFont, activeFormat.fontFamily, layer.fontFamily, layer.html, fontCatalog]);
 
   const currentColors = useMemo((): string[] => {
+    if (optimisticColor) {
+      return [normalizeColorToHex(optimisticColor)];
+    }
     if (activeFormat.colors && activeFormat.colors.length > 1) {
       const norm = Array.from(new Set(activeFormat.colors.map((c) => normalizeColorToHex(c))));
       if (norm.length > 1) {
@@ -250,10 +309,30 @@ export function TextSelectionToolbar({
 
     return [baseColor];
   }, [activeFormat.colors, activeFormat.color, layer.color, layer.html]);
-  const filteredFonts = useMemo(() => {
-    const q = fontSearch.trim().toLowerCase();
-    return q ? FONTS.filter((f) => f.label.toLowerCase().includes(q)) : FONTS;
-  }, [fontSearch]);
+  const filteredFonts = useMemo(
+    () => searchAllFonts(fontSearch, fontCatalog),
+    [fontSearch, fontCatalog],
+  );
+
+  useEffect(() => {
+    const targetFont = (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily;
+    if (targetFont) {
+      loadGoogleFont(targetFont);
+    }
+  }, [activeFormat.fontFamily, layer.fontFamily]);
+
+  useEffect(() => {
+    if (fontOpen) {
+      const activeF = (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily;
+      const idx = filteredFonts.findIndex((f) => isSameFontFamily(f.value, activeF));
+      if (idx >= 0) {
+        setFontFocusedIndex(idx);
+        setFontRenderLimit((lim) => Math.max(lim, idx + 30));
+      } else {
+        setFontFocusedIndex(0);
+      }
+    }
+  }, [fontOpen, filteredFonts, activeFormat.fontFamily, layer.fontFamily]);
   // Mobile-only: tapping Font swaps the whole toolbar row for a horizontal
   // scrollable strip of font-name chips (each rendered in its own font,
   // same as the full list below) instead of opening `fontOpen`'s popover
@@ -264,8 +343,8 @@ export function TextSelectionToolbar({
   // Desktop is completely unaffected — its Font button still opens
   // `fontOpen` directly, same as before this existed.
   const availableWeights = useMemo(() => {
-    return getAvailableFontWeights(layer.fontFamily);
-  }, [layer.fontFamily]);
+    return getAvailableFontWeights(layer.fontFamily, fontCatalog);
+  }, [layer.fontFamily, fontCatalog]);
 
   const [weightOpen, setWeightOpen] = useState(false);
   const [weightPinned, setWeightPinned] = useState(false);
@@ -323,10 +402,33 @@ export function TextSelectionToolbar({
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
 
+  // Fetches the full catalog chunk the first time the picker opens (module
+  // import is cached after that — see loadGoogleFontsCatalog in types.ts).
   useEffect(() => {
     if (!fontOpen && !fontStripOpen) return;
+    if (fontCatalog) return;
+    let cancelled = false;
+    loadGoogleFontsCatalog().then((list) => {
+      if (!cancelled) setFontCatalog(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fontOpen, fontStripOpen, fontCatalog]);
+
+  // Preloads the mobile font-strip's chips (FONTS only — bounded at ~50,
+  // and every chip is visible/rendered at once with no scrolling to defer
+  // to, unlike the full search sheet below). Deliberately NOT tied to
+  // fontOpen/filteredFonts: that list now browses the full ~1,900-family
+  // catalog once loaded (searchAllFonts, not just the curated set), and
+  // eagerly fetching a stylesheet for every one of those on open would be
+  // a real network/jank hit — each row there instead loads its own font
+  // lazily via IntersectionObserver as it scrolls into view (FontRow, in
+  // ui.tsx).
+  useEffect(() => {
+    if (!fontStripOpen) return;
     FONTS.forEach((f) => loadGoogleFont(f.value));
-  }, [fontOpen, fontStripOpen]);
+  }, [fontStripOpen]);
 
   // Reports "is any popover in this toolbar open" up to index.tsx (see the
   // `detached`/`onAnyPopoverOpenChange` comments above) so it knows whether
@@ -426,6 +528,25 @@ export function TextSelectionToolbar({
           onClose={() => setFontOpen(false)}
         />
         <div className="space-y-2 p-2.5">
+          {/* Currently Selected Font displayed at the top above search field */}
+          <div className="flex items-center justify-between gap-2 rounded-xl bg-secondary/80 border border-border/80 px-2.5 py-1.5 shadow-sm">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block leading-tight">
+                Selected Font
+              </span>
+              <span
+                className="truncate text-xs font-semibold text-foreground block mt-0.5"
+                style={{ fontFamily: optimisticFont ? optimisticFont : (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily }}
+              >
+                {currentFontLabel}
+              </span>
+            </div>
+            <span className="shrink-0 flex items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+              <Tick02Icon size={11} />
+              Active
+            </span>
+          </div>
+
           <div className="relative">
             <Search01Icon
               size={13}
@@ -435,36 +556,63 @@ export function TextSelectionToolbar({
               type="text"
               autoFocus
               value={fontSearch}
-              onChange={(e) => setFontSearch(e.target.value)}
+              onChange={(e) => {
+                setFontSearch(e.target.value);
+                setFontFocusedIndex(0);
+                setFontRenderLimit(80);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setFontFocusedIndex((i) => {
+                    const next = filteredFonts.length > 0 ? (i < filteredFonts.length - 1 ? i + 1 : 0) : 0;
+                    if (next >= fontRenderLimit - 5) setFontRenderLimit((lim) => lim + 60);
+                    return next;
+                  });
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setFontFocusedIndex((i) => (filteredFonts.length > 0 ? (i > 0 ? i - 1 : filteredFonts.length - 1) : 0));
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (filteredFonts[fontFocusedIndex]) {
+                    handleSetFontFamily(filteredFonts[fontFocusedIndex].value);
+                  }
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setFontOpen(false);
+                }
+              }}
               placeholder="Search fonts…"
               className="w-full rounded-xl border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
             />
           </div>
-          <div className="max-h-72 space-y-0.5 overflow-y-auto pr-0.5">
+          <div
+            ref={fontListScrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              if (el.scrollHeight - el.scrollTop - el.clientHeight < 250) {
+                setFontRenderLimit((lim) => (lim < filteredFonts.length ? lim + 60 : lim));
+              }
+            }}
+            className="max-h-72 space-y-0.5 overflow-y-auto pr-0.5"
+          >
             {filteredFonts.length ? (
-              filteredFonts.map((f) => {
-                const active = f.value === layer.fontFamily;
-                return (
-                  <button
-                    key={f.value}
-                    type="button"
-                    // Deliberately does NOT close the popover — picking
-                    // a font is something people want to do several
-                    // times in a row while comparing options live on
-                    // the canvas, not a one-shot action. It only closes
-                    // via the X button or re-clicking the trigger.
-                    onClick={() => handle.setFontFamily(f.value)}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors",
-                      active ? "bg-primary/15 text-primary" : "text-foreground hover:bg-secondary",
-                    )}
-                    style={{ fontFamily: f.value }}
-                  >
-                    <span className="min-w-0 flex-1 truncate">{f.label}</span>
-                    {active ? <Tick02Icon size={13} className="shrink-0 text-primary" /> : null}
-                  </button>
-                );
-              })
+              filteredFonts.slice(0, fontRenderLimit).map((f, idx) => (
+                <FontRow
+                  key={f.value}
+                  font={f}
+                  active={isSameFontFamily(f.value, optimisticFont ? optimisticFont : (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily)}
+                  isFocused={idx === fontFocusedIndex}
+                  onSelect={(v) => {
+                    handleSetFontFamily(v);
+                    setFontFocusedIndex(idx);
+                  }}
+                  scrollRef={fontListScrollRef}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors"
+                  activeClassName="bg-primary/15 text-primary font-semibold"
+                  idleClassName="text-foreground hover:bg-secondary"
+                />
+              ))
             ) : (
               <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
                 No fonts match "{fontSearch}"
@@ -541,7 +689,7 @@ export function TextSelectionToolbar({
           onTogglePin={() => setTextColorPinned((p) => !p)}
           onClose={() => setTextColorOpen(false)}
         />
-        <ColorPickerContent value={layer.color} onChange={handle.setColor} />
+        <ColorPickerContent value={currentColors[0] || normalizeColorToHex(layer.color) || "#ffffff"} onChange={handleSetColor} />
       </div>
     </FloatingDropdown>
   );
@@ -585,14 +733,14 @@ export function TextSelectionToolbar({
         </AppTooltip>
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth">
           {FONTS.map((f) => {
-            const active = f.value === layer.fontFamily;
+            const active = isSameFontFamily(f.value, (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily);
             return (
               <button
                 key={f.value}
                 type="button"
                 onPointerDown={preserveSelection}
                 onMouseDown={preserveSelection}
-                onClick={() => handle.setFontFamily(f.value)}
+                onClick={() => handleSetFontFamily(f.value)}
                 className={cn(
                   "flex h-8 shrink-0 items-center whitespace-nowrap rounded-xl border px-3 text-sm font-semibold transition-colors",
                   active
@@ -673,7 +821,7 @@ export function TextSelectionToolbar({
                 type="button"
                 onPointerDown={preserveSelection}
                 onMouseDown={preserveSelection}
-                onClick={() => handle.setColor(c)}
+                onClick={() => handleSetColor(c)}
                 className={cn(
                   "h-7 w-7 shrink-0 rounded-full border shadow-sm transition-transform hover:scale-110 active:scale-95",
                   active
@@ -738,17 +886,23 @@ export function TextSelectionToolbar({
 
   const rowContent = (
     <>
-      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
-      <MinimizeToolbarButton
-        onClick={() => {
-          if (rowRef.current) {
-            const r = rowRef.current.getBoundingClientRect();
-            minimizeBaseRef.current = { top: r.top, left: r.left };
-          }
-          toolbarDrag.reset();
-          setMinimized(true);
-        }}
-      />
+      {/* Drag grip + minimize both hidden on mobile — see the matching
+          comment in ShapeSelectionToolbar.tsx. */}
+      {!isMobile ? (
+        <>
+          <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+          <MinimizeToolbarButton
+            onClick={() => {
+              if (rowRef.current) {
+                const r = rowRef.current.getBoundingClientRect();
+                minimizeBaseRef.current = { top: r.top, left: r.left };
+              }
+              toolbarDrag.reset();
+              setMinimized(true);
+            }}
+          />
+        </>
+      ) : null}
 
       <AppTooltip content="Text font">
         <button
@@ -787,7 +941,7 @@ export function TextSelectionToolbar({
         >
           <span
             className="min-w-0 flex-1 truncate text-left"
-            style={{ fontFamily: currentFontLabel === "Multiple fonts" ? undefined : layer.fontFamily }}
+            style={{ fontFamily: (currentFontLabel === "Mixed Font" || currentFontLabel === "Multiple fonts") ? undefined : (optimisticFont || layer.fontFamily) }}
           >
             {currentFontLabel}
           </span>
@@ -925,7 +1079,10 @@ export function TextSelectionToolbar({
           });
         }}
         title={currentColors.length > 1 ? `Text colors (${currentColors.join(" / ")})` : "Text color"}
-        className="h-7 w-7 shrink-0 overflow-hidden rounded-full border border-border/80 shadow-sm transition-transform hover:scale-110 active:scale-95"
+        // Square + light inset border, matching every other toolbar's main
+        // color-picker trigger (Shape's fill swatch, Background's Solid/
+        // Gradient swatches, ...) — this was the odd circular one out.
+        className="h-7 w-7 shrink-0 overflow-hidden rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-transform hover:scale-110 active:scale-95"
         style={
           currentColors.length > 1
             ? { background: `linear-gradient(135deg, ${currentColors[0]} 50%, ${currentColors[1]} 50%)` }

@@ -1431,6 +1431,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                   width?: number | undefined;
                   height?: number | undefined;
                   strokeWidth?: number | undefined;
+                  lineCornerRadius?: number | undefined;
                 }[] = [];
                 selected.forEach((sel) => {
                   if (sel.kind === "text") {
@@ -1441,7 +1442,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                     if (img) items.push({ kind: "image", id: img.id, x: img.x, y: img.y, size: img.size, width: img.size, height: img.height });
                   } else if (sel.kind === "shape") {
                     const sh = getShapeLayers(sRef.current).find((item) => item.id === sel.id);
-                    if (sh) items.push({ kind: "shape", id: sh.id, x: sh.x, y: sh.y, size: sh.size, width: sh.size, height: sh.height, strokeWidth: sh.strokeWidth });
+                    if (sh) items.push({ kind: "shape", id: sh.id, x: sh.x, y: sh.y, size: sh.size, width: sh.size, height: sh.height, strokeWidth: sh.strokeWidth, lineCornerRadius: sh.lineCornerRadius });
                   }
                 });
                 multiResizeRef.current = {
@@ -3837,14 +3838,13 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
           const comp = window.getComputedStyle(elContainer);
           isUpper = comp.textTransform === "uppercase";
           if (!selectedFont && !isMultipleFonts) {
-            selectedFont = comp.fontFamily;
+            selectedFont = t.fontFamily;
           }
           if (!selectedColor && foundColors.size === 0) {
-            selectedColor = normalizeColorToHex(comp.color);
+            selectedColor = t.color;
           }
           if (selectedWeight === undefined && !isMultipleWeights) {
-            const compWeight = parseInt(comp.fontWeight, 10);
-            selectedWeight = Number.isFinite(compWeight) ? compWeight : t.weight;
+            selectedWeight = t.weight;
           }
         }
         return {
@@ -3863,15 +3863,70 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       } catch {
       }
     }
+    let activeFont: string | "multiple" | undefined = t.fontFamily;
+    let activeColor: string | "multiple" | undefined = t.color;
+    let activeColors: string[] | undefined = t.color ? [t.color] : undefined;
+
+    if (t.html && typeof document !== "undefined") {
+      try {
+        const tmp = document.createElement("div");
+        tmp.innerHTML = t.html;
+        const fontElements = tmp.querySelectorAll<HTMLElement>("[style*='font-family']");
+        const foundFonts = new Set<string>();
+        let totalSpanTextLen = 0;
+        fontElements.forEach((el) => {
+          const ff = el.style.fontFamily;
+          if (ff) {
+            const cleanF = ff.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase();
+            if (cleanF) foundFonts.add(cleanF);
+          }
+          totalSpanTextLen += el.textContent?.length || 0;
+        });
+        const totalTextLen = tmp.textContent?.length || 0;
+        const basePrimary = (t.fontFamily || "").split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase() || "";
+        if (totalTextLen > totalSpanTextLen && basePrimary) {
+          foundFonts.add(basePrimary);
+        }
+        if (foundFonts.size > 1) {
+          activeFont = "multiple";
+        } else if (foundFonts.size === 1) {
+          activeFont = Array.from(foundFonts)[0];
+        }
+
+        const colorElements = tmp.querySelectorAll<HTMLElement>("[style*='color']");
+        const foundColors = new Set<string>();
+        let totalColorSpanTextLen = 0;
+        colorElements.forEach((el) => {
+          const col = el.style.color;
+          if (col) foundColors.add(normalizeColorToHex(col));
+          totalColorSpanTextLen += el.textContent?.length || 0;
+        });
+        if (totalTextLen > totalColorSpanTextLen && t.color) {
+          foundColors.add(normalizeColorToHex(t.color));
+        }
+        if (foundColors.size > 1) {
+          activeColor = "multiple";
+          activeColors = Array.from(foundColors);
+        } else if (foundColors.size === 1) {
+          const singleC = Array.from(foundColors)[0];
+          if (singleC) {
+            activeColor = singleC;
+            activeColors = [singleC];
+          }
+        }
+      } catch {}
+    }
+
     return {
       bold: t.weight >= 700,
       italic: !!t.italic,
       underline: !!t.underline,
       strike: !!t.strike,
       uppercase: !!t.uppercase,
-      fontFamily: t.fontFamily,
+      fontFamily: activeFont,
       weight: t.weight,
-      color: t.color,
+      color: activeColor,
+      colors: activeColors,
       bulletList: false,
       numberedList: false,
     };
@@ -4109,7 +4164,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       update(wholeLayerPatch);
       return;
     }
-    syncFromLiveDom(el);
+    syncFromLiveDom(el, true);
+    notifyActiveFormat();
   };
 
   // Font size and font family deliberately always apply to the WHOLE layer
@@ -4139,9 +4195,33 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   };
 
   const setFontFamily = (v: string) => {
-    if (v === t.fontFamily) return;
     loadGoogleFont(v);
-    applyStyleSmart({ fontFamily: v }, { fontFamily: v });
+    const hasHighlight = hasLiveSelection() || (!!selectionSnapshotRef.current?.charOffsets && selectionSnapshotRef.current.charOffsets.start !== selectionSnapshotRef.current.charOffsets.end);
+    if (hasHighlight) {
+      applyStyleSmart({ fontFamily: v }, { fontFamily: v });
+    } else {
+      const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["font-family"]) : undefined;
+      const el = editableRef.current;
+      if (el) {
+        el.querySelectorAll<HTMLElement>("[style]").forEach((child) => {
+          child.style.removeProperty("font-family");
+          if (!child.getAttribute("style")?.trim()) child.removeAttribute("style");
+        });
+      }
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      if (cleanHtml !== undefined) {
+        lastEmittedHtmlRef.current = cleanHtml;
+        editSnapshotRef.current = cleanHtml;
+      }
+      update({
+        fontFamily: v,
+        ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+      });
+    }
+    setTimeout(notifyActiveFormat, 0);
   };
 
   const setSize = (v: number) => {
@@ -4156,7 +4236,34 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       ...(cleanHtml !== undefined ? { html: cleanHtml } : {})
     });
   };
-  const setColor = (v: string) => applyStyleSmart({ color: v }, { color: v });
+  const setColor = (v: string) => {
+    const hasHighlight = hasLiveSelection() || (!!selectionSnapshotRef.current?.charOffsets && selectionSnapshotRef.current.charOffsets.start !== selectionSnapshotRef.current.charOffsets.end);
+    if (hasHighlight) {
+      applyStyleSmart({ color: v }, { color: v });
+    } else {
+      const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["color"]) : undefined;
+      const el = editableRef.current;
+      if (el) {
+        el.querySelectorAll<HTMLElement>("[style]").forEach((child) => {
+          child.style.removeProperty("color");
+          if (!child.getAttribute("style")?.trim()) child.removeAttribute("style");
+        });
+      }
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      if (cleanHtml !== undefined) {
+        lastEmittedHtmlRef.current = cleanHtml;
+        editSnapshotRef.current = cleanHtml;
+      }
+      update({
+        color: v,
+        ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
+      });
+    }
+    setTimeout(notifyActiveFormat, 0);
+  };
   const setAlign = (v: "left" | "center" | "right" | "justify") => {
     if (v === "justify" && (!t.width || t.width <= 0)) {
       const currentWidth = containerRef.current?.offsetWidth || 480;
@@ -5794,6 +5901,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
               lineType={shape.lineType}
               lineCurvature={shape.lineCurvature}
               lineWaypoints={shape.lineWaypoints}
+              lineCornerRadius={shape.lineCornerRadius}
             />
           </div>
         ) : (

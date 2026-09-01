@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TemplatePreview } from "./TemplatePreview";
 import {
   Add01Icon,
+  ArrowDown01Icon,
   MinusSignIcon,
   Copy01Icon,
   CropIcon,
@@ -45,8 +46,8 @@ import { ImageCropDialog } from "./ImageCropDialog";
 import { TextEffectsPanel } from "./TextEffectsPanel";
 import { VERIFIED_PICKER_ICONS } from "./VerifiedBadges";
 import {
-  FONTS,
   getAvailableFontWeights,
+  loadGoogleFontsCatalog,
   PREMIUM_TEMPLATES,
   SHADOW_OVERLAY_PRESETS,
   SHAPE_PRESETS,
@@ -87,6 +88,7 @@ import {
   withTextUpdated,
   type BoxStyle,
   type EditorState,
+  type FontOption,
   type ImageLayer,
   type ImageShape,
   type ShadowPreset,
@@ -101,6 +103,7 @@ import {
   ColorInput,
   ColorSwatchPicker,
   Field,
+  FontPickerField,
   GradientSwatchGrid,
   Panel,
   Range,
@@ -574,6 +577,32 @@ export function LeftPanel({
   const [useMid, setUseMid] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [shadowThemeFilter, setShadowThemeFilter] = useState<"black" | "white">("black");
+  // Collapse state for the Elements tab's three sub-sections (Lines,
+  // Shapes, Shadows & Highlights) — declared up here with every other
+  // hook in this component (not inside the `tab === "elements"` branch
+  // that renders them) for the same Rules-of-Hooks reason as
+  // shadowThemeFilter above: every hook has to run on every render
+  // regardless of which `tab` is active.
+  const [elementsLinesOpen, setElementsLinesOpen] = useState(true);
+  const [elementsShapesOpen, setElementsShapesOpen] = useState(true);
+  const [elementsShadowsOpen, setElementsShadowsOpen] = useState(true);
+  // Full Google Fonts catalog (~1,900 families beyond the curated FONTS
+  // list) for the Text tab's Font Family dropdown — loaded lazily once
+  // that tab is actually open, not on mount, so pages that never touch
+  // the Text tab never pay for the chunk. See loadGoogleFontsCatalog in
+  // types.ts; declared up here (not inside `tab === "text"`) for the same
+  // Rules-of-Hooks reason as the state above.
+  const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  useEffect(() => {
+    if (tab !== "text" || fontCatalog) return;
+    let cancelled = false;
+    loadGoogleFontsCatalog().then((list) => {
+      if (!cancelled) setFontCatalog(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, fontCatalog]);
   const [activeCategory, setActiveCategory] = useState<"starter" | "premium" | "saved">(
     templateCategory ?? "starter",
   );
@@ -1360,19 +1389,6 @@ export function LeftPanel({
       { label: "Black (900)", value: 900 },
     ];
 
-    const QUICK_COLORS = [
-      "#ffffff",
-      "#0f172a",
-      "#f8fafc",
-      "#38bdf8",
-      "#818cf8",
-      "#c084fc",
-      "#f43f5e",
-      "#fbbf24",
-      "#34d399",
-      "#94a3b8",
-    ];
-
     return (
       <>
         {/* Sub-tab Navigation: Text Studio vs Effects */}
@@ -1549,13 +1565,13 @@ export function LeftPanel({
 
                     {/* Font Family */}
                     <Field label="Font Family">
-                      <Select
+                      <FontPickerField
                         value={activeTextLayer.fontFamily}
                         onChange={(v) => {
                           updateActiveLayer({ fontFamily: v });
                           onItemSelect?.();
                         }}
-                        options={FONTS.map((f) => ({ label: f.label, value: f.value }))}
+                        catalog={fontCatalog}
                         className="h-8 rounded-xl px-2.5 py-0 text-xs font-medium"
                       />
                     </Field>
@@ -1601,7 +1617,7 @@ export function LeftPanel({
                         <Select
                           value={String(activeTextLayer.weight)}
                           onChange={(v) => updateActiveLayer({ weight: Number(v) })}
-                          options={getAvailableFontWeights(activeTextLayer.fontFamily).map((w) => ({
+                          options={getAvailableFontWeights(activeTextLayer.fontFamily, fontCatalog).map((w) => ({
                             label: w.label,
                             value: String(w.value),
                           }))}
@@ -1617,25 +1633,21 @@ export function LeftPanel({
                           value={activeTextLayer.color}
                           onChange={(c) => updateActiveLayer({ color: c })}
                         />
-                        <div className="flex flex-wrap gap-1.5">
-                          {QUICK_COLORS.map((c) => (
-                            <button
-                              key={c}
-                              type="button"
-                              onClick={() => {
-                                updateActiveLayer({ color: c });
-                                onItemSelect?.();
-                              }}
-                              style={{ backgroundColor: c }}
-                              className={cn(
-                                "h-5 w-5 rounded-full border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-transform hover:scale-110",
-                                activeTextLayer.color.toLowerCase() === c.toLowerCase() &&
-                                  "ring-2 ring-primary ring-offset-1",
-                              )}
-                              title={c}
-                            />
-                          ))}
-                        </div>
+                        {/* Same 24-color default palette as every other color
+                            picker's own Presets grid (ColorSwatchPicker,
+                            backed by HEROUI_PALETTES) — this Field used to
+                            keep its own separate, shorter 12-color circular
+                            QUICK_COLORS list instead of sharing that one,
+                            the one spot left still showing round swatches
+                            after every other picker had already moved to
+                            square ones. */}
+                        <ColorSwatchPicker
+                          value={activeTextLayer.color}
+                          onChange={(c) => {
+                            updateActiveLayer({ color: c });
+                            onItemSelect?.();
+                          }}
+                        />
                       </div>
                     </Field>
 
@@ -2433,80 +2445,129 @@ export function LeftPanel({
           <div className="flex flex-col gap-5">
             {/* 1. Lines */}
             <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-secondary/30 p-3">
-              <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setElementsLinesOpen((o) => !o)}
+                className="flex items-center justify-between"
+              >
                 <span className="text-xs font-semibold text-foreground">Lines</span>
-                <span className="text-[10px] text-muted-foreground">{LINE_PRESETS.length} styles</span>
-              </div>
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                Solid, dashed, arrows, and decorative marker lines for dividers and accents.
-              </p>
-              <div className="grid grid-cols-3 gap-2 pt-1">
-                {LINE_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      const res = withShapeAdded(s, preset.kind, 0);
-                      set("shapes", res.list);
-                      set("layerOrder", res.layerOrder);
-                      if (res.newId) {
-                        onSelectLayer?.({ kind: "shape", id: res.newId });
-                      }
-                      onItemSelect?.();
-                    }}
-                    title={preset.label}
-                    className="flex h-11 items-center justify-center rounded-xl border border-border/80 bg-card/90 px-3 text-foreground shadow-sm transition-all hover:scale-105 hover:border-primary/60 hover:bg-secondary hover:text-primary active:scale-95"
-                  >
-                    <LineShapeSvg kind={preset.kind} strokeWidth={2.5} preserveAspect={true} />
-                  </button>
-                ))}
-              </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground">{LINE_PRESETS.length} styles</span>
+                  <ArrowDown01Icon
+                    size={14}
+                    className={cn(
+                      "text-muted-foreground transition-transform duration-200",
+                      elementsLinesOpen ? "rotate-180 text-foreground" : "text-muted-foreground",
+                    )}
+                  />
+                </div>
+              </button>
+              {elementsLinesOpen ? (
+                <>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Solid, dashed, arrows, and decorative marker lines for dividers and accents.
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {LINE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          const res = withShapeAdded(s, preset.kind, 0);
+                          set("shapes", res.list);
+                          set("layerOrder", res.layerOrder);
+                          if (res.newId) {
+                            onSelectLayer?.({ kind: "shape", id: res.newId });
+                          }
+                          onItemSelect?.();
+                        }}
+                        title={preset.label}
+                        className="flex h-11 items-center justify-center rounded-xl border border-border/80 bg-card/90 px-3 text-foreground shadow-sm transition-all hover:scale-105 hover:border-primary/60 hover:bg-secondary hover:text-primary active:scale-95"
+                      >
+                        <LineShapeSvg kind={preset.kind} strokeWidth={2.5} preserveAspect={true} />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
             </div>
 
             {/* 2. Geometric Shapes */}
             <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-secondary/30 p-3">
-              <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setElementsShapesOpen((o) => !o)}
+                className="flex items-center justify-between"
+              >
                 <span className="text-xs font-semibold text-foreground">Shapes</span>
-                <span className="text-[10px] text-muted-foreground">{SHAPE_PRESETS.length} shapes</span>
-              </div>
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                Click any shape to add to your canvas. Drag handles to resize or reposition.
-              </p>
-              <div className="grid grid-cols-4 gap-2 pt-1">
-                {SHAPE_PRESETS.map((preset) => {
-                  const previewRadius = preset.id === "rounded" ? 8 : preset.radius;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => {
-                        const res = withShapeAdded(s, preset.kind, preset.radius);
-                        set("shapes", res.list);
-                        set("layerOrder", res.layerOrder);
-                        if (res.newId) {
-                          onSelectLayer?.({ kind: "shape", id: res.newId });
-                        }
-                        onItemSelect?.();
-                      }}
-                      title={preset.label}
-                      className="flex aspect-square items-center justify-center rounded-lg border border-border bg-secondary/60 p-2 text-muted-foreground transition-all hover:scale-105 hover:border-primary hover:bg-secondary hover:text-foreground"
-                    >
-                      <span
-                        className="block h-full w-full"
-                        style={{ background: "currentColor", ...shapeCss(preset.kind, previewRadius) }}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground">{SHAPE_PRESETS.length} shapes</span>
+                  <ArrowDown01Icon
+                    size={14}
+                    className={cn(
+                      "text-muted-foreground transition-transform duration-200",
+                      elementsShapesOpen ? "rotate-180 text-foreground" : "text-muted-foreground",
+                    )}
+                  />
+                </div>
+              </button>
+              {elementsShapesOpen ? (
+                <>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Click any shape to add to your canvas. Drag handles to resize or reposition.
+                  </p>
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    {SHAPE_PRESETS.map((preset) => {
+                      const previewRadius = preset.id === "rounded" ? 8 : preset.radius;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            const res = withShapeAdded(s, preset.kind, preset.radius);
+                            set("shapes", res.list);
+                            set("layerOrder", res.layerOrder);
+                            if (res.newId) {
+                              onSelectLayer?.({ kind: "shape", id: res.newId });
+                            }
+                            onItemSelect?.();
+                          }}
+                          title={preset.label}
+                          className="flex aspect-square items-center justify-center rounded-lg border border-border bg-secondary/60 p-2 text-muted-foreground transition-all hover:scale-105 hover:border-primary hover:bg-secondary hover:text-foreground"
+                        >
+                          <span
+                            className="block h-full w-full"
+                            style={{ background: "currentColor", ...shapeCss(preset.kind, previewRadius) }}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
             </div>
 
             {/* 2. Shadows & Highlights (Under Shapes) */}
             <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-secondary/30 p-3">
-              <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setElementsShadowsOpen((o) => !o)}
+                className="flex items-center justify-between"
+              >
                 <span className="text-xs font-semibold text-foreground">Shadows & Highlights</span>
-                <span className="text-[10px] text-muted-foreground">{displayedShadows.length} presets</span>
-              </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground">{displayedShadows.length} presets</span>
+                  <ArrowDown01Icon
+                    size={14}
+                    className={cn(
+                      "text-muted-foreground transition-transform duration-200",
+                      elementsShadowsOpen ? "rotate-180 text-foreground" : "text-muted-foreground",
+                    )}
+                  />
+                </div>
+              </button>
+              {elementsShadowsOpen ? (
+                <>
               <p className="text-[11px] leading-snug text-muted-foreground">
                 Gradient overlays, dark vignettes, and ground drop shadows to enhance readability and contrast.
               </p>
@@ -2733,6 +2794,8 @@ export function LeftPanel({
                   );
                 })}
               </div>
+                </>
+              ) : null}
             </div>
           </div>
         </Panel>

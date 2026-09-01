@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Copy01Icon,
   Delete02Icon,
@@ -8,6 +9,7 @@ import {
   Layers01Icon,
   LayerSendBackwardIcon,
   LayerSendToBackIcon,
+  Link03Icon,
   SparklesIcon,
   SquareLock02Icon,
   SquareUnlock02Icon,
@@ -45,6 +47,7 @@ import {
   MinimizedToolbarButton,
   MinimizeToolbarButton,
   ToolbarDragGrip,
+  UnitInput,
   useDraggableOffset,
   useStableAnchor,
 } from "./ui";
@@ -172,6 +175,14 @@ interface ShapeSelectionToolbarProps {
   // See the matching props' comments in TextSelectionToolbar.tsx.
   detached?: boolean;
   onAnyPopoverOpenChange?: (open: boolean) => void;
+  // Canvas's own pixel dimensions — needed only for the Advanced popover's
+  // X/Y fields, which convert layer.x/y (canvas-%, center point, see
+  // ShapeLayer's own comment) to/from an absolute pixel position. Optional
+  // so any caller that never opens Advanced (there isn't one left, but this
+  // keeps the prop from being a hard breaking requirement) doesn't need to
+  // thread canvas size through for nothing.
+  canvasWidth?: number | undefined;
+  canvasHeight?: number | undefined;
 }
 
 export function ShapeSelectionToolbar({
@@ -184,7 +195,10 @@ export function ShapeSelectionToolbar({
   onToggleLock,
   detached = false,
   onAnyPopoverOpenChange,
+  canvasWidth = 1080,
+  canvasHeight = 1350,
 }: ShapeSelectionToolbarProps) {
+  const isMobile = useIsMobile();
   const [shapePickerOpen, setShapePickerOpen] = useState(false);
   const [lineTypeOpen, setLineTypeOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
@@ -194,6 +208,12 @@ export function ShapeSelectionToolbar({
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
   const [arrangeOpen, setArrangeOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Ephemeral, not persisted on the layer — same reasoning as
+  // MultiShapeSelectionToolbar's own ratioLocked: it's a mode for how THIS
+  // popover session's Width/Height edits behave, not a property of the
+  // shape itself.
+  const [ratioLocked, setRatioLocked] = useState(false);
 
   const [shapePickerPinned, setShapePickerPinned] = useState(false);
   const [lineTypePinned, setLineTypePinned] = useState(false);
@@ -204,6 +224,7 @@ export function ShapeSelectionToolbar({
   const [opacityPinned, setOpacityPinned] = useState(false);
   const [shadowPinned, setShadowPinned] = useState(false);
   const [arrangePinned, setArrangePinned] = useState(false);
+  const [advancedPinned, setAdvancedPinned] = useState(false);
 
   // The toolbar row's own drag offset — distinct from every popover's own
   // (shapeDrag, styleDrag, etc. below, each dragging a different opened
@@ -230,6 +251,7 @@ export function ShapeSelectionToolbar({
   const opacityDrag = useDraggableOffset();
   const shadowDrag = useDraggableOffset();
   const arrangeDrag = useDraggableOffset();
+  const advancedDrag = useDraggableOffset();
 
   const shapeTriggerRef = useRef<HTMLButtonElement>(null);
   const lineTypeTriggerRef = useRef<HTMLButtonElement>(null);
@@ -240,6 +262,7 @@ export function ShapeSelectionToolbar({
   const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
+  const advancedTriggerRef = useRef<HTMLButtonElement>(null);
   const shapeAnchor = useStableAnchor(shapePickerOpen, shapeTriggerRef);
   const lineTypeAnchor = useStableAnchor(lineTypeOpen, lineTypeTriggerRef);
   const styleAnchor = useStableAnchor(styleOpen, styleTriggerRef);
@@ -249,6 +272,7 @@ export function ShapeSelectionToolbar({
   const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
   const arrangeAnchor = useStableAnchor(arrangeOpen, arrangeTriggerRef);
+  const advancedAnchor = useStableAnchor(advancedOpen, advancedTriggerRef);
 
   // Each popover blocks Radix's own click/focus-outside auto-dismiss (see
   // onPointerDownOutside/onInteractOutside below) — a fast drag was tripping
@@ -270,7 +294,8 @@ export function ShapeSelectionToolbar({
     endsOpen ||
     opacityOpen ||
     shadowOpen ||
-    arrangeOpen;
+    arrangeOpen ||
+    advancedOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -292,6 +317,43 @@ export function ShapeSelectionToolbar({
   const currentPresetId = getMatchingShapePresetId(layer);
   const supportsRadius = shapeSupportsRadius(layer.kind);
   const currentStyle: BoxStyle = layer.style ?? "solid";
+
+  // Advanced panel — Width/Height/Ratio/X/Y/Rotate as exact, directly
+  // editable values (asked for by name: "Width, height Ratio, X and Y and
+  // Rotate ... as inputs so its show exact value"). Width/Height are just
+  // layer.size/height already in px; X/Y need converting from layer.x/y
+  // (canvas-%, CENTER point) to the box's own top-left corner in px — the
+  // conventional meaning of "X, Y" in every design tool this is modeled
+  // after (Figma, Canva) — and back again on edit.
+  const advWidth = layer.size;
+  const advHeight = layer.height ?? layer.size;
+  const advX = (layer.x / 100) * canvasWidth - advWidth / 2;
+  const advY = (layer.y / 100) * canvasHeight - advHeight / 2;
+  const advRotation = layer.rotation ?? 0;
+  const setAdvWidth = (v: number) => {
+    const nextWidth = Math.max(1, v);
+    if (ratioLocked && advWidth > 0) {
+      onUpdate({ size: nextWidth, height: Math.max(1, Math.round((nextWidth * (advHeight / advWidth)) * 10) / 10) });
+    } else {
+      onUpdate({ size: nextWidth });
+    }
+  };
+  const setAdvHeight = (v: number) => {
+    const nextHeight = Math.max(1, v);
+    if (ratioLocked && advHeight > 0) {
+      onUpdate({ size: Math.max(1, Math.round((nextHeight * (advWidth / advHeight)) * 10) / 10), height: nextHeight });
+    } else {
+      onUpdate({ height: nextHeight });
+    }
+  };
+  const setAdvX = (v: number) => {
+    if (canvasWidth <= 0) return;
+    onUpdate({ x: ((v + advWidth / 2) / canvasWidth) * 100 });
+  };
+  const setAdvY = (v: number) => {
+    if (canvasHeight <= 0) return;
+    onUpdate({ y: ((v + advHeight / 2) / canvasHeight) * 100 });
+  };
 
   // Collapsed form — see MinimizedToolbarButton's own comment in ui.tsx.
   // Not for the `detached` (hidden, kept-mounted-for-its-popovers) case:
@@ -320,17 +382,24 @@ export function ShapeSelectionToolbar({
 
   const rowContent = (
     <>
-      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
-      <MinimizeToolbarButton
-        onClick={() => {
-          if (rowRef.current) {
-            const r = rowRef.current.getBoundingClientRect();
-            minimizeBaseRef.current = { top: r.top, left: r.left };
-          }
-          toolbarDrag.reset();
-          setMinimized(true);
-        }}
-      />
+      {/* Drag grip + minimize both hidden on mobile — there's nowhere to
+          drag TO on a fixed bottom-dock layout, and nothing to minimize
+          out of the way on a screen that's already just this one bar. */}
+      {!isMobile ? (
+        <>
+          <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+          <MinimizeToolbarButton
+            onClick={() => {
+              if (rowRef.current) {
+                const r = rowRef.current.getBoundingClientRect();
+                minimizeBaseRef.current = { top: r.top, left: r.left };
+              }
+              toolbarDrag.reset();
+              setMinimized(true);
+            }}
+          />
+        </>
+      ) : null}
 
       {/* 1. Shape / Line Morphing Picker Popover */}
       <AppTooltip content="Change element geometry or line style">
@@ -592,6 +661,29 @@ export function ShapeSelectionToolbar({
                   );
                 })}
               </div>
+
+              {/* Corner rounding — Canva's own elbow-connector slider.
+                  Elbowed only: straight has no corners, and curved's single
+                  bow is shaped by its own drag handle instead. Undefined
+                  falls back to `buildFilletedOrthogonalPath`'s old
+                  auto-computed radius (LineShapeSvg's own comment) — 12px
+                  is that auto radius's typical settled value for a
+                  comfortably-sized elbow box, so the slider starts at the
+                  same place the line already visually sits before the user
+                  ever touches it. */}
+              {(layer.lineType ?? "straight") === "elbowed" ? (
+                <div className="space-y-2 border-t border-border/50 p-3 pt-3">
+                  <Field label={`Corner rounding — ${layer.lineCornerRadius ?? 12}px`}>
+                    <Range
+                      value={layer.lineCornerRadius ?? 12}
+                      min={0}
+                      max={40}
+                      onChange={(v) => onUpdate({ lineCornerRadius: v })}
+                      showInput={true}
+                    />
+                  </Field>
+                </div>
+              ) : null}
             </div>
           </FloatingDropdown>
         </>
@@ -620,7 +712,10 @@ export function ShapeSelectionToolbar({
         >
           <div
             className={cn(
-              "h-4.5 w-4.5 shrink-0 rounded-full",
+              // Square, matching every other color swatch/trigger across
+              // the toolbars (Presets grid, ColorPicker's own default
+              // swatch) — this one used to be the odd circular one out.
+              "h-4.5 w-4.5 shrink-0 rounded-[5px]",
               // Outline fill needs a REAL visible border to preview as
               // "outline" (a ring around empty space) — the borderless
               // inset-shadow treatment every other swatch/preview uses now
@@ -1340,44 +1435,96 @@ export function ShapeSelectionToolbar({
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 
-      {/* 8. Lock Toggle */}
-      {onToggleLock ? (
-        <AppTooltip content={layer.locked ? "Unlock element" : "Lock element"}>
-          <button
-            type="button"
-            onClick={onToggleLock}
-            className={cn(btnClass, "px-2 text-muted-foreground hover:text-foreground")}
-          >
-            {layer.locked ? <SquareLock02Icon size={15} /> : <SquareUnlock02Icon size={15} />}
-          </button>
-        </AppTooltip>
-      ) : null}
+      {/* Advanced — Width/Height (with an aspect-ratio lock), X/Y, and
+          Rotate as exact, directly-typeable values. */}
+      <AppTooltip content="Width, height, position, and rotation">
+        <button
+          ref={advancedTriggerRef}
+          type="button"
+          onClick={() => {
+            setAdvancedOpen((wasOpen) => {
+              if (!wasOpen) {
+                advancedDrag.reset();
+                setAdvancedPinned(false);
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(btnClass, advancedOpen && "bg-secondary text-primary")}
+        >
+          <span className="text-xs font-semibold">Advanced</span>
+        </button>
+      </AppTooltip>
+      <FloatingDropdown
+        anchor={advancedAnchor}
+        offset={advancedDrag.offset}
+        align="start"
+        pinned={advancedPinned}
+        onRequestClose={() => setAdvancedOpen(false)}
+        triggerRef={advancedTriggerRef}
+      >
+        <div
+          data-nopan=""
+          data-keep-text-editing=""
+          className="w-72 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+        >
+          <DragHandle
+            label="Advanced"
+            {...advancedDrag.dragHandleProps}
+            pinned={advancedPinned}
+            onTogglePin={() => setAdvancedPinned((p) => !p)}
+            onClose={() => setAdvancedOpen(false)}
+          />
+          <div className="space-y-3 p-3">
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="Width">
+                <UnitInput value={advWidth} unit="px" min={1} onChange={setAdvWidth} />
+              </Field>
+              <Field label="Height">
+                <UnitInput value={advHeight} unit="px" min={1} onChange={setAdvHeight} />
+              </Field>
+              <Field label="Ratio">
+                <AppTooltip content={ratioLocked ? "Unlock aspect ratio" : "Lock aspect ratio"}>
+                  <button
+                    type="button"
+                    onClick={() => setRatioLocked((v) => !v)}
+                    className={cn(
+                      "grid h-[38px] w-full place-items-center rounded-xl border transition-colors",
+                      ratioLocked
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border/80 bg-secondary/40 text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Link03Icon size={15} />
+                  </button>
+                </AppTooltip>
+              </Field>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="X">
+                <UnitInput value={advX} unit="px" onChange={setAdvX} />
+              </Field>
+              <Field label="Y">
+                <UnitInput value={advY} unit="px" onChange={setAdvY} />
+              </Field>
+              <Field label="Rotate">
+                <UnitInput
+                  value={advRotation}
+                  unit="°"
+                  onChange={(v) => onUpdate({ rotation: ((v % 360) + 360) % 360 })}
+                />
+              </Field>
+            </div>
+          </div>
+        </div>
+      </FloatingDropdown>
 
-      {/* 9. Duplicate Button */}
-      {onDuplicate ? (
-        <AppTooltip content="Duplicate element">
-          <button
-            type="button"
-            onClick={onDuplicate}
-            className={cn(btnClass, "px-2 text-muted-foreground hover:text-foreground")}
-          >
-            <Copy01Icon size={15} />
-          </button>
-        </AppTooltip>
-      ) : null}
-
-      {/* 10. Delete Button */}
-      {onDelete ? (
-        <AppTooltip content="Delete element">
-          <button
-            type="button"
-            onClick={onDelete}
-            className={cn(btnClass, "px-2 text-destructive hover:bg-destructive/10 hover:text-destructive")}
-          >
-            <Delete02Icon size={15} />
-          </button>
-        </AppTooltip>
-      ) : null}
+      {/* Lock/Duplicate/Delete dropped from this row — LayerToolbar (the
+          small pill docked directly above the selected element on canvas,
+          see QuoteCanvas.tsx) already gives every one of those three
+          actions its own dedicated spot, so keeping a second copy here just
+          ate into how much room this already-crowded row had for the
+          properties actually unique to it. */}
     </>
   );
 

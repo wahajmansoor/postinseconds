@@ -428,16 +428,16 @@ export function ColorSwatch({
   onClick?: () => void;
 }) {
   const sizeClasses = {
-    sm: "h-6 w-6 rounded-lg",
-    md: "h-8 w-8 rounded-xl",
-    lg: "h-10 w-10 rounded-2xl",
+    sm: "h-6 w-6 rounded-[5px]",
+    md: "h-8 w-8 rounded-[5px]",
+    lg: "h-10 w-10 rounded-[5px]",
   }[size];
 
   return (
     <div
       onClick={onClick}
       className={cn(
-        "relative shrink-0 overflow-hidden border border-black/10 dark:border-white/15 shadow-sm transition-transform hover:scale-105 active:scale-95 cursor-pointer",
+        "relative shrink-0 overflow-hidden border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-transform hover:scale-105 active:scale-95 cursor-pointer",
         sizeClasses,
         className,
       )}
@@ -765,14 +765,55 @@ export function ColorPickerContent({
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const maxHexLen = showAlpha ? 8 : 6;
+  const sanitizeHex = (s: string) =>
+    s.replace(/^#/, "").replace(/[^0-9A-Fa-f]/g, "").slice(0, maxHexLen);
+  const isCompleteHexLen = (n: number) => n === 3 || n === 4 || n === 6 || n === 8;
+
+  const commitHex = (raw: string) => {
+    const rgba = parseColorToRgba(`#${raw}`);
+    const newHsva = rgbaToHsva(rgba);
+    setHsva(newHsva);
+    onChange(rgbaToHex(rgba, showAlpha && newHsva.a < 1));
+  };
+
   const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.replace(/[^0-9A-Fa-f]/g, "").slice(0, showAlpha ? 8 : 6);
+    const raw = sanitizeHex(e.target.value);
     setHexInput(raw);
-    if (raw.length === 6 || raw.length === 3 || raw.length === 8) {
-      const rgba = parseColorToRgba(`#${raw}`);
-      const newHsva = rgbaToHsva(rgba);
-      setHsva(newHsva);
-      onChange(rgbaToHex(rgba, showAlpha && newHsva.a < 1));
+    // Only auto-commit once a FULL hex has been typed (6 digits, or 8 with
+    // alpha) — a 3/4-digit shorthand is valid too, but it's also just the
+    // first half of most 6-digit codes someone is still in the middle of
+    // typing. Committing right at 3 characters used to re-derive and
+    // rewrite the field mid-keystroke (the sync effect above pulls
+    // `hexInput` back from `value`), which is what made typing a hex code
+    // by hand feel like it was fighting/"auto-correcting" you. A
+    // deliberate shorthand still commits on blur or Enter (handleHexBlur).
+    if (raw.length === maxHexLen) {
+      commitHex(raw);
+    }
+  };
+
+  // Paste delivers the whole intended string in one go — unlike typing,
+  // there's no "still typing more characters" ambiguity, so a pasted
+  // 3/4-digit shorthand (or a full 6/8-digit code, with or without a
+  // leading #) commits immediately instead of waiting for blur.
+  const handleHexPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = sanitizeHex(e.clipboardData.getData("text"));
+    if (!pasted) return;
+    e.preventDefault();
+    setHexInput(pasted);
+    if (isCompleteHexLen(pasted.length)) commitHex(pasted);
+  };
+
+  // Typing a deliberate 3/4-digit shorthand and then clicking/tabbing away
+  // (or pressing Enter) commits it, same as it would if pasted. Anything
+  // left incomplete on blur reverts the field to the last committed color
+  // instead of leaving a half-typed value just sitting there unapplied.
+  const handleHexBlur = () => {
+    if (hexInput.length === 3 || hexInput.length === 4) {
+      commitHex(hexInput);
+    } else if (hexInput.length !== 6 && hexInput.length !== 8) {
+      setHexInput(rgbaToHex(hsvaToRgba(hsva), showAlpha).replace("#", ""));
     }
   };
 
@@ -853,9 +894,24 @@ export function ColorPickerContent({
             <span className="text-xs font-semibold text-muted-foreground">#</span>
             <input
               type="text"
+              inputMode="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
               value={hexInput.toUpperCase()}
               onChange={handleHexChange}
-              maxLength={showAlpha ? 8 : 6}
+              onPaste={handleHexPaste}
+              onBlur={handleHexBlur}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              // Generous headroom above the real 6/8-char limit — maxLength
+              // also caps how much of a PASTE the browser lets through
+              // before onPaste ever runs, and a pasted "#RRGGBB" string
+              // carries a leading '#' this field doesn't display (it's
+              // sanitized off in handleHexPaste), so the raw clipboard
+              // text is one character longer than the hex value itself.
+              maxLength={maxHexLen + 2}
               className="w-full bg-transparent font-mono text-xs font-semibold uppercase tracking-wider text-foreground outline-none"
             />
           </div>
@@ -1016,7 +1072,24 @@ export function ColorPicker({
   align = "start",
 }: ColorPickerProps) {
   const [open, setOpen] = useState(false);
-  const formattedHex = value && value.startsWith("#") ? value.toUpperCase() : (value || "#000000").toUpperCase();
+
+  // Local staging buffer for the quick-entry field below, decoupled from
+  // `value` while the user is actively typing — the old version bound the
+  // input straight to a `value`-derived string with no buffer, so e.g.
+  // clearing the field to type a fresh code round-tripped through
+  // `onChange("")` and immediately snapped back to "#000000" on the very
+  // next render (the empty string fell through formattedHex's `|| "#000000"`
+  // fallback), which is what made the field feel like it was rejecting/
+  // auto-correcting manual edits. Resyncs from `value` for changes that
+  // come from elsewhere (the popover's own wheel/sliders, a swatch, a
+  // different control entirely) — see the effect below.
+  const [hexDraft, setHexDraft] = useState(() => (value || "#000000").toUpperCase());
+  useEffect(() => {
+    setHexDraft((value || "#000000").toUpperCase());
+  }, [value]);
+
+  const sanitizeHex = (s: string) => s.trim().replace(/^#/, "").replace(/[^0-9A-Fa-f]/g, "").slice(0, 6);
+  const commitHex = (hex: string) => onChange(`#${hex}`);
 
   return (
     <div className={cn("inline-flex items-center gap-2", className)}>
@@ -1068,14 +1141,43 @@ export function ColorPicker({
       {showHex && (
         <input
           type="text"
-          value={formattedHex}
+          inputMode="text"
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          value={hexDraft}
           onChange={(e) => {
-            let v = e.target.value.trim();
-            if (v && !v.startsWith("#")) v = "#" + v;
-            onChange(v);
+            const cleaned = sanitizeHex(e.target.value);
+            setHexDraft(`#${cleaned.toUpperCase()}`);
+            // Only auto-commit at a full 6-digit hex — see the matching
+            // comment in ColorPickerContent's handleHexChange for why a
+            // 3-digit midpoint doesn't also trigger this while typing.
+            if (cleaned.length === 6) commitHex(cleaned);
+          }}
+          onPaste={(e) => {
+            const pasted = sanitizeHex(e.clipboardData.getData("text"));
+            if (!pasted) return;
+            e.preventDefault();
+            setHexDraft(`#${pasted.toUpperCase()}`);
+            if (pasted.length === 3 || pasted.length === 6) commitHex(pasted);
+          }}
+          onBlur={() => {
+            const cleaned = sanitizeHex(hexDraft);
+            if (cleaned.length === 3) {
+              commitHex(cleaned);
+            } else if (cleaned.length !== 6) {
+              setHexDraft((value || "#000000").toUpperCase());
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
           placeholder="#000000"
-          maxLength={7}
+          // Headroom above the real 6-char limit — maxLength also caps how
+          // much of a PASTE the browser lets through before onPaste ever
+          // runs, and a pasted "#RRGGBB" carries a leading '#' on top of
+          // the 6 real hex digits.
+          maxLength={9}
           className="w-24 rounded-full border border-border bg-input px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider text-foreground outline-none transition-colors focus:border-primary"
         />
       )}
