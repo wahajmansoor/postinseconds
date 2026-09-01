@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinIcon, Upload01Icon } from "hugeicons-react";
+import { GripHorizontal, Minimize2, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppTooltip, InfoTooltip } from "@/components/ui/tooltip";
 import { loadGoogleFont } from "@/lib/fontLoader";
@@ -64,7 +65,25 @@ export const MOBILE_TOOL_DRAWER_SNAP_POINTS: (number | string)[] = [
 // Resets to {0,0} whenever the popover closes (call `reset()` from
 // `onOpenChange`), so reopening it starts back at the normal anchored
 // position rather than wherever it was last dragged to.
-export function useDraggableOffset() {
+//
+// `persistKey`, when passed, remembers the offset in module-level memory
+// (outside React state entirely) keyed by that string, and seeds a future
+// mount's initial offset from it. Needed for ToolbarDragGrip specifically:
+// a selection toolbar (Shape/Text/Image/...) is a whole separate component
+// instance per selection, so clicking the canvas background to deselect
+// unmounts it — reselecting even the SAME layer moments later mounts a
+// brand new instance with fresh useState, silently discarding wherever the
+// toolbar had been dragged to (reported directly: drag the toolbar, click
+// the background, and it "reopens from top" instead of staying where it
+// was left). Keying by a fixed per-TOOLBAR-TYPE string (not a per-layer
+// id) means the remembered position is shared across every shape/text/
+// image toolbar of that type, which is the more useful behavior anyway —
+// "I dragged the toolbar out of the way" is a preference about screen
+// layout, not about that one specific layer. Every OTHER caller (every
+// popover opened from inside a toolbar) omits this and stays exactly as
+// ephemeral as before.
+const draggableOffsetMemory: Record<string, { x: number; y: number }> = {};
+export function useDraggableOffset(persistKey?: string) {
   // On mobile, FloatingDropdown renders these popovers as a draggable
   // bottom sheet instead of a freely-repositionable floating card (see its
   // own comment) — vaul owns the drag gesture there via listeners on the
@@ -73,15 +92,42 @@ export function useDraggableOffset() {
   // the same touch sequence vaul needs to recognize a peek/full/dismiss
   // swipe starting from this same DragHandle.
   const isMobile = useIsMobile();
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [offset, setOffsetState] = useState(() =>
+    persistKey && draggableOffsetMemory[persistKey] ? draggableOffsetMemory[persistKey] : { x: 0, y: 0 },
+  );
+  // Writes through to module-level memory (when persistKey is set) on
+  // every update, not just at drag-end — so even a mid-drag unmount (the
+  // toolbar can unmount for reasons other than the user releasing the
+  // pointer, e.g. undo/redo or a keyboard-driven deselect while dragging)
+  // still remembers wherever the toolbar had gotten to.
+  const setOffset = (next: { x: number; y: number }) => {
+    setOffsetState(next);
+    if (persistKey) draggableOffsetMemory[persistKey] = next;
+  };
   const dragRef = useRef<{ startX: number; startY: number; startOffsetX: number; startOffsetY: number } | null>(
     null,
   );
+  // Tracks whether the CURRENT/most recently finished gesture moved far
+  // enough to count as a real drag rather than a tap — needed for callers
+  // that put a real `onClick` on the same element this hook's own
+  // `dragHandleProps` are spread onto (MinimizedToolbarButton, notably).
+  // Native click-firing doesn't care how far the pointer traveled between
+  // down and up, only whether both landed on the same effective target —
+  // and `setPointerCapture` below keeps that target the SAME element
+  // throughout the whole gesture regardless of how far the pointer
+  // actually moved. So a genuine drag (confirmed directly: dragging the
+  // minimized toolbar icon a real distance) still fires a `click` right
+  // after, same as a stationary tap would — without this, that click
+  // immediately re-expanded the toolbar the instant every single drag
+  // ended. `hasMoved()` lets such a caller check this and skip acting on
+  // that spurious click.
+  const movedRef = useRef(false);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (isMobile) return;
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    movedRef.current = false;
     dragRef.current = { startX: e.clientX, startY: e.clientY, startOffsetX: offset.x, startOffsetY: offset.y };
   };
   const onPointerMove = (e: React.PointerEvent) => {
@@ -89,7 +135,12 @@ export function useDraggableOffset() {
     const d = dragRef.current;
     if (!d) return;
     e.stopPropagation();
-    setOffset({ x: d.startOffsetX + (e.clientX - d.startX), y: d.startOffsetY + (e.clientY - d.startY) });
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    // A few px of tolerance so a hand that isn't perfectly still during an
+    // intended tap doesn't get misread as a drag.
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) movedRef.current = true;
+    setOffset({ x: d.startOffsetX + dx, y: d.startOffsetY + dy });
   };
   const onPointerUp = (e: React.PointerEvent) => {
     if (isMobile) return;
@@ -100,6 +151,7 @@ export function useDraggableOffset() {
   return {
     offset,
     reset: () => setOffset({ x: 0, y: 0 }),
+    hasMoved: () => movedRef.current,
     dragHandleProps: {
       onPointerDown,
       onPointerMove,
@@ -203,6 +255,233 @@ export function DragHandle({
         ) : null}
       </div>
     </div>
+  );
+}
+
+// Small vertical grip at the very start of a floating SELECTION toolbar's
+// own row (Shape/Text/Image/Background, plus the three multi-selection
+// variants) — lets the whole toolbar itself be dragged out of the way when
+// it's sitting over something the user needs to see. Distinct from
+// DragHandle just above (which drags a POPOVER opened from one of the
+// toolbar's own buttons) and from each individual popover's own drag
+// offset — this is the toolbar row's own offset. Pass it the SAME
+// `dragHandleProps` useDraggableOffset() already returns; the caller
+// applies the matching `offset` as a `transform: translate(...)` on the
+// row itself. Offset naturally resets to {0,0} without any extra code
+// whenever the toolbar remounts (e.g. selecting a different layer swaps
+// in a fresh toolbar instance) — same "starts back at the normal position"
+// behavior useDraggableOffset's own popover usage already relies on.
+export function ToolbarDragGrip({
+  dragHandleProps,
+}: {
+  dragHandleProps: ReturnType<typeof useDraggableOffset>["dragHandleProps"];
+}) {
+  return (
+    <div
+      {...dragHandleProps}
+      data-nopan=""
+      title="Drag to move toolbar"
+      className="group flex h-8 w-6 shrink-0 cursor-grab items-center justify-center active:cursor-grabbing"
+      style={{ touchAction: "none" }}
+    >
+      <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-foreground" />
+    </div>
+  );
+}
+
+// Portals a floating selection toolbar's EXPANDED row to <body>, drawn
+// with `position: fixed` — same reasoning as MinimizedToolbarButton's own
+// portal (see its comment): the row's old in-flow `transform:
+// translate(...)` approach stays confined to whatever clips its ancestors
+// (the canvas viewport has several `overflow-hidden` layers for its own
+// clean edges, confirmed directly), so dragging it far enough toward the
+// left sidebar just clipped it at the canvas's own boundary before it
+// ever reached there — asked for directly ("I need this toolbar on top
+// of sidebar panel as well"). Also clamps the final position to stay
+// fully inside the viewport ("user can not drag it out of screen its
+// stop there") — an errant drag can't lose the toolbar off-screen where
+// there'd be no way to get it back.
+//
+// `anchorRef` is a tiny (1x1px), invisible placeholder the caller renders
+// in the row's OLD tree position — still inside the parent's own sticky/
+// centering wrapper, so that layout still resolves a sensible horizontal
+// center from it. Since a flex `justify-content: center` container always
+// centers a child at the same point regardless of that child's own size,
+// the anchor's own center lands exactly where the full-width row's own
+// center used to — this component then re-derives the row's natural
+// top-left from the anchor's center combined with the row's own (now
+// portaled) measured width, instead of needing the anchor to somehow be
+// full-sized itself. Desktop-only — `useIsMobile()` bails out to a plain
+// non-portaled render, since mobile's own bottom-dock layout (a
+// horizontally-scrollable bar, no floating positioning at all) has no use
+// for any of this.
+export function FloatingToolbarPortal({
+  anchorRef,
+  offset,
+  className,
+  style,
+  children,
+}: {
+  anchorRef: React.RefObject<HTMLElement | null>;
+  offset: { x: number; y: number };
+  className?: string;
+  style?: React.CSSProperties;
+  children: ReactNode;
+}) {
+  const isMobile = useIsMobile();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (isMobile) return;
+    const anchor = anchorRef.current;
+    const content = contentRef.current;
+    if (!anchor || !content) return;
+    const anchorBox = anchor.getBoundingClientRect();
+    const contentBox = content.getBoundingClientRect();
+    const centerX = anchorBox.left + anchorBox.width / 2;
+    const naturalLeft = centerX - contentBox.width / 2;
+    const naturalTop = anchorBox.top;
+    const margin = 8;
+    const maxLeft = Math.max(margin, window.innerWidth - contentBox.width - margin);
+    const maxTop = Math.max(margin, window.innerHeight - contentBox.height - margin);
+    const clampedLeft = Math.min(Math.max(naturalLeft + offset.x, margin), maxLeft);
+    const clampedTop = Math.min(Math.max(naturalTop + offset.y, margin), maxTop);
+    // No dependency array on purpose — the anchor's natural position can
+    // shift for reasons with no finite dependency list (canvas pan/zoom,
+    // sidebar toggling, window resize), so this re-measures every render.
+    // But that means it MUST bail out once the computed value stops
+    // changing, or committing a new `rect` object every render triggers
+    // another render forever — exactly the infinite
+    // `setState`-in-`useLayoutEffect` loop this caused before the guard.
+    setRect((prev) => (prev && prev.top === clampedTop && prev.left === clampedLeft ? prev : { top: clampedTop, left: clampedLeft }));
+  });
+
+  if (isMobile) {
+    return (
+      <div data-nopan="" data-keep-text-editing="" style={style} className={className}>
+        {children}
+      </div>
+    );
+  }
+
+  return createPortal(
+    <div
+      ref={contentRef}
+      data-nopan=""
+      data-keep-text-editing=""
+      style={{
+        ...style,
+        position: "fixed",
+        top: rect?.top ?? -9999,
+        left: rect?.left ?? -9999,
+        zIndex: 200,
+        visibility: rect ? "visible" : "hidden",
+      }}
+      className={className}
+    >
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+// Collapses a floating selection toolbar's full row down to just
+// MinimizedToolbarButton below — for when the row of controls is covering
+// something on the canvas the user needs to see but they're not done
+// editing yet (so don't want to fully deselect, which would lose the
+// selection and every popover's own state along with it). Rendered inline
+// in the toolbar's own row (next to ToolbarDragGrip); the caller owns the
+// actual `minimized` boolean and swaps its whole row for
+// MinimizedToolbarButton once this fires — any of the row's own popovers
+// left open closes as a natural side effect of that swap unmounting them,
+// which reads as expected ("minimizing closes any open panel") rather
+// than needing special handling to force them shut first.
+export function MinimizeToolbarButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      data-nopan=""
+      title="Minimize toolbar"
+      onClick={onClick}
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+    >
+      <Minimize2 className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+// The collapsed form a floating selection toolbar takes once
+// MinimizeToolbarButton above has been clicked — a single small round
+// button (a settings-gear glyph, the usual "more controls live here"
+// affordance) with a pulsing blue dot so it still visibly reads as "this
+// needs attention / something is selected" even collapsed down to nearly
+// nothing.
+//
+// Portaled straight to <body> and drawn with `position: fixed` — the
+// expanded toolbar's own in-flow `transform: translate(...)` approach
+// (ToolbarDragGrip) stays confined to whatever clips ITS ancestors
+// (several up the tree have `overflow-hidden` for the canvas viewport's
+// own clean edges — confirmed directly), which is fine for the expanded
+// row since it's only ever dragged short distances near the selection,
+// but the whole point of minimizing is to tuck this out of the way
+// ANYWHERE on screen (asked for directly: "always on top and move in
+// whole screen anywhere") — a portal is what actually escapes that
+// clipping and any ancestor stacking context, the same technique
+// FloatingDropdown already uses for popovers.
+//
+// `baseTop`/`baseLeft` are the toolbar's own screen position at the
+// instant it was minimized (the caller captures this via the same rowRef/
+// getBoundingClientRect() pattern the "detached" ghost-clone case already
+// relies on) — `offset` (this toolbar's OWN useDraggableOffset(), reset to
+// {0,0} right when minimizing happens) is purely the drag SINCE then, so
+// dragging this icon moves it from wherever it appeared, not from some
+// unrelated origin. A plain tap (no real movement) expands back to the
+// full row via `onClick` — same "a click still fires normally after a
+// drag gesture with no movement" behavior every other draggable control
+// in this file already relies on. Expanding resets the offset back to
+// {0,0} too (see the caller), so the full toolbar reappears docked at its
+// normal position above the selection rather than trying to track this
+// icon's last dragged spot — the wide row wouldn't necessarily fit
+// wherever the small icon was left, so re-docking is the more useful
+// default (the same choice restoring a minimized OS window makes, rather
+// than trying to preserve the taskbar icon's own position).
+export function MinimizedToolbarButton({
+  baseTop,
+  baseLeft,
+  offset,
+  dragHandleProps,
+  onClick,
+}: {
+  baseTop: number;
+  baseLeft: number;
+  offset: { x: number; y: number };
+  dragHandleProps: ReturnType<typeof useDraggableOffset>["dragHandleProps"];
+  onClick: () => void;
+}) {
+  return createPortal(
+    <button
+      type="button"
+      {...dragHandleProps}
+      data-nopan=""
+      title="Expand toolbar"
+      onClick={onClick}
+      style={{
+        position: "fixed",
+        top: baseTop + offset.y,
+        left: baseLeft + offset.x,
+        touchAction: "none",
+        zIndex: 200,
+      }}
+      className="flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] backdrop-blur-xl transition-transform active:scale-95 active:cursor-grabbing"
+    >
+      <Settings2 className="h-4 w-4" />
+      <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-500 opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+      </span>
+    </button>,
+    document.body,
   );
 }
 

@@ -240,6 +240,7 @@ function getHandleVisualStyle(h: (typeof HANDLE_POSITIONS)[number], scale: numbe
     transform: "translate(-50%, -50%)",
     ...dims,
     boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+    border: "1.5px solid #e2e8f0",
   };
 }
 
@@ -6186,6 +6187,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                                   width: lineEndpointDotPx,
                                   height: lineEndpointDotPx,
                                   boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                  border: "1.5px solid #e2e8f0",
                                 }}
                               />
                             </div>
@@ -6397,6 +6399,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                                   width: lineEndpointDotPx,
                                   height: lineEndpointDotPx,
                                   boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                  border: "1.5px solid #e2e8f0",
                                 }}
                               />
                             </div>
@@ -6512,6 +6515,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                                     width: lineEndpointDotPx,
                                     height: lineEndpointDotPx,
                                     boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                    border: "1.5px solid #e2e8f0",
                                   }}
                                 />
                               </div>
@@ -6713,6 +6717,7 @@ const DraggableShapeLayer = memo(function DraggableShapeLayer({
                                           width: (isVert ? 10 : 22) * invScale,
                                           height: (isVert ? 22 : 10) * invScale,
                                           boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
+                                          border: "1.5px solid #e2e8f0",
                                         }}
                                       />
                                     </div>

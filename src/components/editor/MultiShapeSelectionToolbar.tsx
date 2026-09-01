@@ -25,8 +25,12 @@ import {
   DragHandle,
   Field,
   FloatingDropdown,
+  FloatingToolbarPortal,
   Range,
   TextInput,
+  MinimizedToolbarButton,
+  MinimizeToolbarButton,
+  ToolbarDragGrip,
   useDraggableOffset,
   useStableAnchor,
 } from "./ui";
@@ -109,6 +113,12 @@ export function MultiShapeSelectionToolbar({
   // then applies both to every selected shape via the same onUpdateAll.
   const [ratioLocked, setRatioLocked] = useState(false);
 
+  // The toolbar row's own drag offset — see ToolbarDragGrip's own comment
+  // in ui.tsx.
+  const toolbarDrag = useDraggableOffset("multi-shape-toolbar");
+  const [minimized, setMinimized] = useState(false);
+  // See minimizeBaseRef's own comment in ShapeSelectionToolbar.tsx.
+  const minimizeBaseRef = useRef({ top: 0, left: 0 });
   const colorDrag = useDraggableOffset();
   const opacityDrag = useDraggableOffset();
   const strokeWidthDrag = useDraggableOffset();
@@ -217,24 +227,42 @@ export function MultiShapeSelectionToolbar({
   const alignBtnClass =
     "flex h-9 flex-1 items-center justify-center rounded-xl border border-border/60 bg-secondary/40 text-foreground transition-colors hover:border-primary hover:text-primary";
 
-  return (
-    <div
-      ref={rowRef}
-      data-nopan=""
-      data-keep-text-editing=""
-      style={
-        detached
-          ? {
-            position: "fixed",
-            top: lastLiveRectRef.current?.top ?? 0,
-            left: lastLiveRectRef.current?.left ?? 0,
-            visibility: "hidden",
-            pointerEvents: "none",
+  // Collapsed form — see MinimizedToolbarButton's own comment in ui.tsx.
+  if (minimized && !detached) {
+    return (
+      <MinimizedToolbarButton
+        baseTop={minimizeBaseRef.current.top}
+        baseLeft={minimizeBaseRef.current.left}
+        offset={toolbarDrag.offset}
+        dragHandleProps={toolbarDrag.dragHandleProps}
+        onClick={() => {
+          // A real drag ending here should NOT also re-expand — see
+          // hasMoved()'s own comment in useDraggableOffset.
+          if (toolbarDrag.hasMoved()) return;
+          toolbarDrag.reset();
+          setMinimized(false);
+        }}
+      />
+    );
+  }
+
+  const TOOLBAR_CLASS =
+    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-[0_8px_24px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.06)] md:dark:shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] md:backdrop-blur-xl";
+
+  const rowContent = (
+    <>
+      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+      <MinimizeToolbarButton
+        onClick={() => {
+          if (rowRef.current) {
+            const r = rowRef.current.getBoundingClientRect();
+            minimizeBaseRef.current = { top: r.top, left: r.left };
           }
-          : undefined
-      }
-      className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
-    >
+          toolbarDrag.reset();
+          setMinimized(true);
+        }}
+      />
+
       <span className="shrink-0 px-1.5 text-xs font-semibold text-muted-foreground">
         {layers.length} Shapes Selected
       </span>
@@ -1070,6 +1098,35 @@ export function MultiShapeSelectionToolbar({
           </button>
         </AppTooltip>
       ) : null}
-    </div>
+    </>
+  );
+
+  if (detached) {
+    return (
+      <div
+        ref={rowRef}
+        data-nopan=""
+        data-keep-text-editing=""
+        style={{
+          position: "fixed",
+          top: lastLiveRectRef.current?.top ?? 0,
+          left: lastLiveRectRef.current?.left ?? 0,
+          visibility: "hidden",
+          pointerEvents: "none",
+        }}
+        className={TOOLBAR_CLASS}
+      >
+        {rowContent}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div ref={rowRef} style={{ width: 1, height: 1 }} />
+      <FloatingToolbarPortal anchorRef={rowRef} offset={toolbarDrag.offset} className={TOOLBAR_CLASS}>
+        {rowContent}
+      </FloatingToolbarPortal>
+    </>
   );
 }

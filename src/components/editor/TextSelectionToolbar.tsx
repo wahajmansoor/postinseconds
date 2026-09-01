@@ -31,7 +31,7 @@ import { AppTooltip } from "@/components/ui/tooltip";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
 import { FONTS, getAvailableFontWeights, normalizeColorToHex, type TextLayer } from "./types";
-import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
+import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, FloatingToolbarPortal, MinimizedToolbarButton, MinimizeToolbarButton, ToolbarDragGrip, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
 
 // Canva-style top-docked toolbar: appears the instant a single free-floating
 // text layer is selected (a plain click — well before, or entirely without,
@@ -93,6 +93,12 @@ export function TextSelectionToolbar({
   const isMobile = useIsMobile();
   const [spacingOpen, setSpacingOpen] = useState(false);
   const [spacingPinned, setSpacingPinned] = useState(false);
+  // The toolbar row's own drag offset — see ToolbarDragGrip's own comment
+  // in ui.tsx.
+  const toolbarDrag = useDraggableOffset("text-toolbar");
+  const [minimized, setMinimized] = useState(false);
+  // See minimizeBaseRef's own comment in ShapeSelectionToolbar.tsx.
+  const minimizeBaseRef = useRef({ top: 0, left: 0 });
   const spacingDrag = useDraggableOffset();
   const spacingTriggerRef = useRef<HTMLButtonElement>(null);
   const spacingAnchor = useStableAnchor(spacingOpen, spacingTriggerRef);
@@ -708,22 +714,42 @@ export function TextSelectionToolbar({
     );
   }
 
-  return (
-    <div
-      ref={rowRef}
-      style={
-        detached
-          ? {
-            position: "fixed",
-            top: lastLiveRectRef.current?.top ?? 0,
-            left: lastLiveRectRef.current?.left ?? 0,
-            visibility: "hidden",
-            pointerEvents: "none",
+  // Collapsed form — see MinimizedToolbarButton's own comment in ui.tsx.
+  if (minimized && !detached) {
+    return (
+      <MinimizedToolbarButton
+        baseTop={minimizeBaseRef.current.top}
+        baseLeft={minimizeBaseRef.current.left}
+        offset={toolbarDrag.offset}
+        dragHandleProps={toolbarDrag.dragHandleProps}
+        onClick={() => {
+          // A real drag ending here should NOT also re-expand — see
+          // hasMoved()'s own comment in useDraggableOffset.
+          if (toolbarDrag.hasMoved()) return;
+          toolbarDrag.reset();
+          setMinimized(false);
+        }}
+      />
+    );
+  }
+
+  const TOOLBAR_CLASS =
+    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-[0_8px_24px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.06)] md:dark:shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] md:backdrop-blur-xl";
+
+  const rowContent = (
+    <>
+      <ToolbarDragGrip dragHandleProps={toolbarDrag.dragHandleProps} />
+      <MinimizeToolbarButton
+        onClick={() => {
+          if (rowRef.current) {
+            const r = rowRef.current.getBoundingClientRect();
+            minimizeBaseRef.current = { top: r.top, left: r.left };
           }
-          : undefined
-      }
-      className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-2xl md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-2xl md:backdrop-blur-md"
-    >
+          toolbarDrag.reset();
+          setMinimized(true);
+        }}
+      />
+
       <AppTooltip content="Text font">
         <button
           ref={fontTriggerRef}
@@ -1312,6 +1338,33 @@ export function TextSelectionToolbar({
           </FloatingDropdown>
         </>
       ) : null}
-    </div>
+    </>
+  );
+
+  if (detached) {
+    return (
+      <div
+        ref={rowRef}
+        style={{
+          position: "fixed",
+          top: lastLiveRectRef.current?.top ?? 0,
+          left: lastLiveRectRef.current?.left ?? 0,
+          visibility: "hidden",
+          pointerEvents: "none",
+        }}
+        className={TOOLBAR_CLASS}
+      >
+        {rowContent}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div ref={rowRef} style={{ width: 1, height: 1 }} />
+      <FloatingToolbarPortal anchorRef={rowRef} offset={toolbarDrag.offset} className={TOOLBAR_CLASS}>
+        {rowContent}
+      </FloatingToolbarPortal>
+    </>
   );
 }
