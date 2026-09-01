@@ -199,10 +199,11 @@ export function rgbaToHex({ r, g, b, a }: RGBA, includeAlpha = false): string {
 }
 
 // HeroUI Color Palettes
-// A 24-color, 6-per-row default palette (renders as 4 rows via
-// ColorSwatchPicker's grid-cols-6) — picked to match a reference "Default
-// solid colors" grid: one grayscale ramp, then three rows sweeping through
-// warm/cool hue families, each row itself running light-to-dark.
+// A 24-color default palette (ColorSwatchPicker flattens every family into
+// one continuous grid-cols-9 grid, so this renders as ~3 rows of 9, not one
+// row per family) — picked to match a reference "Default solid colors"
+// grid: one grayscale ramp, then three families sweeping through warm/cool
+// hues, each family itself running light-to-dark.
 export const HEROUI_PALETTES = [
   {
     name: "Grayscale",
@@ -465,47 +466,53 @@ export function ColorSwatchPicker({
 }) {
   const normalizedValue = value.toUpperCase();
 
+  // Flattened into ONE continuous grid across every palette (not one
+  // grid-per-palette, each stopping short at its own family's color
+  // count) so every row — mobile and desktop alike, there's no
+  // responsive column-count split here — fills out to a full 9 swatches
+  // before wrapping, instead of each 6-color family row ending with the
+  // row half-empty. Swatches still carry their originating family name in
+  // the tooltip; only the layout grouping (one row per family) is gone,
+  // not the family info itself.
+  const allSwatches = palettes.flatMap((palette) => palette.colors.map((c) => ({ paletteName: palette.name, color: c })));
+
   return (
     <div className="flex flex-col gap-2 pt-1">
       <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
         <span>Presets</span>
       </div>
-      <div className="flex flex-col gap-2">
-        {palettes.map((palette) => (
-          // grid + aspect-square (not the earlier flex-1/rounded-full pill
-          // attempt) — same square-swatch treatment as GradientSwatchGrid,
-          // each swatch exactly filling its own grid track so the gap
-          // between them can't get squeezed out by a fixed pixel size.
-          <div key={palette.name} className="grid grid-cols-6 gap-1.5">
-            {palette.colors.map((c) => {
-              const isSelected = normalizedValue === c.toUpperCase();
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => onChange(c)}
-                  title={`${palette.name}: ${c}`}
+      {/* grid + aspect-square (not the earlier flex-1/rounded-full pill
+          attempt) — same square-swatch treatment as GradientSwatchGrid,
+          each swatch exactly filling its own grid track so the gap
+          between them can't get squeezed out by a fixed pixel size. */}
+      <div className="grid grid-cols-9 gap-1.5">
+        {allSwatches.map(({ paletteName, color: c }) => {
+          const isSelected = normalizedValue === c.toUpperCase();
+          return (
+            <button
+              key={`${paletteName}-${c}`}
+              type="button"
+              onClick={() => onChange(c)}
+              title={`${paletteName}: ${c}`}
+              className={cn(
+                "relative flex aspect-square w-full items-center justify-center rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-all hover:scale-105 active:scale-95",
+                isSelected && "ring-2 ring-primary ring-offset-1 dark:ring-offset-black scale-105",
+              )}
+              style={{ backgroundColor: c }}
+            >
+              {isSelected && (
+                <Check
+                  size={12}
                   className={cn(
-                    "relative flex aspect-square w-full items-center justify-center rounded-[5px] border-none shadow-[inset_0_0_0_1px_rgba(255,255,255,0.125)] transition-all hover:scale-105 active:scale-95",
-                    isSelected && "ring-2 ring-primary ring-offset-1 dark:ring-offset-black scale-105",
+                    c.toUpperCase() === "#FFFFFF" || c.toUpperCase() === "#F1F5F9" || c.toUpperCase() === "#E2E8F0"
+                      ? "text-black"
+                      : "text-white",
                   )}
-                  style={{ backgroundColor: c }}
-                >
-                  {isSelected && (
-                    <Check
-                      size={12}
-                      className={cn(
-                        c.toUpperCase() === "#FFFFFF" || c.toUpperCase() === "#F1F5F9" || c.toUpperCase() === "#E2E8F0"
-                          ? "text-black"
-                          : "text-white",
-                      )}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        ))}
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
