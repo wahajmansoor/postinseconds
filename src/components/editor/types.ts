@@ -2382,7 +2382,7 @@ function buildQuoteCardLayers(opts: {
 const DEFAULT_QUOTE_TEXT = "The best way to predict the future is to create it.";
 const DEFAULT_NAME_TEXT = "Jasmin (Jay) Alić";
 const DEFAULT_TAGLINE_TEXT = "Building the best brands & businesses on LinkedIn™";
-const DEFAULT_AVATAR_SRC = "/defult-img.jpg";
+const DEFAULT_AVATAR_SRC = "/default-img.png";
 const DEFAULT_CANVAS_WIDTH = 1200;
 const DEFAULT_CANVAS_HEIGHT = 1500;
 

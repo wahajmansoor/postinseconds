@@ -3889,8 +3889,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         }
         if (foundFonts.size > 1) {
           activeFont = "multiple";
-        } else if (foundFonts.size === 1) {
-          activeFont = Array.from(foundFonts)[0];
+        } else {
+          activeFont = t.fontFamily;
         }
 
         const colorElements = tmp.querySelectorAll<HTMLElement>("[style*='color']");
@@ -4196,8 +4196,17 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
   const setFontFamily = (v: string) => {
     loadGoogleFont(v);
-    const hasHighlight = hasLiveSelection() || (!!selectionSnapshotRef.current?.charOffsets && selectionSnapshotRef.current.charOffsets.start !== selectionSnapshotRef.current.charOffsets.end);
-    if (hasHighlight) {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    const isLive = hasLiveSelection() && sel && !sel.isCollapsed;
+    const isSubRange =
+      isLive &&
+      selectionSnapshotRef.current?.charOffsets &&
+      !(
+        selectionSnapshotRef.current.charOffsets.start === 0 &&
+        selectionSnapshotRef.current.charOffsets.end >= (t.text?.length || 0)
+      );
+
+    if (isSubRange) {
       applyStyleSmart({ fontFamily: v }, { fontFamily: v });
     } else {
       const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["font-family"]) : undefined;
@@ -4216,12 +4225,13 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         lastEmittedHtmlRef.current = cleanHtml;
         editSnapshotRef.current = cleanHtml;
       }
+      t.fontFamily = v;
       update({
         fontFamily: v,
         ...(cleanHtml !== undefined ? { html: cleanHtml } : {}),
       });
     }
-    setTimeout(notifyActiveFormat, 0);
+    notifyActiveFormat();
   };
 
   const setSize = (v: number) => {
@@ -4237,8 +4247,17 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     });
   };
   const setColor = (v: string) => {
-    const hasHighlight = hasLiveSelection() || (!!selectionSnapshotRef.current?.charOffsets && selectionSnapshotRef.current.charOffsets.start !== selectionSnapshotRef.current.charOffsets.end);
-    if (hasHighlight) {
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    const isLive = hasLiveSelection() && sel && !sel.isCollapsed;
+    const isSubRange =
+      isLive &&
+      selectionSnapshotRef.current?.charOffsets &&
+      !(
+        selectionSnapshotRef.current.charOffsets.start === 0 &&
+        selectionSnapshotRef.current.charOffsets.end >= (t.text?.length || 0)
+      );
+
+    if (isSubRange) {
       applyStyleSmart({ color: v }, { color: v });
     } else {
       const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["color"]) : undefined;

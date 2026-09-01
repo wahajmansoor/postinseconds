@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Network } from "@capacitor/network";
-import { WifiOff01Icon, ReloadIcon } from "hugeicons-react";
+import { WifiOff01Icon, FingerAccessIcon } from "hugeicons-react";
 
 // Wraps the whole app: shows a full-screen "you're offline" takeover the
 // instant connectivity drops, and drops away again the moment it's back —
@@ -70,9 +70,9 @@ function OfflineScreen() {
         onClick={() => window.location.reload()}
         className="group inline-flex items-center gap-2 rounded-2xl bg-[image:var(--gradient-brand)] px-6 py-3 text-sm font-bold text-white shadow-[var(--shadow-glow)] transition-transform hover:scale-105 active:scale-95"
       >
-        <ReloadIcon
+        <FingerAccessIcon
           size={16}
-          className="transition-transform duration-500 group-hover:rotate-180"
+          className="transition-transform duration-300 group-hover:scale-110"
         />
         Reload App
       </button>

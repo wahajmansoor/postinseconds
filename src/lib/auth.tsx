@@ -341,7 +341,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name:
         profile?.full_name || meta.full_name || meta.name || sbUser.email?.split("@")[0] || "User",
       email: sbUser.email || "",
-      avatar: profile?.avatar_url || meta.avatar_url || meta.picture || "/defult-img.jpg",
+      avatar: profile?.avatar_url || meta.avatar_url || meta.picture || "/default-img.png",
       role,
     };
 

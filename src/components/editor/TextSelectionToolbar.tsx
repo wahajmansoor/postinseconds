@@ -32,6 +32,7 @@ import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
 import {
   FONTS,
+  cleanFontFamily,
   findFontOption,
   fontFamilyToLabel,
   getAvailableFontWeights,
@@ -160,7 +161,35 @@ export function TextSelectionToolbar({
   // QuoteCanvas.tsx. Re-subscribes whenever `handle` itself changes (i.e.
   // the selected layer changed), which also pushes that new layer's
   // current format immediately.
-  const [activeFormat, setActiveFormat] = useState<LiveTextFormat>(() => handle.getActiveFormat());
+  const [activeFormat, setActiveFormat] = useState<LiveTextFormat>(() => {
+    try {
+      return handle?.getActiveFormat?.() ?? {
+        bold: layer.weight >= 700,
+        italic: !!layer.italic,
+        underline: !!layer.underline,
+        strike: !!layer.strike,
+        uppercase: !!layer.uppercase,
+        fontFamily: layer.fontFamily,
+        weight: layer.weight,
+        color: layer.color,
+        bulletList: false,
+        numberedList: false,
+      };
+    } catch {
+      return {
+        bold: layer.weight >= 700,
+        italic: !!layer.italic,
+        underline: !!layer.underline,
+        strike: !!layer.strike,
+        uppercase: !!layer.uppercase,
+        fontFamily: layer.fontFamily,
+        weight: layer.weight,
+        color: layer.color,
+        bulletList: false,
+        numberedList: false,
+      };
+    }
+  });
   const [optimisticFont, setOptimisticFont] = useState<string | null>(null);
   const [optimisticColor, setOptimisticColor] = useState<string | null>(null);
 
@@ -170,14 +199,26 @@ export function TextSelectionToolbar({
   }, [layer.id]);
 
   useEffect(() => {
-    setOptimisticFont(null);
-  }, [layer.fontFamily]);
-
-  useEffect(() => {
-    setOptimisticColor(null);
-  }, [layer.color]);
-
-  useEffect(() => handle.subscribeActiveFormat(setActiveFormat), [handle]);
+    if (!handle?.subscribeActiveFormat) return;
+    const unsub = handle.subscribeActiveFormat((fmt) => {
+      setActiveFormat((prev) => {
+        if (
+          prev.bold === fmt.bold &&
+          prev.italic === fmt.italic &&
+          prev.underline === fmt.underline &&
+          prev.strike === fmt.strike &&
+          prev.uppercase === fmt.uppercase &&
+          prev.fontFamily === fmt.fontFamily &&
+          prev.weight === fmt.weight &&
+          prev.color === fmt.color
+        ) {
+          return prev;
+        }
+        return fmt;
+      });
+    });
+    return unsub;
+  }, [handle]);
 
   const handleSetFontFamily = useCallback(
     (v: string) => {
@@ -206,47 +247,22 @@ export function TextSelectionToolbar({
     if (activeFormat.fontFamily === "multiple") {
       return "Mixed Font";
     }
+
     const fontPool = getFontPool(fontCatalog);
-    const targetFont = (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily;
+    const targetFont = (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple")
+      ? activeFormat.fontFamily
+      : layer.fontFamily;
+
     if (targetFont) {
       const match = findFontOption(fontPool, targetFont);
       if (match) return match.label;
-    }
-
-    if (layer.html && typeof document !== "undefined") {
-      try {
-        const tmp = document.createElement("div");
-        tmp.innerHTML = layer.html;
-        const fontSpans = tmp.querySelectorAll<HTMLElement>("[style*='font-family']");
-        const fontsInHtml = new Set<string>();
-        let totalSpanTextLen = 0;
-        fontSpans.forEach((s) => {
-          const ff = s.style.fontFamily;
-          if (ff) {
-            const primary = ff.split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase();
-            if (primary) fontsInHtml.add(primary);
-          }
-          totalSpanTextLen += s.textContent?.length || 0;
-        });
-        const totalTextLen = tmp.textContent?.length || 0;
-        const basePrimary = (layer.fontFamily || "").split(",")[0]?.replace(/['"]/g, "").trim().toLowerCase() || "";
-        if (totalTextLen > totalSpanTextLen && basePrimary) {
-          fontsInHtml.add(basePrimary);
-        }
-        if (fontsInHtml.size > 1) {
-          return "Mixed Font";
-        }
-        if (fontsInHtml.size === 1) {
-          const singleFont = Array.from(fontsInHtml)[0];
-          const match = findFontOption(fontPool, singleFont);
-          if (match) return match.label;
-        }
-      } catch {}
+      const clean = cleanFontFamily(targetFont);
+      if (clean) return clean;
     }
 
     const match = findFontOption(fontPool, layer.fontFamily);
     return match?.label ?? fontFamilyToLabel(layer.fontFamily);
-  }, [optimisticFont, activeFormat.fontFamily, layer.fontFamily, layer.html, fontCatalog]);
+  }, [optimisticFont, activeFormat.fontFamily, layer.fontFamily, fontCatalog]);
 
   const currentColors = useMemo((): string[] => {
     if (optimisticColor) {

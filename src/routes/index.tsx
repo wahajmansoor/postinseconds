@@ -28,6 +28,7 @@ import {
   CloudIcon,
   Delete02Icon,
   Download01Icon,
+  FingerAccessIcon,
   ImageUploadIcon,
   MinusSignIcon,
   Moon02Icon,
@@ -2812,21 +2813,13 @@ function Index() {
         underline: !!selectedTextLayer.underline,
         strike: !!selectedTextLayer.strike,
         uppercase: !!selectedTextLayer.uppercase,
+        fontFamily: selectedTextLayer.fontFamily,
+        weight: selectedTextLayer.weight,
+        color: selectedTextLayer.color,
         bulletList: false,
         numberedList: false,
       }),
-      subscribeActiveFormat: (cb) => {
-        cb({
-          bold: selectedTextLayer.weight >= 700,
-          italic: !!selectedTextLayer.italic,
-          underline: !!selectedTextLayer.underline,
-          strike: !!selectedTextLayer.strike,
-          uppercase: !!selectedTextLayer.uppercase,
-          bulletList: false,
-          numberedList: false,
-        });
-        return () => { };
-      },
+      subscribeActiveFormat: () => () => {},
       startEditing: () => { },
     };
   }, [selectedTextLayer, s, set]);
@@ -3233,7 +3226,7 @@ function Index() {
     ? getTextLayers(s).find((t) => t.id === pinnedOwners.text)
     : undefined;
   const pinnedTextLayerHandle = pinnedTextLayer
-    ? textLayerHandlesRef.current.get(pinnedTextLayer.id)
+    ? textLayerHandlesRef.current.get(pinnedTextLayer.id) || fallbackTextHandle
     : undefined;
   const pinnedImageLayer = imageDetached
     ? getImageLayers(s).find((img) => img.id === pinnedOwners.image)
@@ -4901,7 +4894,7 @@ function Index() {
                       onClick={() => setResetCanvasConfirmOpen(true)}
                       className="flex h-7 items-center gap-1 rounded-full border-destructive/30 bg-gradient-to-b from-destructive/10 to-destructive/5 px-2 py-0 text-xs text-destructive hover:border-destructive/50 hover:from-destructive/15 hover:to-destructive/10 hover:text-destructive"
                     >
-                      <CleanIcon size={16} /> Reset
+                      <FingerAccessIcon size={16} /> Reset
                     </Chip>
                   </AppTooltip>
 
@@ -5073,7 +5066,7 @@ function Index() {
           canvasWidth={s.width}
           canvasHeight={s.height}
           userName={user?.name || "You"}
-          userAvatar={user?.avatar || "/defult-img.jpg"}
+          userAvatar={user?.avatar || "/default-img.png"}
           s={s}
           set={set}
           // onDone is a no-op — unlike the plain Export Preview dialog,
@@ -5090,7 +5083,7 @@ function Index() {
           }}
           imageUrl={profilePreviewUrl}
           userName={user?.name || "You"}
-          userAvatar={user?.avatar || "/defult-img.jpg"}
+          userAvatar={user?.avatar || "/default-img.png"}
           s={s}
           set={set}
           onDownload={() => confirmDownload({ sourceUrl: profilePreviewUrl, onDone: () => { } })}
@@ -5240,7 +5233,7 @@ function Index() {
             <DialogHeader>
               <div className="flex items-center gap-3">
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-destructive/10 text-destructive shadow-sm">
-                  <CleanIcon size={20} />
+                  <FingerAccessIcon size={20} />
                 </span>
                 <div>
                   <DialogTitle className="text-base font-bold text-foreground">
@@ -5274,7 +5267,7 @@ function Index() {
                 }}
                 className="flex items-center gap-1.5 rounded-xl bg-destructive px-4 py-2 text-xs font-semibold text-destructive-foreground shadow-md transition-all hover:bg-destructive/90 active:scale-95"
               >
-                <CleanIcon size={14} />
+                <FingerAccessIcon size={14} />
                 <span>Reset Everything</span>
               </button>
             </div>

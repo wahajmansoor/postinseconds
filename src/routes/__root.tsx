@@ -9,7 +9,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { StatusBar } from "@capacitor/status-bar";
-import { Alert02Icon, ReloadIcon } from "hugeicons-react";
+import { Alert02Icon, FingerAccessIcon } from "hugeicons-react";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "../components/ui/sonner";
@@ -65,11 +65,11 @@ function ErrorComponent({ error }: { error: Error; reset: () => void }) {
             onClick={() => window.location.reload()}
             className="group inline-flex items-center gap-2 rounded-2xl bg-[image:var(--gradient-brand)] px-6 py-3 text-sm font-bold text-white shadow-[var(--shadow-glow)] transition-transform hover:scale-105 active:scale-95"
           >
-            <ReloadIcon
+            <FingerAccessIcon
               size={16}
-              className="transition-transform duration-500 group-hover:rotate-180"
+              className="transition-transform duration-300 group-hover:scale-110"
             />
-            Refresh Page
+            Reload Page
           </button>
         </div>
       </div>

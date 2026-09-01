@@ -1374,6 +1374,9 @@ export function LeftPanel({
 
     const updateActiveLayer = (patch: Partial<Omit<TextLayer, "id">>) => {
       if (!activeTextLayer) return;
+      if (patch.fontFamily) {
+        loadGoogleFont(patch.fontFamily);
+      }
       set("texts", (_, prevS) => withTextUpdated(prevS, activeTextLayer.id, patch));
     };
 
