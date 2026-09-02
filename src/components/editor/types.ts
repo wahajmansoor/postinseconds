@@ -630,6 +630,9 @@ export type FontOption = {
   value: string;
   category?: "sans" | "serif" | "mono" | "display" | "handwriting";
   weights?: number[];
+  /** True for a user-uploaded custom font (see lib/customFonts.ts) — lets a
+   * picker badge it and sort it ahead of the Google Fonts catalog. */
+  isCustom?: boolean;
 };
 
 export const ALL_FONT_WEIGHTS = [
@@ -711,10 +714,11 @@ export const FONTS: FontOption[] = [
 export function getAvailableFontWeights(
   fontFamily?: string,
   extraCatalog?: FontOption[] | null,
+  customFonts?: FontOption[] | null,
 ): { label: string; value: number }[] {
   if (!fontFamily) return ALL_FONT_WEIGHTS;
   const clean = fontFamily.replace(/['"]/g, "").split(",")[0]?.trim().toLowerCase();
-  const pool = extraCatalog && extraCatalog.length > 0 ? FONTS.concat(extraCatalog) : FONTS;
+  const pool = getFontPool(extraCatalog, customFonts);
   const found = pool.find((f) => {
     const fClean = f.value.replace(/['"]/g, "").split(",")[0]?.trim().toLowerCase();
     return fClean === clean || f.label.toLowerCase() === clean;
@@ -775,9 +779,13 @@ export async function loadGoogleFontsCatalog(): Promise<FontOption[]> {
 
 // The curated FONTS plus (once loaded) the full Google Fonts catalog, as
 // one deduped pool — every font picker's "what font is this value?" lookup
-// and its search box both read from this same combined list.
-export function getFontPool(catalog?: FontOption[] | null): FontOption[] {
-  return catalog && catalog.length > 0 ? FONTS.concat(catalog) : FONTS;
+// and its search box both read from this same combined list. `customFonts`
+// (see lib/customFonts.ts) go first so a name collision with a Google Font
+// resolves to the user's own upload — findFontOption/searchAllFonts below
+// both do a plain linear scan, so whichever list comes first wins ties.
+export function getFontPool(catalog?: FontOption[] | null, customFonts?: FontOption[] | null): FontOption[] {
+  const withCustom = customFonts && customFonts.length > 0 ? customFonts.concat(FONTS) : FONTS;
+  return catalog && catalog.length > 0 ? withCustom.concat(catalog) : withCustom;
 }
 
 // Shared search/browse behavior for every font picker in the app —
@@ -789,18 +797,26 @@ export function getFontPool(catalog?: FontOption[] | null): FontOption[] {
 // render the (potentially ~1,900-long) result with per-row lazy preview
 // loading — see FontRow in ui.tsx — rather than eagerly fetching a
 // stylesheet for every row up front.
-export function searchAllFonts(query: string, catalog?: FontOption[] | null): FontOption[] {
+export function searchAllFonts(
+  query: string,
+  catalog?: FontOption[] | null,
+  customFonts?: FontOption[] | null,
+): FontOption[] {
   const q = query.trim().toLowerCase();
   const seen = new Set<string>();
   const results: FontOption[] = [];
-  for (const f of getFontPool(catalog)) {
+  for (const f of getFontPool(catalog, customFonts)) {
     const key = f.label.toLowerCase();
     if (seen.has(key)) continue;
     if (q && !key.includes(q)) continue;
     seen.add(key);
     results.push(f);
   }
-  results.sort((a, b) => a.label.localeCompare(b.label));
+  // Custom (user-uploaded) fonts sort as their own group ahead of
+  // everything else, alphabetical within each group — they're the ones the
+  // user went out of their way to add, so they shouldn't get lost
+  // alphabetically inside an 1,800+ entry Google Fonts list.
+  results.sort((a, b) => Number(Boolean(b.isCustom)) - Number(Boolean(a.isCustom)) || a.label.localeCompare(b.label));
   return results;
 }
 
@@ -881,7 +897,6 @@ export type FrameKind =
   | "arrow-chevron-right"
   | "ribbon-horizontal"
   | "hexagon-horizontal-pill"
-  | "pill-h"
   | "speech-bubble-square"
   | "speech-bubble-round"
   | "heart"
@@ -1224,7 +1239,6 @@ export const FRAME_PRESETS: { id: string; label: string; kind: FrameKind }[] = [
   { id: "square", label: "Square Frame", kind: "square" },
   { id: "rounded", label: "Rounded Frame", kind: "rounded" },
   { id: "circle", label: "Circle Frame", kind: "circle" },
-  { id: "pill-h", label: "Capsule Pill Frame", kind: "pill-h" },
   { id: "triangle", label: "Triangle Frame", kind: "triangle" },
   { id: "triangle-down", label: "Inverted Triangle Frame", kind: "triangle-down" },
   { id: "diamond", label: "Diamond Frame", kind: "diamond" },
@@ -2053,8 +2067,6 @@ export function frameShapeCss(
       return { clipPath: "polygon(0% 0%, 100% 0%, 85% 50%, 100% 100%, 0% 100%, 15% 50%)" };
     case "hexagon-horizontal-pill":
       return { clipPath: "polygon(15% 0%, 85% 0%, 100% 50%, 85% 100%, 15% 100%, 0% 50%)" };
-    case "pill-h":
-      return { borderRadius: "9999px" };
     case "speech-bubble-square":
       return { clipPath: "url(#clip-frame-speech-bubble-square)" };
     case "speech-bubble-round":

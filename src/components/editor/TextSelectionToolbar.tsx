@@ -20,6 +20,7 @@ import {
   TextStrikethroughIcon,
   TextUnderlineIcon,
   Tick02Icon,
+  Upload01Icon,
 } from "hugeicons-react";
 import { CaseUpper, Check } from "lucide-react";
 import type React from "react";
@@ -27,9 +28,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { cn } from "@/lib/utils";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useCustomFonts } from "@/hooks/useCustomFonts";
 import { AppTooltip } from "@/components/ui/tooltip";
 import type { LiveTextFormat, TextLayerHandle } from "./QuoteCanvas";
 import { TextEffectsPopover } from "./TextEffectsPopover";
+import { CustomFontsDialog } from "./CustomFontsDialog";
 import {
   FONTS,
   cleanFontFamily,
@@ -83,6 +86,7 @@ export function TextSelectionToolbar({
   onArrange,
   canArrange,
   onOpenEffectsTab,
+  onOpenCustomFonts,
   detached = false,
   onAnyPopoverOpenChange,
 }: {
@@ -91,6 +95,15 @@ export function TextSelectionToolbar({
   onArrange?: (direction: "forward" | "backward" | "front" | "back") => void;
   canArrange?: { canForward: boolean; canBackward: boolean; canFront: boolean; canBack: boolean };
   onOpenEffectsTab?: () => void;
+  // Same reasoning as onOpenCrop/onOpenErase on ImageSelectionToolbar: when
+  // provided, index.tsx renders CustomFontsDialog itself, driven by its own
+  // top-level state, instead of this toolbar owning that state locally —
+  // this toolbar can unmount/remount as canvas selection changes while the
+  // dialog is open, which would reset local state and close the dialog out
+  // from under the user (confirmed as the real cause of exactly that bug
+  // report). Falls back to a local instance if not provided, so this still
+  // works standalone.
+  onOpenCustomFonts?: () => void;
   // True once this layer is no longer the live canvas selection (e.g. the
   // user clicked the canvas background, or selected something else) but one
   // of this toolbar's own popovers was still open at that moment — see the
@@ -146,6 +159,8 @@ export function TextSelectionToolbar({
   // effect below, placed after fontStripOpen exists), not on mount, so
   // pages that never touch the font picker never pay for the chunk.
   const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  const { options: customFontOptions } = useCustomFonts();
+  const [customFontsDialogOpen, setCustomFontsDialogOpen] = useState(false);
   // Root for FontRow's IntersectionObserver below — without an explicit
   // scrollable root, IO defaults to the browser viewport, which would
   // count a row as "visible" the instant this popover's fixed-position
@@ -240,7 +255,7 @@ export function TextSelectionToolbar({
 
   const currentFontLabel = useMemo(() => {
     if (optimisticFont) {
-      const fontPool = getFontPool(fontCatalog);
+      const fontPool = getFontPool(fontCatalog, customFontOptions);
       const match = findFontOption(fontPool, optimisticFont);
       return match?.label ?? fontFamilyToLabel(optimisticFont);
     }
@@ -248,7 +263,7 @@ export function TextSelectionToolbar({
       return "Mixed Font";
     }
 
-    const fontPool = getFontPool(fontCatalog);
+    const fontPool = getFontPool(fontCatalog, customFontOptions);
     const targetFont = (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple")
       ? activeFormat.fontFamily
       : layer.fontFamily;
@@ -262,7 +277,7 @@ export function TextSelectionToolbar({
 
     const match = findFontOption(fontPool, layer.fontFamily);
     return match?.label ?? fontFamilyToLabel(layer.fontFamily);
-  }, [optimisticFont, activeFormat.fontFamily, layer.fontFamily, fontCatalog]);
+  }, [optimisticFont, activeFormat.fontFamily, layer.fontFamily, fontCatalog, customFontOptions]);
 
   const currentColors = useMemo((): string[] => {
     if (optimisticColor) {
@@ -326,8 +341,8 @@ export function TextSelectionToolbar({
     return [baseColor];
   }, [activeFormat.colors, activeFormat.color, layer.color, layer.html]);
   const filteredFonts = useMemo(
-    () => searchAllFonts(fontSearch, fontCatalog),
-    [fontSearch, fontCatalog],
+    () => searchAllFonts(fontSearch, fontCatalog, customFontOptions),
+    [fontSearch, fontCatalog, customFontOptions],
   );
 
   useEffect(() => {
@@ -359,8 +374,8 @@ export function TextSelectionToolbar({
   // Desktop is completely unaffected — its Font button still opens
   // `fontOpen` directly, same as before this existed.
   const availableWeights = useMemo(() => {
-    return getAvailableFontWeights(layer.fontFamily, fontCatalog);
-  }, [layer.fontFamily, fontCatalog]);
+    return getAvailableFontWeights(layer.fontFamily, fontCatalog, customFontOptions);
+  }, [layer.fontFamily, fontCatalog, customFontOptions]);
 
   const [weightOpen, setWeightOpen] = useState(false);
   const [weightPinned, setWeightPinned] = useState(false);
@@ -602,6 +617,20 @@ export function TextSelectionToolbar({
               className="w-full rounded-xl border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
             />
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenCustomFonts) {
+                onOpenCustomFonts();
+              } else {
+                setCustomFontsDialogOpen(true);
+              }
+            }}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
+          >
+            <Upload01Icon size={12} />
+            Upload / manage your fonts
+          </button>
           <div
             ref={fontListScrollRef}
             onScroll={(e) => {
@@ -1525,6 +1554,10 @@ export function TextSelectionToolbar({
     </>
   );
 
+  const customFontsDialog = !onOpenCustomFonts ? (
+    <CustomFontsDialog open={customFontsDialogOpen} onClose={() => setCustomFontsDialogOpen(false)} />
+  ) : null;
+
   if (detached) {
     return (
       <div
@@ -1539,6 +1572,7 @@ export function TextSelectionToolbar({
         className={TOOLBAR_CLASS}
       >
         {rowContent}
+        {customFontsDialog}
       </div>
     );
   }
@@ -1549,6 +1583,7 @@ export function TextSelectionToolbar({
       <FloatingToolbarPortal anchorRef={rowRef} offset={toolbarDrag.offset} className={TOOLBAR_CLASS}>
         {rowContent}
       </FloatingToolbarPortal>
+      {customFontsDialog}
     </>
   );
 }

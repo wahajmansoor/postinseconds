@@ -16,8 +16,11 @@ import {
   Search01Icon,
   SquareLock02Icon,
   SquareUnlock02Icon,
+  Upload01Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
+import { useCustomFonts } from "@/hooks/useCustomFonts";
+import { CustomFontsDialog } from "./CustomFontsDialog";
 import {
   findFontOption,
   fontFamilyToLabel,
@@ -83,6 +86,14 @@ interface MultiMixedSelectionToolbarProps {
   allLocked?: boolean | undefined;
   detached?: boolean | undefined;
   onAnyPopoverOpenChange?: ((open: boolean) => void) | undefined;
+  // Same reasoning as onOpenCrop/onOpenErase on ImageSelectionToolbar: when
+  // provided, index.tsx renders CustomFontsDialog itself, driven by its own
+  // top-level state, instead of this toolbar owning that state locally —
+  // this toolbar can unmount/remount as canvas selection changes while the
+  // dialog is open, which would reset local state and close the dialog out
+  // from under the user (confirmed as the real cause of exactly that bug
+  // report). Falls back to a local instance if not provided.
+  onOpenCustomFonts?: (() => void) | undefined;
 }
 
 export function MultiMixedSelectionToolbar({
@@ -103,6 +114,7 @@ export function MultiMixedSelectionToolbar({
   allLocked = false,
   detached = false,
   onAnyPopoverOpenChange,
+  onOpenCustomFonts,
 }: MultiMixedSelectionToolbarProps) {
   const isMobile = useIsMobile();
   // ---- popover open / pin / drag states ----
@@ -158,6 +170,8 @@ export function MultiMixedSelectionToolbar({
   // list) — loaded lazily once this popover actually opens. See
   // loadGoogleFontsCatalog/searchAllFonts in types.ts.
   const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  const { options: customFontOptions } = useCustomFonts();
+  const [customFontsDialogOpen, setCustomFontsDialogOpen] = useState(false);
   useEffect(() => {
     if (!fontOpen) return;
     if (fontCatalog) return;
@@ -196,7 +210,7 @@ export function MultiMixedSelectionToolbar({
   const fontLabel = (() => {
     if (!allText || textLayers.length === 0) return null;
     if (!uniformFont) return "Mixed Fonts";
-    const found = findFontOption(getFontPool(fontCatalog), uniformFont);
+    const found = findFontOption(getFontPool(fontCatalog, customFontOptions), uniformFont);
     return found?.label ?? fontFamilyToLabel(uniformFont);
   })();
 
@@ -207,8 +221,8 @@ export function MultiMixedSelectionToolbar({
   // network/jank hit. Each row (FontRow, in ui.tsx) instead loads its own
   // font lazily via IntersectionObserver as it scrolls into view.
   const filteredFonts = useMemo(
-    () => searchAllFonts(fontSearch, fontCatalog),
-    [fontSearch, fontCatalog],
+    () => searchAllFonts(fontSearch, fontCatalog, customFontOptions),
+    [fontSearch, fontCatalog, customFontOptions],
   );
   const fontListScrollRef = useRef<HTMLDivElement>(null);
 
@@ -396,6 +410,20 @@ export function MultiMixedSelectionToolbar({
                   className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenCustomFonts) {
+                    onOpenCustomFonts();
+                  } else {
+                    setCustomFontsDialogOpen(true);
+                  }
+                }}
+                className="mx-2 my-1.5 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
+              >
+                <Upload01Icon size={12} />
+                Upload / manage your fonts
+              </button>
               {/* Font list */}
               <div ref={fontListScrollRef} className="flex max-h-64 flex-col overflow-y-auto">
                 {filteredFonts.map((f) => (
@@ -860,6 +888,10 @@ export function MultiMixedSelectionToolbar({
     </>
   );
 
+  const customFontsDialog = !onOpenCustomFonts ? (
+    <CustomFontsDialog open={customFontsDialogOpen} onClose={() => setCustomFontsDialogOpen(false)} />
+  ) : null;
+
   if (detached) {
     return (
       <div
@@ -876,6 +908,7 @@ export function MultiMixedSelectionToolbar({
         className={TOOLBAR_CLASS}
       >
         {rowContent}
+        {customFontsDialog}
       </div>
     );
   }
@@ -886,6 +919,7 @@ export function MultiMixedSelectionToolbar({
       <FloatingToolbarPortal anchorRef={rowRef} offset={toolbarDrag.offset} className={TOOLBAR_CLASS}>
         {rowContent}
       </FloatingToolbarPortal>
+      {customFontsDialog}
     </>
   );
 }

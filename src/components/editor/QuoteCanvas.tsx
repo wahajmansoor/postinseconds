@@ -5354,7 +5354,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
           height: `${hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
             ? img.height
             : Boolean(img.frameShape)
-              ? (img.frameShape === "pill-h" || img.frameShape === "ribbon-horizontal" || img.frameShape === "hexagon-horizontal-pill"
+              ? (img.frameShape === "ribbon-horizontal" || img.frameShape === "hexagon-horizontal-pill"
                 ? Math.round(img.size * 0.5)
                 : img.size)
               : (naturalAspect !== null ? Math.round(img.size * naturalAspect) : img.size)
@@ -5418,7 +5418,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
               height: `${hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
                 ? img.height
                 : Boolean(img.frameShape)
-                  ? (img.frameShape === "pill-h" || img.frameShape === "ribbon-horizontal" || img.frameShape === "hexagon-horizontal-pill"
+                  ? (img.frameShape === "ribbon-horizontal" || img.frameShape === "hexagon-horizontal-pill"
                     ? Math.round(img.size * 0.5)
                     : img.size)
                   : (naturalAspect !== null ? Math.round(img.size * naturalAspect) : img.size)

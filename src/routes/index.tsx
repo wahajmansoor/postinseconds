@@ -68,6 +68,7 @@ import { ImageSelectionToolbar } from "@/components/editor/ImageSelectionToolbar
 import { ImageCropDialog } from "@/components/editor/ImageCropDialog";
 import { EraseImageDialog } from "@/components/editor/EraseImageDialog";
 import { AdjustImageFrameDialog } from "@/components/editor/AdjustImageFrameDialog";
+import { CustomFontsDialog } from "@/components/editor/CustomFontsDialog";
 import { ShapeSelectionToolbar } from "@/components/editor/ShapeSelectionToolbar";
 import { FrameDefs } from "@/components/editor/FrameDefs";
 import {
@@ -143,6 +144,7 @@ import { PostPreviewDialog } from "@/components/editor/PostPreviewDialog";
 import { LinkedInProfilePreviewDialog } from "@/components/editor/LinkedInProfilePreviewDialog";
 import { Rulers, RULER_SIZE } from "@/components/editor/Rulers";
 import { useAuth } from "@/lib/auth";
+import { useCustomFonts } from "@/hooks/useCustomFonts";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { GoogleLoginDialog } from "@/components/auth/GoogleLoginDialog";
 import { SaveTemplateDialog } from "@/components/editor/SaveTemplateDialog";
@@ -676,6 +678,13 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
 
 function Index() {
   const { user } = useAuth();
+  // Registers the user's uploaded custom fonts' @font-face rules as soon as
+  // the editor mounts (not just whenever a font picker happens to open) —
+  // needed so a design that already uses one renders correctly right away,
+  // and so the rules exist in <head> by the time an export snapshot runs.
+  // See useCustomFonts.ts; the return value itself isn't needed here, every
+  // picker that needs it calls the same hook (react-query dedupes the fetch).
+  useCustomFonts();
   const [s, setS] = useState<EditorState>(() => {
     const draft = getSavedDraft();
     if (draft) {
@@ -835,6 +844,17 @@ function Index() {
     title: string;
   } | null>(null);
   const [frameAdjustingImageLayer, setFrameAdjustingImageLayer] = useState<ImageLayer | null>(null);
+  // Lifted here rather than living as local state inside TextSelectionToolbar
+  // /MultiMixedSelectionToolbar/LeftPanel — same reasoning as onOpenCrop/
+  // onOpenErase/onOpenFrameAdjust above: those toolbars can unmount/remount
+  // as canvas selection changes while the dialog they'd otherwise own local
+  // state for is open, resetting that state and closing the dialog out from
+  // under the user the moment a click inside it caused any selection change.
+  // Confirmed as the real cause of exactly that report ("dialog closes when
+  // I click the upload area") — a single instance driven from state that
+  // outlives those toolbars' own mount lifecycle fixes it regardless of
+  // which specific interaction was triggering the remount.
+  const [customFontsDialogOpen, setCustomFontsDialogOpen] = useState(false);
 
   // Spacebar pan mode listener
   useEffect(() => {
@@ -3464,6 +3484,7 @@ function Index() {
                     setTextSubTab("effects");
                     setLeftPanelCollapsed(false);
                   }}
+                  onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
                 />
               ) : null}
               {selectedImageLayer || (imageDetached && pinnedImageLayer) ? (
@@ -3739,6 +3760,7 @@ function Index() {
                     });
                     setCanvasSelection([]);
                   }}
+                  onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
                 />
               ) : null}
               {isBackgroundSelected || backgroundDetached ? (
@@ -4391,6 +4413,7 @@ function Index() {
                             setTextSubTab("effects");
                             setMobileToolDrawerOpen(true);
                           }}
+                          onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
                         />
                       ) : selectedImageLayer ? (
                         <ImageSelectionToolbar
@@ -4591,6 +4614,7 @@ function Index() {
                             });
                             setCanvasSelection([]);
                           }}
+                          onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
                         />
                       ) : isBackgroundSelected ? (
                         <BackgroundSelectionToolbar
@@ -5295,6 +5319,10 @@ function Index() {
             }}
           />
         ) : null}
+        <CustomFontsDialog
+          open={customFontsDialogOpen}
+          onClose={() => setCustomFontsDialogOpen(false)}
+        />
       </div>
     </TooltipProvider>
   );

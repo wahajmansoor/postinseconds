@@ -237,6 +237,87 @@ create table if not exists public.system_stats (
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
+-- 5. CUSTOM FONTS — user-uploaded TTF/OTF files. One row per uploaded FILE
+-- (= one weight/style variant); several rows sharing the same family_id are
+-- what let the editor's font picker offer them as a single font with a
+-- normal weight dropdown, exactly like a Google Font (Regular/SemiBold/
+-- Bold/Black all grouped under one entry instead of four separate fonts).
+-- family_name is denormalized onto every variant row rather than living in
+-- a separate families table — a "family" here never needs anything beyond
+-- its name and its variant list, so a join buys nothing.
+create table if not exists public.custom_font_variants (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  family_id uuid not null,
+  family_name text not null,
+  variant_label text not null default 'Regular',
+  weight smallint not null default 400,
+  italic boolean not null default false,
+  file_name text not null,
+  storage_path text not null,
+  format text not null default 'truetype',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table public.custom_font_variants enable row level security;
+
+drop policy if exists "Users can view own custom fonts." on public.custom_font_variants;
+create policy "Users can view own custom fonts."
+  on public.custom_font_variants for select
+  using ( auth.uid() = user_id );
+
+drop policy if exists "Users can insert own custom fonts." on public.custom_font_variants;
+create policy "Users can insert own custom fonts."
+  on public.custom_font_variants for insert
+  with check ( auth.uid() = user_id );
+
+drop policy if exists "Users can update own custom fonts." on public.custom_font_variants;
+create policy "Users can update own custom fonts."
+  on public.custom_font_variants for update
+  using ( auth.uid() = user_id );
+
+drop policy if exists "Users can delete own custom fonts." on public.custom_font_variants;
+create policy "Users can delete own custom fonts."
+  on public.custom_font_variants for delete
+  using ( auth.uid() = user_id );
+
+-- Storage bucket for the actual font FILES referenced by storage_path
+-- above. Public read (readable by anyone holding the URL, same as how
+-- Google Fonts' own CDN works) — this is what lets html-to-image's export
+-- step fetch+inline @font-face resources without hitting a CORS wall or
+-- needing an auth header baked into every exported file's request; write
+-- access is still locked to each user's own folder below. This is a
+-- deliberate exception to the rest of the app's "never use object storage,
+-- always embed as base64" image policy (see imageCompression.ts) — that
+-- policy is about a design's own per-design content needing to be
+-- self-contained in its saved JSON; a font is the opposite, a reusable
+-- asset meant to be shared across every design a user makes, so embedding
+-- it redundantly into each one instead would only bloat every save.
+insert into storage.buckets (id, name, public)
+values ('custom-fonts', 'custom-fonts', true)
+on conflict (id) do nothing;
+
+drop policy if exists "Custom font files are publicly readable." on storage.objects;
+create policy "Custom font files are publicly readable."
+  on storage.objects for select
+  using ( bucket_id = 'custom-fonts' );
+
+drop policy if exists "Users can upload their own custom fonts." on storage.objects;
+create policy "Users can upload their own custom fonts."
+  on storage.objects for insert
+  with check (
+    bucket_id = 'custom-fonts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "Users can delete their own custom fonts." on storage.objects;
+create policy "Users can delete their own custom fonts."
+  on storage.objects for delete
+  using (
+    bucket_id = 'custom-fonts'
+    and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
 -- Trigger to auto-create profile on new user signup. Every new signup starts
 -- as a plain 'user' — there is deliberately no email-based auto-promotion
 -- backdoor here. To grant admin, run a one-time UPDATE against the specific

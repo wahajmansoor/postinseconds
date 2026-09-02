@@ -31,8 +31,13 @@ export function FrameDefs() {
           <circle cx="0.83" cy="0.48" r="0.17" />
           <circle cx="0.78" cy="0.72" r="0.19" />
           <circle cx="0.54" cy="0.80" r="0.19" />
-          <circle cx="0.32" cy="0.74" r="0.19" />
-          <circle cx="0.14" cy="0.85" r="0.10" />
+          {/* A separate small "foot" bump used to sit here (bottom-left,
+              lower and further out than the other lobes) — first as a tiny
+              circle, then enlarged/pulled in to merge better. User feedback
+              on both: it still read as a distracting extra nub rather than
+              a natural part of the cloud. Removed outright; this bump just
+              takes over that area as one continuous bottom-left lobe. */}
+          <circle cx="0.30" cy="0.76" r="0.21" />
         </clipPath>
 
         {/* 2. Heart Frame - Perfectly curved romantic heart */}
@@ -40,14 +45,30 @@ export function FrameDefs() {
           <path d="M 0.50 0.96 C 0.20 0.70 0.00 0.50 0.00 0.30 C 0.00 0.13 0.13 0.00 0.30 0.00 C 0.40 0.00 0.48 0.05 0.50 0.13 C 0.52 0.05 0.60 0.00 0.70 0.00 C 0.87 0.00 1.00 0.13 1.00 0.30 C 1.00 0.50 0.80 0.70 0.50 0.96 Z" />
         </clipPath>
 
-        {/* 3. Speech Bubble Round */}
+        {/* 3. Speech Bubble Round — left edge backed off again (0.16 → 0.24,
+             apex 0.30 → 0.34 to keep it centered over the narrower base)
+             per user feedback that matching the square's tail width left no
+             visible gap between the tail and the oval's own left curve —
+             unlike the square, whose flat corner gives that gap "for free"
+             regardless of tail width. Right side still anchored on the
+             oval's own bottom-center vertex (0.50, 0.84) — see the notch-
+             risk note on the square version below for why that point can't
+             move; that's also why this tail can't be made numerically
+             identical to the square's, only matched as closely as the
+             oval's own curve allows. */}
         <clipPath id="clip-frame-speech-bubble-round" clipPathUnits="objectBoundingBox">
-          <path d="M 0.50 0.00 C 0.78 0.00 1.00 0.19 1.00 0.42 C 1.00 0.65 0.78 0.84 0.50 0.84 C 0.42 0.84 0.35 0.82 0.28 0.79 L 0.08 1.00 L 0.15 0.73 C 0.06 0.65 0.00 0.54 0.00 0.42 C 0.00 0.19 0.22 0.00 0.50 0.00 Z" />
+          <path d="M 0.50 0.00 C 0.78 0.00 1.00 0.19 1.00 0.42 C 1.00 0.65 0.78 0.84 0.50 0.84 L 0.34 0.97 L 0.24 0.78 C 0.14 0.73 0.04 0.60 0.00 0.42 C 0.00 0.19 0.22 0.00 0.50 0.00 Z" />
         </clipPath>
 
-        {/* 4. Speech Bubble Square / Rect */}
+        {/* 4. Speech Bubble Square / Rect — user supplied a cropped reference
+             showing the target bottom edge exactly: a short flat ledge
+             between the left corner and the tail, a narrower tail, then a
+             long flat run to the right corner (the tail base pulled way
+             back in from 0.74 to 0.55; a wide base was eating most of that
+             right-hand flat edge). Restored the small left ledge (0.16 to
+             0.08) that earlier revisions had removed. */}
         <clipPath id="clip-frame-speech-bubble-square" clipPathUnits="objectBoundingBox">
-          <path d="M 0.08 0.00 L 0.92 0.00 C 0.96 0.00 1.00 0.04 1.00 0.10 L 1.00 0.72 C 1.00 0.78 0.96 0.82 0.92 0.82 L 0.30 0.82 L 0.08 1.00 L 0.14 0.82 L 0.08 0.82 C 0.04 0.82 0.00 0.78 0.00 0.72 L 0.00 0.10 C 0.00 0.04 0.04 0.00 0.08 0.00 Z" />
+          <path d="M 0.08 0.00 L 0.92 0.00 C 0.96 0.00 1.00 0.04 1.00 0.10 L 1.00 0.72 C 1.00 0.78 0.96 0.82 0.92 0.82 L 0.55 0.82 L 0.30 0.97 L 0.16 0.82 L 0.08 0.82 C 0.04 0.82 0.00 0.78 0.00 0.72 L 0.00 0.10 C 0.00 0.04 0.04 0.00 0.08 0.00 Z" />
         </clipPath>
 
         {/* 5. Scalloped Corners / Notched 4-Corner Square */}

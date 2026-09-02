@@ -41,6 +41,8 @@ import {
 import { useAuth } from "@/lib/auth";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { fetchSavedQuotes, deleteSavedQuote, updateSavedQuoteDesign, fetchAllTemplates, type DbSavedQuote } from "@/lib/supabase";
+import { useCustomFonts } from "@/hooks/useCustomFonts";
+import { CustomFontsDialog } from "./CustomFontsDialog";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ImageCropDialog } from "./ImageCropDialog";
 import { TextEffectsPanel } from "./TextEffectsPanel";
@@ -598,6 +600,8 @@ export function LeftPanel({
   // types.ts; declared up here (not inside `tab === "text"`) for the same
   // Rules-of-Hooks reason as the state above.
   const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  const { options: customFontOptions } = useCustomFonts();
+  const [customFontsDialogOpen, setCustomFontsDialogOpen] = useState(false);
   useEffect(() => {
     if (tab !== "text" || fontCatalog) return;
     let cancelled = false;
@@ -1161,6 +1165,11 @@ export function LeftPanel({
           onSaved={() => loadSavedQuotes()}
         />
 
+        <CustomFontsDialog
+          open={customFontsDialogOpen}
+          onClose={() => setCustomFontsDialogOpen(false)}
+        />
+
         {/* Delete Saved Template Confirmation Dialog */}
         <Dialog open={Boolean(deleteConfirmId)} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
           <DialogContent className="sm:max-w-[420px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
@@ -1584,6 +1593,8 @@ export function LeftPanel({
                           onItemSelect?.();
                         }}
                         catalog={fontCatalog}
+                        customFonts={customFontOptions}
+                        onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
                         className="h-8 rounded-xl px-2.5 py-0 text-xs font-medium"
                       />
                     </Field>
@@ -1629,7 +1640,7 @@ export function LeftPanel({
                         <Select
                           value={String(activeTextLayer.weight)}
                           onChange={(v) => updateActiveLayer({ weight: Number(v) })}
-                          options={getAvailableFontWeights(activeTextLayer.fontFamily, fontCatalog).map((w) => ({
+                          options={getAvailableFontWeights(activeTextLayer.fontFamily, fontCatalog, customFontOptions).map((w) => ({
                             label: w.label,
                             value: String(w.value),
                           }))}

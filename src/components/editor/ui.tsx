@@ -1021,6 +1021,15 @@ export const FontRow = memo(function FontRow({
 
   useEffect(() => {
     if (ready) return;
+    // Custom fonts' @font-face rules are already registered in bulk by
+    // useCustomFonts as soon as they load (see registerCustomFontFaces) —
+    // no per-row fetch needed, and definitely not loadGoogleFont, which
+    // would just request a same-named (and almost certainly nonexistent)
+    // Google Fonts family for no reason.
+    if (font.isCustom) {
+      setReady(true);
+      return;
+    }
     const el = rowRef.current;
     if (!el) return;
     if (typeof IntersectionObserver === "undefined") {
@@ -1040,7 +1049,7 @@ export const FontRow = memo(function FontRow({
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [font.value, ready, scrollRef]);
+  }, [font.value, font.isCustom, ready, scrollRef]);
 
   return (
     <button
@@ -1054,6 +1063,11 @@ export const FontRow = memo(function FontRow({
       )}
     >
       <span className="min-w-0 flex-1 truncate">{font.label}</span>
+      {font.isCustom ? (
+        <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
+          Yours
+        </span>
+      ) : null}
       {active ? <Tick02Icon size={13} className="shrink-0 text-primary" /> : null}
     </button>
   );
@@ -1072,11 +1086,19 @@ export function FontPickerField({
   value,
   onChange,
   catalog,
+  customFonts,
+  onOpenCustomFonts,
   className,
 }: {
   value: string;
   onChange: (v: string) => void;
   catalog?: FontOption[] | null;
+  /** The user's own uploaded fonts (see useCustomFonts) — merged into the
+   * search/browse pool ahead of the Google Fonts catalog. */
+  customFonts?: FontOption[] | null;
+  /** Renders an "Upload / manage your fonts" row above the list when
+   * provided — fired on click, the caller owns the actual dialog. */
+  onOpenCustomFonts?: () => void;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -1095,11 +1117,11 @@ export function FontPickerField({
 
   const activeValue = optimisticVal ?? value;
 
-  const results = useMemo(() => searchAllFonts(search, catalog), [search, catalog]);
+  const results = useMemo(() => searchAllFonts(search, catalog, customFonts), [search, catalog, customFonts]);
   const currentLabel = useMemo(() => {
-    const found = findFontOption(getFontPool(catalog), activeValue);
+    const found = findFontOption(getFontPool(catalog, customFonts), activeValue);
     return found?.label ?? fontFamilyToLabel(activeValue);
-  }, [catalog, activeValue]);
+  }, [catalog, customFonts, activeValue]);
 
   useLayoutEffect(() => {
     if (open && triggerRef.current) {
@@ -1218,6 +1240,16 @@ export function FontPickerField({
                   className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
                 />
               </div>
+              {onOpenCustomFonts ? (
+                <button
+                  type="button"
+                  onClick={onOpenCustomFonts}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
+                >
+                  <Upload01Icon size={12} />
+                  Upload / manage your fonts
+                </button>
+              ) : null}
               <div
                 ref={scrollRef}
                 onScroll={(e) => {
