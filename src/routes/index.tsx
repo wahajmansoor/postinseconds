@@ -4339,7 +4339,30 @@ function Index() {
                 drawer's z-30 sits below this bar's z-[100], so without
                 this it hid the drawer's own Download button behind
                 itself, exactly like postPreviewOpen/profilePreviewOpen
-                already needed above. */}
+                already needed above.
+
+                Same reasoning extends to a toolbar's own FloatingDropdown
+                (font list, weight, spacing, colors, ...) — ALSO a genuine
+                bottom sheet at z-30 on mobile (FloatingDropdown's mobile
+                Drawer branch in ui.tsx) — but that can't gate this whole
+                createPortal the way the other three do: the selection
+                toolbar that OWNS the open popover (e.g. TextSelectionToolbar
+                hosting its font-list Drawer) is rendered INSIDE this same
+                branch below, so unmounting the branch would unmount the
+                toolbar and, with it, the Drawer it's still supposed to be
+                showing — closing the very popover this is meant to get out
+                of the way of (confirmed live: the whole sheet vanished the
+                instant it opened). So it's instead applied further down as
+                a visual-only toggle (fade + pointer-events, not an unmount)
+                driven by mobileDrawerLiftActive specifically — NOT the
+                broader anyPopoverOpen, which also covers each toolbar's
+                mobile-only quick-switch strips (fontStripOpen/
+                colorStripOpen, the back-arrow + chips row IN this same bar,
+                not a separate sheet) and would fade the bar out from under
+                its own still-in-use content. mobileDrawerLiftActive is only
+                true once a real FloatingDropdown has actually mounted and
+                measured a nonzero height (see floatingDrawerHeightPx above),
+                which is exactly "a bottom sheet is genuinely open now". */}
             {typeof document !== "undefined" && !postPreviewOpen && !profilePreviewOpen && !mobileExportDrawerOpen
               ? createPortal(
                 !(
@@ -4367,7 +4390,19 @@ function Index() {
                   <div
                     data-nopan=""
                     data-keep-text-editing=""
-                    className="fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl pointer-events-auto"
+                    // Faded out (not unmounted — see the long comment above
+                    // this whole block for why it can't be) while any of
+                    // this toolbar's own FloatingDropdown popovers is open,
+                    // so it stops sitting on top of (z-[100] vs the sheet's
+                    // z-30) the last couple of rows of whatever bottom
+                    // sheet is now open below it. pointer-events-none goes
+                    // along with the fade so its still-mounted, now-
+                    // invisible buttons (e.g. the Done tick) can't eat taps
+                    // meant for the sheet or the canvas beneath it.
+                    className={cn(
+                      "fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl transition-opacity duration-150",
+                      mobileDrawerLiftActive ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100",
+                    )}
                     style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
                   >
                     {/* Absolute solid Tick02Icon button on far left */}

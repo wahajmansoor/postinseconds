@@ -591,7 +591,21 @@ export function TextSelectionToolbar({
             />
             <input
               type="text"
-              autoFocus
+              // Mobile only: NOT autofocused. Autofocusing here summons the
+              // on-screen keyboard the instant this list opens (eating half
+              // the already-short 45vh sheet — see FloatingDropdown's mobile
+              // Drawer branch in ui.tsx) even though most mobile taps here
+              // are just browsing/tapping a row, not typing a search term —
+              // and, worse, it steals DOM focus away from the still-editing
+              // text layer, which silently collapses whatever the user had
+              // highlighted (confirmed live: window.getSelection() goes from
+              // the highlighted phrase to empty the instant this input
+              // grabs focus), so a bold/color/font change meant for just
+              // that highlighted phrase would otherwise fall back to
+              // restyling the whole layer. Desktop keeps autofocus — no
+              // virtual keyboard concern there, and typing-to-search
+              // immediately is the expected desktop flow.
+              autoFocus={!isMobile}
               value={fontSearch}
               onChange={(e) => {
                 setFontSearch(e.target.value);
