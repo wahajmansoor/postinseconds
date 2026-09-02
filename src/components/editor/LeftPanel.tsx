@@ -52,6 +52,10 @@ import {
   SHADOW_OVERLAY_PRESETS,
   SHAPE_PRESETS,
   LINE_PRESETS,
+  FRAME_PRESETS,
+  frameShapeCss,
+  CANVA_FRAME_PLACEHOLDER_SRC,
+  withFrameAdded,
   isLineShape,
   STARTER_TEMPLATES,
   TEMPLATES,
@@ -583,6 +587,7 @@ export function LeftPanel({
   // that renders them) for the same Rules-of-Hooks reason as
   // shadowThemeFilter above: every hook has to run on every render
   // regardless of which `tab` is active.
+  const [elementsFramesOpen, setElementsFramesOpen] = useState(true);
   const [elementsLinesOpen, setElementsLinesOpen] = useState(true);
   const [elementsShapesOpen, setElementsShapesOpen] = useState(true);
   const [elementsShadowsOpen, setElementsShadowsOpen] = useState(true);
@@ -1316,6 +1321,7 @@ export function LeftPanel({
       size: number;
       weight: number;
       kind: "heading" | "subheading" | "body";
+      color?: string;
     }) => {
       await ensureFontReady('"Outfit", sans-serif', preset.weight, preset.size);
       const existingTexts = getTextLayers(s);
@@ -1343,10 +1349,13 @@ export function LeftPanel({
         }
       }
 
+      const defaultColor = preset.kind === "heading" ? "#000000" : undefined;
       const res = withTextAdded(s, {
         text: preset.text,
         size: preset.size,
         weight: preset.weight,
+        ...(defaultColor ? { color: defaultColor } : {}),
+        ...(preset.color ? { color: preset.color } : {}),
         x: 50,
         y: targetY,
       });
@@ -1356,7 +1365,7 @@ export function LeftPanel({
       if (res.newId) {
         onSelectLayer?.({ kind: "text", id: res.newId });
         const added = res.list.find((t) => t.id === res.newId);
-        if (added) void refineTextColorFromCanvas(added.id, added.x, added.y, added.color);
+        if (added && preset.kind !== "heading") void refineTextColorFromCanvas(added.id, added.x, added.y, added.color);
         // Auto start editing, highlight entire text and open virtual keyboard / desktop focus
         const triggerStartEditing = () => {
           const handles = (window as any).__PIX_TEXT_HANDLES__;
@@ -2446,7 +2455,71 @@ export function LeftPanel({
       <>
         <Panel title="Elements">
           <div className="flex flex-col gap-5">
-            {/* 1. Lines */}
+            {/* 1. Image Frames (Canva style) */}
+            <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-secondary/30 p-3">
+              <button
+                type="button"
+                onClick={() => setElementsFramesOpen((o) => !o)}
+                className="flex items-center justify-between"
+              >
+                <span className="text-xs font-semibold text-foreground">Frames</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground">{FRAME_PRESETS.length} frames</span>
+                  <ArrowDown01Icon
+                    size={14}
+                    className={cn(
+                      "text-muted-foreground transition-transform duration-200",
+                      elementsFramesOpen ? "rotate-180 text-foreground" : "text-muted-foreground",
+                    )}
+                  />
+                </div>
+              </button>
+              {elementsFramesOpen ? (
+                <>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Mask photos into custom shapes. Click to add a frame, then upload or replace with your own photo.
+                  </p>
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    {FRAME_PRESETS.map((preset) => {
+                      const frameStyle = frameShapeCss(preset.kind, 8);
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            const res = withFrameAdded(s, preset.kind);
+                            set("images", res.list);
+                            set("layerOrder", res.layerOrder);
+                            if (res.newId) {
+                              onSelectLayer?.({ kind: "image", id: res.newId });
+                            }
+                            onItemSelect?.();
+                          }}
+                          title={preset.label}
+                          className="group relative flex aspect-square items-center justify-center rounded-xl border border-border/80 bg-card/60 p-1.5 shadow-sm transition-all hover:scale-105 hover:border-primary hover:bg-secondary active:scale-95"
+                        >
+                          <div
+                            className="h-full w-full overflow-hidden"
+                            style={{
+                              ...frameStyle,
+                            }}
+                          >
+                            <img
+                              src={CANVA_FRAME_PLACEHOLDER_SRC}
+                              alt={preset.label}
+                              className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                              draggable={false}
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {/* 2. Lines */}
             <div className="flex flex-col gap-2 rounded-xl border border-border/70 bg-secondary/30 p-3">
               <button
                 type="button"

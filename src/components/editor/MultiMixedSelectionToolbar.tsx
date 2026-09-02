@@ -242,7 +242,7 @@ export function MultiMixedSelectionToolbar({
   }
 
   const TOOLBAR_CLASS =
-    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-[0_8px_24px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.06)] md:dark:shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] md:backdrop-blur-xl";
+    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/70 md:bg-background/95 md:p-1.5 md:shadow-[0_12px_32px_-4px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.08)] md:dark:shadow-[0_16px_40px_-6px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.08)] md:backdrop-blur-2xl";
 
   const rowContent = (
     <>
@@ -331,10 +331,10 @@ export function MultiMixedSelectionToolbar({
                     title={c}
                     onClick={() => onUpdateAllTexts({ color: c })}
                     className={cn(
-                      "h-6 w-6 rounded-full border-2 transition-transform hover:scale-110",
-                      displayColor === c ? "border-primary" : "border-transparent",
+                      "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] border border-black/10 dark:border-white/15 shadow-sm transition-all hover:scale-105 active:scale-95",
+                      displayColor?.toLowerCase() === c.toLowerCase() ? "ring-2 ring-primary ring-offset-1 scale-105" : "hover:scale-105",
                     )}
-                    style={{ background: c, boxShadow: "0 1px 3px rgba(0,0,0,.3)" }}
+                    style={{ backgroundColor: c }}
                   />
                 ))}
               </div>

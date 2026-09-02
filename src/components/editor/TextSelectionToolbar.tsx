@@ -21,7 +21,7 @@ import {
   TextUnderlineIcon,
   Tick02Icon,
 } from "hugeicons-react";
-import { CaseUpper } from "lucide-react";
+import { CaseUpper, Check } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -839,14 +839,25 @@ export function TextSelectionToolbar({
                 onMouseDown={preserveSelection}
                 onClick={() => handleSetColor(c)}
                 className={cn(
-                  "h-7 w-7 shrink-0 rounded-full border shadow-sm transition-transform hover:scale-110 active:scale-95",
+                  "relative flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] border border-black/10 dark:border-white/15 shadow-sm transition-all hover:scale-105 active:scale-95",
                   active
-                    ? "border-primary ring-2 ring-primary ring-offset-2 ring-offset-background scale-105"
-                    : "border-border/80 hover:border-foreground/40",
+                    ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-105"
+                    : "hover:scale-105",
                 )}
                 style={{ backgroundColor: c }}
                 title={c}
-              />
+              >
+                {active && (
+                  <Check
+                    size={13}
+                    className={cn(
+                      c.toUpperCase() === "#FFFFFF" || c.toUpperCase() === "#F1F5F9" || c.toUpperCase() === "#E2E8F0"
+                        ? "text-black"
+                        : "text-white",
+                    )}
+                  />
+                )}
+              </button>
             );
           })}
         </div>
@@ -898,7 +909,7 @@ export function TextSelectionToolbar({
   }
 
   const TOOLBAR_CLASS =
-    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-[0_8px_24px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.06)] md:dark:shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] md:backdrop-blur-xl";
+    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/70 md:bg-background/95 md:p-1.5 md:shadow-[0_12px_32px_-4px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.08)] md:dark:shadow-[0_16px_40px_-6px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.08)] md:backdrop-blur-2xl";
 
   const rowContent = (
     <>

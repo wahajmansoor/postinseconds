@@ -12,10 +12,17 @@ import {
   LayerSendToBackIcon,
   Link03Icon,
   Upload01Icon,
+  SquareIcon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
 import { compressImageFile } from "@/lib/imageCompression";
-import type { ImageLayer } from "./types";
+import {
+  type ImageLayer,
+  type FrameKind,
+  FRAME_PRESETS,
+  frameShapeCss,
+  CANVA_FRAME_PLACEHOLDER_SRC,
+} from "./types";
 import {
   Chip,
   ColorPickerContent,
@@ -75,6 +82,8 @@ export function ImageSelectionToolbar({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [cropOpen, setCropOpen] = useState(false);
   const [eraseOpen, setEraseOpen] = useState(false);
+  const [frameOpen, setFrameOpen] = useState(false);
+  const [frameTab, setFrameTab] = useState<"shape" | "position">("shape");
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [opacityOpen, setOpacityOpen] = useState(false);
   const [shadowOpen, setShadowOpen] = useState(false);
@@ -86,6 +95,7 @@ export function ImageSelectionToolbar({
 
   // Each dropdown opens unpinned by default — see DragHandle's own comment
   // on `onTogglePin` for what that means.
+  const [framePinned, setFramePinned] = useState(false);
   const [radiusPinned, setRadiusPinned] = useState(false);
   const [opacityPinned, setOpacityPinned] = useState(false);
   const [shadowPinned, setShadowPinned] = useState(false);
@@ -101,17 +111,20 @@ export function ImageSelectionToolbar({
   const [minimized, setMinimized] = useState(false);
   // See minimizeBaseRef's own comment in ShapeSelectionToolbar.tsx.
   const minimizeBaseRef = useRef({ top: 0, left: 0 });
+  const frameDrag = useDraggableOffset();
   const radiusDrag = useDraggableOffset();
   const opacityDrag = useDraggableOffset();
   const shadowDrag = useDraggableOffset();
   const arrangeDrag = useDraggableOffset();
   const advancedDrag = useDraggableOffset();
 
+  const frameTriggerRef = useRef<HTMLButtonElement>(null);
   const radiusTriggerRef = useRef<HTMLButtonElement>(null);
   const opacityTriggerRef = useRef<HTMLButtonElement>(null);
   const shadowTriggerRef = useRef<HTMLButtonElement>(null);
   const arrangeTriggerRef = useRef<HTMLButtonElement>(null);
   const advancedTriggerRef = useRef<HTMLButtonElement>(null);
+  const frameAnchor = useStableAnchor(frameOpen, frameTriggerRef);
   const radiusAnchor = useStableAnchor(radiusOpen, radiusTriggerRef);
   const opacityAnchor = useStableAnchor(opacityOpen, opacityTriggerRef);
   const shadowAnchor = useStableAnchor(shadowOpen, shadowTriggerRef);
@@ -129,7 +142,7 @@ export function ImageSelectionToolbar({
   // wherever the user actually left it.
 
   // See the matching block's comment in TextSelectionToolbar.tsx.
-  const anyPopoverOpen = radiusOpen || opacityOpen || shadowOpen || arrangeOpen || advancedOpen;
+  const anyPopoverOpen = frameOpen || radiusOpen || opacityOpen || shadowOpen || arrangeOpen || advancedOpen;
   useEffect(() => {
     onAnyPopoverOpenChange?.(anyPopoverOpen);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -211,7 +224,7 @@ export function ImageSelectionToolbar({
   }
 
   const TOOLBAR_CLASS =
-    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/80 md:bg-background/95 md:p-1.5 md:shadow-[0_8px_24px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.06)] md:dark:shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] md:backdrop-blur-xl";
+    "flex flex-nowrap items-center gap-1.5 whitespace-nowrap md:rounded-full md:border md:border-border/70 md:bg-background/95 md:p-1.5 md:shadow-[0_12px_32px_-4px_rgba(0,0,0,0.12),0_4px_12px_-2px_rgba(0,0,0,0.08)] md:dark:shadow-[0_16px_40px_-6px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.08)] md:backdrop-blur-2xl";
 
   const rowContent = (
     <>
@@ -307,6 +320,293 @@ export function ImageSelectionToolbar({
           onErased={(erasedDataUrl) => onUpdate({ src: erasedDataUrl })}
         />
       ) : null}
+
+      {/* 2c. Frame Mask & Position Popover — the popover itself has both a
+          "Frame Shape" and a "Position & Zoom" tab (see frameTab below), so
+          there used to be a second standalone "Position" button here too;
+          it opened a separate AdjustImageFrameDialog with the exact same
+          zoom/pan/fit controls as the "Position & Zoom" tab, which just read
+          as a confusing duplicate entry point. Removed — the tab covers it. */}
+      <AppTooltip content="Mask image into a custom frame shape, and adjust its position and zoom">
+        <button
+          ref={frameTriggerRef}
+          type="button"
+          onClick={() => {
+            setFrameOpen((wasOpen) => {
+              if (!wasOpen) {
+                frameDrag.reset();
+                setFramePinned(false);
+                setFrameTab("shape");
+              }
+              return !wasOpen;
+            });
+          }}
+          className={cn(
+            btnClass,
+            frameOpen && frameTab === "shape" && "bg-secondary text-primary",
+            layer.frameShape ? "text-primary border-primary/40" : "text-foreground border-border/60 bg-secondary/40",
+          )}
+        >
+          <SquareIcon size={15} className="text-primary" />
+          <span>
+            {layer.frameShape
+              ? FRAME_PRESETS.find((p) => p.kind === layer.frameShape)?.label.replace(" Frame", "") || "Frame"
+              : "Frame"}
+          </span>
+        </button>
+      </AppTooltip>
+
+      <FloatingDropdown
+        anchor={frameAnchor}
+        offset={frameDrag.offset}
+        align="center"
+        pinned={framePinned}
+        onRequestClose={() => setFrameOpen(false)}
+        triggerRef={frameTriggerRef}
+      >
+        <div
+          data-nopan=""
+          data-keep-text-editing=""
+          className="w-80 max-md:w-full overflow-hidden rounded-2xl border border-border bg-background shadow-xl"
+        >
+          <DragHandle
+            label={frameTab === "shape" ? "Image Frame Shape" : "Adjust Image in Frame"}
+            {...frameDrag.dragHandleProps}
+            pinned={framePinned}
+            onTogglePin={() => setFramePinned((p) => !p)}
+            onClose={() => setFrameOpen(false)}
+          />
+          <div className="space-y-3 p-3">
+            {/* Tab switchers */}
+            <div className="flex items-center rounded-xl bg-secondary/60 p-1">
+              <button
+                type="button"
+                onClick={() => setFrameTab("shape")}
+                className={cn(
+                  "flex-1 rounded-lg py-1 text-xs font-semibold transition-all",
+                  frameTab === "shape"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Frame Shape
+              </button>
+              <button
+                type="button"
+                onClick={() => setFrameTab("position")}
+                className={cn(
+                  "flex-1 rounded-lg py-1 text-xs font-semibold transition-all",
+                  frameTab === "position"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Position & Zoom
+              </button>
+            </div>
+
+            {frameTab === "shape" ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Frame Shape ({FRAME_PRESETS.length})</span>
+                  {layer.frameShape && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdate({ frameShape: undefined })}
+                      className="text-[11px] font-semibold text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      Remove Frame
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto pr-1">
+                  <button
+                    type="button"
+                    onClick={() => onUpdate({ frameShape: undefined })}
+                    className={cn(
+                      "group relative flex aspect-square flex-col items-center justify-center rounded-xl border p-1 transition-all hover:scale-105 active:scale-95",
+                      !layer.frameShape
+                        ? "border-primary bg-primary/10 text-primary ring-2 ring-primary ring-offset-1"
+                        : "border-border/80 bg-card/60 text-muted-foreground hover:border-primary/60 hover:bg-secondary",
+                    )}
+                    title="None (Original Rectangle)"
+                  >
+                    <span className="text-[10px] font-bold">None</span>
+                    <span className="text-[9px] opacity-70">Original</span>
+                  </button>
+
+                  {FRAME_PRESETS.map((preset) => {
+                    const isSelected = layer.frameShape === preset.kind;
+                    const frameStyle = frameShapeCss(preset.kind, 8);
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => {
+                          onUpdate({ frameShape: preset.kind });
+                        }}
+                        className={cn(
+                          "group relative flex aspect-square items-center justify-center rounded-xl border p-1 transition-all hover:scale-105 active:scale-95",
+                          isSelected
+                            ? "border-primary bg-primary/10 ring-2 ring-primary ring-offset-1"
+                            : "border-border/80 bg-card/60 hover:border-primary/60 hover:bg-secondary",
+                        )}
+                        title={preset.label}
+                      >
+                        <div
+                          className="h-full w-full overflow-hidden"
+                          style={{
+                            ...frameStyle,
+                          }}
+                        >
+                          <img
+                            src={layer.src || CANVA_FRAME_PLACEHOLDER_SRC}
+                            alt={preset.label}
+                            className="h-full w-full object-cover"
+                            draggable={false}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <div className="space-y-4">
+                {/* 1. Zoom Slider */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">Zoom Level</span>
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {layer.frameZoom ?? 100}%
+                    </span>
+                  </div>
+                  <Range
+                    min={100}
+                    max={300}
+                    value={layer.frameZoom ?? 100}
+                    onChange={(v) => onUpdate({ frameZoom: v })}
+                  />
+                  <div className="grid grid-cols-4 gap-1 pt-1">
+                    {[
+                      { label: "1x", val: 100 },
+                      { label: "1.5x", val: 150 },
+                      { label: "2x", val: 200 },
+                      { label: "3x", val: 300 },
+                    ].map((item) => (
+                      <Chip
+                        key={item.label}
+                        active={(layer.frameZoom ?? 100) === item.val}
+                        onClick={() => onUpdate({ frameZoom: item.val })}
+                        className="justify-center py-1 text-[11px]"
+                      >
+                        {item.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 2. Horizontal Pan */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">Horizontal Position (X)</span>
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {layer.frameOffsetX ?? 50}%
+                    </span>
+                  </div>
+                  <Range
+                    min={0}
+                    max={100}
+                    value={layer.frameOffsetX ?? 50}
+                    onChange={(v) => onUpdate({ frameOffsetX: v })}
+                  />
+                  <div className="grid grid-cols-3 gap-1 pt-1">
+                    {[
+                      { label: "Left", val: 0 },
+                      { label: "Center", val: 50 },
+                      { label: "Right", val: 100 },
+                    ].map((item) => (
+                      <Chip
+                        key={item.label}
+                        active={(layer.frameOffsetX ?? 50) === item.val}
+                        onClick={() => onUpdate({ frameOffsetX: item.val })}
+                        className="justify-center py-1 text-[11px]"
+                      >
+                        {item.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 3. Vertical Pan */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">Vertical Position (Y)</span>
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {layer.frameOffsetY ?? 50}%
+                    </span>
+                  </div>
+                  <Range
+                    min={0}
+                    max={100}
+                    value={layer.frameOffsetY ?? 50}
+                    onChange={(v) => onUpdate({ frameOffsetY: v })}
+                  />
+                  <div className="grid grid-cols-3 gap-1 pt-1">
+                    {[
+                      { label: "Top", val: 0 },
+                      { label: "Center", val: 50 },
+                      { label: "Bottom", val: 100 },
+                    ].map((item) => (
+                      <Chip
+                        key={item.label}
+                        active={(layer.frameOffsetY ?? 50) === item.val}
+                        onClick={() => onUpdate({ frameOffsetY: item.val })}
+                        className="justify-center py-1 text-[11px]"
+                      >
+                        {item.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 4. Fit Mode & Reset */}
+                <div className="flex items-center justify-between pt-2 border-t border-border/60">
+                  <span className="text-xs font-semibold text-foreground">Fit Mode</span>
+                  <div className="flex items-center gap-1">
+                    {(["cover", "contain", "fill"] as const).map((mode) => (
+                      <Chip
+                        key={mode}
+                        active={(layer.objectFit ?? "cover") === mode}
+                        onClick={() => onUpdate({ objectFit: mode })}
+                        className="capitalize py-0.5 px-2 text-[10px]"
+                      >
+                        {mode}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdate({
+                      frameOffsetX: 50,
+                      frameOffsetY: 50,
+                      frameZoom: 100,
+                      objectFit: "cover",
+                    })
+                  }
+                  className="w-full rounded-xl border border-border/80 bg-secondary/50 py-1.5 text-xs font-semibold text-foreground transition-all hover:bg-secondary active:scale-[0.98]"
+                >
+                  Reset Position & Zoom
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </FloatingDropdown>
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

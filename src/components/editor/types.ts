@@ -851,6 +851,55 @@ export type BoxStyle = "solid" | "gradient" | "glass" | "outline";
 export type ImageShape = "circle" | "rounded" | "square";
 export type ExportFormat = "png" | "jpg" | "webp" | "gif";
 
+export type FrameKind =
+  | "square"
+  | "rounded"
+  | "circle"
+  | "triangle"
+  | "triangle-down"
+  | "diamond"
+  | "pentagon"
+  | "hexagon-v"
+  | "hexagon-h"
+  | "octagon"
+  | "star-4"
+  | "star-5"
+  | "star-6"
+  | "star-8"
+  | "burst-12"
+  | "burst-16"
+  | "scallop-8"
+  | "scallop-12"
+  | "rosette-20"
+  | "arrow-right"
+  | "arrow-left"
+  | "arrow-up"
+  | "arrow-down"
+  | "arrow-bidirectional-h"
+  | "arrow-bidirectional-v"
+  | "arrow-pentagon-right"
+  | "arrow-chevron-right"
+  | "ribbon-horizontal"
+  | "hexagon-horizontal-pill"
+  | "pill-h"
+  | "speech-bubble-square"
+  | "speech-bubble-round"
+  | "heart"
+  | "cross"
+  | "cloud"
+  | "pennant-down"
+  | "banner-concave-bottom"
+  | "scalloped-corners"
+  | "chamfered-square"
+  | "curved-top-square"
+  | "parallelogram-right"
+  | "parallelogram-left"
+  | "trapezoid-up"
+  | "trapezoid-down"
+  | "u-shape"
+  | "arch"
+  | "shield";
+
 // One entry in the free-floating "Images" gallery — each is independently
 // draggable, resizable and stackable on the canvas, so a design can carry
 // any number of photos/stickers instead of just one.
@@ -875,6 +924,10 @@ export type ImageLayer = {
   // explicit box instead of scaling proportionally.
   height?: number | undefined;
   radius: number; // px corner radius
+  frameShape?: FrameKind | undefined; // Shape mask for photo frames (Canva style)
+  frameOffsetX?: number | undefined; // Horizontal position/pan inside frame (0-100%, default 50%)
+  frameOffsetY?: number | undefined; // Vertical position/pan inside frame (0-100%, default 50%)
+  frameZoom?: number | undefined; // Zoom scale factor inside frame (100-300%, default 100%)
   shadow: boolean;
   shadowBlur: number;
   layer: "front" | "behind"; // stacked relative to the quote box; ties within
@@ -1146,6 +1199,75 @@ export const SHAPE_PRESETS: { id: string; label: string; kind: ShapeKind; radius
   { id: "u-shape", label: "U shape", kind: "u-shape", radius: 999 },
   { id: "right-triangle", label: "Right triangle", kind: "right-triangle", radius: 0 },
   { id: "quarter-circle", label: "Quarter circle", kind: "quarter-circle", radius: 999 },
+];
+
+export const CANVA_FRAME_PLACEHOLDER_SRC =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+      <defs>
+        <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#bce4ff" />
+          <stop offset="100%" stop-color="#eaf5ff" />
+        </linearGradient>
+      </defs>
+      <rect width="400" height="400" fill="url(#sky)" />
+      <g fill="#ffffff" opacity="0.95">
+        <path d="M125 125 C125 100 145 80 170 80 C190 80 207 94 213 113 C220 109 228 107 237 107 C260 107 279 126 279 149 C279 151 279 153 278 155 C288 158 295 167 295 178 C295 192 284 203 270 203 L135 203 C118 203 105 190 105 173 C105 158 116 145 130 143 C127 138 125 131 125 125 Z" />
+      </g>
+      <path d="M -20 270 Q 80 190 220 235 Q 340 275 420 225 L 420 420 L -20 420 Z" fill="#7ba315" />
+      <path d="M -20 315 Q 120 245 280 305 Q 360 335 420 305 L 420 420 L -20 420 Z" fill="#9bc81e" />
+    </svg>`
+  );
+
+export const FRAME_PRESETS: { id: string; label: string; kind: FrameKind }[] = [
+  { id: "square", label: "Square Frame", kind: "square" },
+  { id: "rounded", label: "Rounded Frame", kind: "rounded" },
+  { id: "circle", label: "Circle Frame", kind: "circle" },
+  { id: "pill-h", label: "Capsule Pill Frame", kind: "pill-h" },
+  { id: "triangle", label: "Triangle Frame", kind: "triangle" },
+  { id: "triangle-down", label: "Inverted Triangle Frame", kind: "triangle-down" },
+  { id: "diamond", label: "Diamond Frame", kind: "diamond" },
+  { id: "pentagon", label: "Pentagon Frame", kind: "pentagon" },
+  { id: "hexagon-v", label: "Hexagon Vertical Frame", kind: "hexagon-v" },
+  { id: "hexagon-h", label: "Hexagon Horizontal Frame", kind: "hexagon-h" },
+  { id: "hexagon-horizontal-pill", label: "Elongated Hexagon Frame", kind: "hexagon-horizontal-pill" },
+  { id: "octagon", label: "Octagon Frame", kind: "octagon" },
+  { id: "star-4", label: "4-Point Star Frame", kind: "star-4" },
+  { id: "star-5", label: "5-Point Star Frame", kind: "star-5" },
+  { id: "star-6", label: "6-Point Star Frame", kind: "star-6" },
+  { id: "star-8", label: "Eight Pointed Star Inflated Frame", kind: "star-8" },
+  { id: "burst-12", label: "12-Point Burst Frame", kind: "burst-12" },
+  { id: "burst-16", label: "16-Point Sunburst Frame", kind: "burst-16" },
+  { id: "scallop-8", label: "Scalloped Octagon Frame", kind: "scallop-8" },
+  { id: "scallop-12", label: "Scalloped Badge Frame", kind: "scallop-12" },
+  { id: "rosette-20", label: "Rosette Stamp Frame", kind: "rosette-20" },
+  { id: "arrow-up", label: "Up Arrow Frame", kind: "arrow-up" },
+  { id: "arrow-down", label: "Down Arrow Frame", kind: "arrow-down" },
+  { id: "arrow-right", label: "Right Arrow Frame", kind: "arrow-right" },
+  { id: "arrow-left", label: "Left Arrow Frame", kind: "arrow-left" },
+  { id: "arrow-bidirectional-h", label: "Double Arrow Horizontal Frame", kind: "arrow-bidirectional-h" },
+  { id: "arrow-bidirectional-v", label: "Double Arrow Vertical Frame", kind: "arrow-bidirectional-v" },
+  { id: "arrow-pentagon-right", label: "Tag / Signpost Frame", kind: "arrow-pentagon-right" },
+  { id: "arrow-chevron-right", label: "Chevron Notch Frame", kind: "arrow-chevron-right" },
+  { id: "ribbon-horizontal", label: "Ribbon Banner Frame", kind: "ribbon-horizontal" },
+  { id: "speech-bubble-square", label: "Speech Bubble Square Frame", kind: "speech-bubble-square" },
+  { id: "speech-bubble-round", label: "Speech Bubble Oval Frame", kind: "speech-bubble-round" },
+  { id: "heart", label: "Heart Frame", kind: "heart" },
+  { id: "cross", label: "Cross Plus Frame", kind: "cross" },
+  { id: "cloud", label: "Cloud Frame", kind: "cloud" },
+  { id: "pennant-down", label: "Pennant Ribbon Frame", kind: "pennant-down" },
+  { id: "banner-concave-bottom", label: "Banner Concave Frame", kind: "banner-concave-bottom" },
+  { id: "scalloped-corners", label: "Notched Corner Frame", kind: "scalloped-corners" },
+  { id: "chamfered-square", label: "Chamfered Square Frame", kind: "chamfered-square" },
+  { id: "curved-top-square", label: "Barrel Curve Frame", kind: "curved-top-square" },
+  { id: "parallelogram-right", label: "Parallelogram Frame", kind: "parallelogram-right" },
+  { id: "parallelogram-left", label: "Parallelogram Mirrored Frame", kind: "parallelogram-left" },
+  { id: "trapezoid-up", label: "Trapezoid Frame", kind: "trapezoid-up" },
+  { id: "trapezoid-down", label: "Inverted Trapezoid Frame", kind: "trapezoid-down" },
+  { id: "u-shape", label: "U-Shape Arch Down Frame", kind: "u-shape" },
+  { id: "arch", label: "Arch Portal Frame", kind: "arch" },
+  { id: "shield", label: "Shield Frame", kind: "shield" },
 ];
 
 export type ShadowPreset = {
@@ -1822,6 +1944,169 @@ export function shapeCss(kind: ShapeKind, radius: number): { borderRadius?: stri
       return { clipPath: "polygon(0% 0%, 0% 100%, 100% 100%)" };
     default:
       return {};
+  }
+}
+
+// Single source of truth for frame/mask geometry on photos and image layers
+export function frameShapeCss(
+  kind: FrameKind | undefined,
+  radius?: number,
+): { borderRadius?: string; clipPath?: string } {
+  if (!kind) {
+    return typeof radius === "number" && radius > 0 ? { borderRadius: `${radius}px` } : {};
+  }
+  switch (kind) {
+    case "square":
+      return { borderRadius: "0px" };
+    case "rounded":
+      return { borderRadius: typeof radius === "number" && radius > 0 ? `${radius}px` : "20%" };
+    case "circle":
+      return { borderRadius: "50%" };
+    case "triangle":
+      return { clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)" };
+    case "triangle-down":
+      return { clipPath: "polygon(0% 0%, 100% 0%, 50% 100%)" };
+    case "diamond":
+      return { clipPath: "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)" };
+    case "pentagon":
+      return { clipPath: "polygon(50% 0%, 100% 38%, 81% 100%, 19% 100%, 0% 38%)" };
+    case "hexagon-v":
+      return { clipPath: "polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)" };
+    case "hexagon-h":
+      return { clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" };
+    case "octagon":
+      return {
+        clipPath:
+          "polygon(29.3% 0%, 70.7% 0%, 100% 29.3%, 100% 70.7%, 70.7% 100%, 29.3% 100%, 0% 70.7%, 0% 29.3%)",
+      };
+    case "star-4":
+      return {
+        clipPath:
+          "polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)",
+      };
+    case "star-5":
+      return {
+        clipPath:
+          "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)",
+      };
+    case "star-6":
+      // True hexagram (Star of David): two overlapping equilateral triangles.
+      // Outer points sit at radius R (every 60°); inner points sit at R/√3
+      // (≈57.7% of R, every 60° offset by 30°) — the exact intersection
+      // radius of two equilateral triangles sharing a center, so all 6 tips
+      // and all 6 inner notches are evenly spaced and equal, unlike the
+      // previous hand-approximated values which were visibly lopsided.
+      return {
+        clipPath:
+          "polygon(50% 0%, 64.4% 25%, 93.3% 25%, 78.9% 50%, 93.3% 75%, 64.4% 75%, 50% 100%, 35.6% 75%, 6.7% 75%, 21.1% 50%, 6.7% 25%, 35.6% 25%)",
+      };
+    case "star-8":
+      return {
+        clipPath:
+          "polygon(50% 0%, 63.5% 17.3%, 85.4% 14.6%, 82.7% 36.5%, 100% 50%, 82.7% 63.5%, 85.4% 85.4%, 63.5% 82.7%, 50% 100%, 36.5% 82.7%, 14.6% 85.4%, 17.3% 63.5%, 0% 50%, 17.3% 36.5%, 14.6% 14.6%, 36.5% 17.3%)",
+      };
+    case "burst-12":
+      return {
+        clipPath:
+          "polygon(50% 0%, 59.1% 16.2%, 75% 6.7%, 76.8% 25.3%, 93.3% 25%, 83.8% 40.9%, 100% 50%, 83.8% 59.1%, 93.3% 75%, 76.8% 74.7%, 75% 93.3%, 59.1% 83.8%, 50% 100%, 40.9% 83.8%, 25% 93.3%, 23.2% 74.7%, 6.7% 75%, 16.2% 59.1%, 0% 50%, 16.2% 40.9%, 6.7% 25%, 23.2% 25.3%, 25% 6.7%, 40.9% 16.2%)",
+      };
+    case "burst-16":
+      return {
+        clipPath:
+          "polygon(50% 0%, 57.4% 12.7%, 69.1% 3.8%, 71.1% 18.4%, 85.4% 14.6%, 81.6% 28.9%, 96.2% 30.9%, 87.3% 42.6%, 100% 50%, 87.3% 57.4%, 96.2% 69.1%, 81.6% 71.1%, 85.4% 85.4%, 71.1% 81.6%, 69.1% 96.2%, 57.4% 87.3%, 50% 100%, 42.6% 87.3%, 30.9% 96.2%, 28.9% 81.6%, 14.6% 85.4%, 18.4% 71.1%, 3.8% 69.1%, 12.7% 57.4%, 0% 50%, 12.7% 42.6%, 3.8% 30.9%, 18.4% 28.9%, 14.6% 14.6%, 28.9% 18.4%, 30.9% 3.8%, 42.6% 12.7%)",
+      };
+    case "scallop-8":
+      return {
+        clipPath: "url(#clip-frame-scallop-8)",
+      };
+    case "scallop-12":
+      return {
+        clipPath: "url(#clip-frame-scallop-12)",
+      };
+    case "rosette-20":
+      return {
+        clipPath: "url(#clip-frame-rosette-20)",
+      };
+    case "arrow-right":
+      return { clipPath: "polygon(0% 30%, 60% 30%, 60% 10%, 100% 50%, 60% 90%, 60% 70%, 0% 70%)" };
+    case "arrow-left":
+      return { clipPath: "polygon(40% 10%, 40% 30%, 100% 30%, 100% 70%, 40% 70%, 40% 90%, 0% 50%)" };
+    case "arrow-up":
+      return { clipPath: "polygon(50% 0%, 90% 40%, 70% 40%, 70% 100%, 30% 100%, 30% 40%, 10% 40%)" };
+    case "arrow-down":
+      return { clipPath: "polygon(30% 0%, 70% 0%, 70% 60%, 90% 60%, 50% 100%, 10% 60%, 30% 60%)" };
+    case "arrow-bidirectional-h":
+      return {
+        clipPath:
+          "polygon(0% 50%, 25% 15%, 25% 35%, 75% 35%, 75% 15%, 100% 50%, 75% 85%, 75% 65%, 25% 65%, 25% 85%)",
+      };
+    case "arrow-bidirectional-v":
+      return {
+        clipPath:
+          "polygon(50% 0%, 85% 25%, 65% 25%, 65% 75%, 85% 75%, 50% 100%, 15% 75%, 35% 75%, 35% 25%, 15% 25%)",
+      };
+    case "arrow-pentagon-right":
+      return { clipPath: "polygon(0% 0%, 75% 0%, 100% 50%, 75% 100%, 0% 100%)" };
+    case "arrow-chevron-right":
+      return { clipPath: "polygon(0% 0%, 70% 0%, 100% 50%, 70% 100%, 0% 100%, 30% 50%)" };
+    case "ribbon-horizontal":
+      return { clipPath: "polygon(0% 0%, 100% 0%, 85% 50%, 100% 100%, 0% 100%, 15% 50%)" };
+    case "hexagon-horizontal-pill":
+      return { clipPath: "polygon(15% 0%, 85% 0%, 100% 50%, 85% 100%, 15% 100%, 0% 50%)" };
+    case "pill-h":
+      return { borderRadius: "9999px" };
+    case "speech-bubble-square":
+      return { clipPath: "url(#clip-frame-speech-bubble-square)" };
+    case "speech-bubble-round":
+      return {
+        clipPath: "url(#clip-frame-speech-bubble-round)",
+      };
+    case "heart":
+      return {
+        clipPath: "url(#clip-frame-heart)",
+      };
+    case "cross":
+      return {
+        clipPath:
+          "polygon(35% 0%, 65% 0%, 65% 35%, 100% 35%, 100% 65%, 65% 65%, 65% 100%, 35% 100%, 35% 65%, 0% 65%, 0% 35%, 35% 35%)",
+      };
+    case "cloud":
+      return {
+        clipPath: "url(#clip-frame-cloud)",
+      };
+    case "pennant-down":
+      return { clipPath: "polygon(0% 0%, 100% 0%, 100% 75%, 50% 100%, 0% 75%)" };
+    case "banner-concave-bottom":
+      return { clipPath: "polygon(0% 0%, 100% 0%, 100% 100%, 50% 85%, 0% 100%)" };
+    case "scalloped-corners":
+      return {
+        clipPath: "url(#clip-frame-scalloped-corners)",
+      };
+    case "chamfered-square":
+      return {
+        clipPath:
+          "polygon(20% 0%, 80% 0%, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0% 80%, 0% 20%)",
+      };
+    case "curved-top-square":
+      return {
+        clipPath: "url(#clip-frame-curved-top-square)",
+      };
+    case "parallelogram-right":
+      return { clipPath: "polygon(25% 0%, 100% 0%, 75% 100%, 0% 100%)" };
+    case "parallelogram-left":
+      return { clipPath: "polygon(0% 0%, 75% 0%, 100% 100%, 25% 100%)" };
+    case "trapezoid-up":
+      return { clipPath: "polygon(20% 0%, 80% 0%, 100% 100%, 0% 100%)" };
+    case "trapezoid-down":
+      return { clipPath: "polygon(0% 0%, 100% 0%, 80% 100%, 20% 100%)" };
+    case "u-shape":
+      return { clipPath: "url(#clip-frame-u-shape)" };
+    case "arch":
+      return { clipPath: "url(#clip-frame-arch)" };
+    case "shield":
+      return { clipPath: "url(#clip-frame-shield)" };
+    default:
+      return typeof radius === "number" && radius > 0 ? { borderRadius: `${radius}px` } : {};
   }
 }
 
@@ -2909,6 +3194,35 @@ function makeImageLayer(position: number, src: string, canvasWidth: number): Ima
 export function withImageAdded(s: EditorState, src: string): ImageLayer[] {
   const list = getImageLayers(s);
   return [makeImageLayer(0, src, s.width), ...list];
+}
+
+export function withFrameAdded(
+  s: EditorState,
+  frameKind: FrameKind,
+): { list: ImageLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
+  const list = getImageLayers(s);
+  const position = list.length;
+  const offset = (position % 6) * 4;
+  const defaultSize = Math.min(Math.round(s.width * 0.45), 380);
+  const newImg: ImageLayer = {
+    id: newLayerId(),
+    src: CANVA_FRAME_PLACEHOLDER_SRC,
+    originalSrc: CANVA_FRAME_PLACEHOLDER_SRC,
+    x: 50 + offset,
+    y: 50 + offset,
+    size: defaultSize,
+    height: defaultSize,
+    radius: frameKind === "rounded" ? 28 : 0,
+    frameShape: frameKind,
+    shadow: false,
+    shadowBlur: 24,
+    layer: "front",
+    objectFit: "cover",
+  };
+  const newImages = [...list, newImg];
+  const newRef: UnifiedLayerRef = { kind: "image" as const, id: newImg.id };
+  const layerOrder = [...getUnifiedLayers(s), newRef];
+  return { list: newImages, layerOrder, newId: newImg.id };
 }
 
 // Batched multi-file add — prepends every src in one array update

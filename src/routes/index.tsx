@@ -67,7 +67,9 @@ import { BackgroundSelectionToolbar } from "@/components/editor/BackgroundSelect
 import { ImageSelectionToolbar } from "@/components/editor/ImageSelectionToolbar";
 import { ImageCropDialog } from "@/components/editor/ImageCropDialog";
 import { EraseImageDialog } from "@/components/editor/EraseImageDialog";
+import { AdjustImageFrameDialog } from "@/components/editor/AdjustImageFrameDialog";
 import { ShapeSelectionToolbar } from "@/components/editor/ShapeSelectionToolbar";
+import { FrameDefs } from "@/components/editor/FrameDefs";
 import {
   MultiShapeSelectionToolbar,
   type ShapeArrangeDirection,
@@ -832,6 +834,7 @@ function Index() {
     id: string;
     title: string;
   } | null>(null);
+  const [frameAdjustingImageLayer, setFrameAdjustingImageLayer] = useState<ImageLayer | null>(null);
 
   // Spacebar pan mode listener
   useEffect(() => {
@@ -3785,6 +3788,7 @@ function Index() {
           data-quote-canvas="true"
           className="shadow-[var(--shadow-panel)] ring-1 ring-border"
         >
+          <FrameDefs />
           <QuoteCanvas
             ref={canvasRef}
             s={s}
@@ -3804,6 +3808,10 @@ function Index() {
             onDeselectAll={() => {
               setCanvasSelection([]);
               setIsBackgroundSelected(false);
+            }}
+            onOpenFrameAdjust={(id) => {
+              const img = getImageLayers(s).find((item) => item.id === id);
+              if (img) setFrameAdjustingImageLayer(img);
             }}
           />
         </div>
@@ -5273,6 +5281,20 @@ function Index() {
             </div>
           </DialogContent>
         </Dialog>
+        {/* 3. Adjust Image in Frame Dialog */}
+        {frameAdjustingImageLayer ? (
+          <AdjustImageFrameDialog
+            open={Boolean(frameAdjustingImageLayer)}
+            onClose={() => setFrameAdjustingImageLayer(null)}
+            layer={frameAdjustingImageLayer}
+            onUpdate={(patch) => {
+              setFrameAdjustingImageLayer((prev) => (prev ? { ...prev, ...patch } : null));
+              set("images", (_, prevS) =>
+                withImageUpdated(prevS, frameAdjustingImageLayer.id, patch),
+              );
+            }}
+          />
+        ) : null}
       </div>
     </TooltipProvider>
   );

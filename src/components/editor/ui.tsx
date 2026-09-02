@@ -475,7 +475,7 @@ export function MinimizedToolbarButton({
           touchAction: "none",
           zIndex: 200,
         }}
-        className="flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-full border border-border/80 bg-background/95 text-foreground shadow-[inset_0_1.5px_0_0_rgba(255,255,255,0.15),inset_0_-2.5px_0_0_rgba(0,0,0,0.6),0_12px_40px_rgba(0,0,0,0.45),0_2px_4px_rgba(0,0,0,0.25)] backdrop-blur-xl transition-transform active:scale-95 active:cursor-grabbing"
+        className="flex h-10 w-10 shrink-0 cursor-grab items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-[0_12px_32px_-4px_rgba(0,0,0,0.15)] dark:shadow-[0_16px_40px_-6px_rgba(0,0,0,0.6),0_0_0_1px_rgba(255,255,255,0.08)] backdrop-blur-2xl transition-transform active:scale-95 active:cursor-grabbing"
       >
         <Settings2 className="h-4 w-4" />
         <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">

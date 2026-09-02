@@ -21,6 +21,7 @@ import {
   sanitizeTextHtml,
   shapeCss,
   shapeFillStyle,
+  frameShapeCss,
   isLineShape,
   withImageDuplicated,
   withImageRemoved,
@@ -126,6 +127,8 @@ type Props = {
   isMobile?: boolean;
   /** Show Canva-style dashed margins guide inside the canvas */
   showMargins?: boolean;
+  /** Opens the Adjust Image in Frame dialog for the given image layer id */
+  onOpenFrameAdjust?: ((layerId: string) => void) | undefined;
   /** True for as long as a second touch is also down (a pinch gesture in
    * progress) — every layer's own drag-to-move checks this and bails out
    * immediately rather than starting/continuing a drag. Without this, one
@@ -258,6 +261,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
     onDeselectAll,
     isMobile,
     showMargins = false,
+    onOpenFrameAdjust,
   },
   ref,
 ) {
@@ -958,6 +962,7 @@ export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanva
                 controlsOverlayEl={controlsOverlayEl}
                 suppressDragRef={suppressDragRef}
                 showMargins={showMargins}
+                onOpenFrameAdjust={onOpenFrameAdjust}
               />
             );
           }
@@ -5016,6 +5021,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   controlsOverlayEl,
   suppressDragRef,
   showMargins = false,
+  onOpenFrameAdjust,
 }: {
   img: ImageLayer;
   index: number;
@@ -5036,9 +5042,10 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
   onGroupDragMove: (clientX: number, clientY: number) => void;
   onGroupDragEnd: () => void;
   onGuides: (g: GuidesState) => void;
-  controlsOverlayEl?: HTMLDivElement | null;
+  controlsOverlayEl?: HTMLDivElement | null | undefined;
   suppressDragRef?: React.RefObject<boolean> | undefined;
-  showMargins?: boolean;
+  showMargins?: boolean | undefined;
+  onOpenFrameAdjust?: ((layerId: string) => void) | undefined;
 }) {
   const sRef = useRef(s);
   sRef.current = s;
@@ -5102,6 +5109,8 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
     const h = el.offsetHeight;
     setMeasuredBox((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
   });
+
+  const [isDragTarget, setIsDragTarget] = useState(false);
 
   const canInteract = interactive && !!set && !s.locked;
   const locked = img.locked ?? false;
@@ -5227,6 +5236,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onUp);
+        const d = dragRef.current;
         dragRef.current = null;
         if (groupDraggingRef.current) {
           groupDraggingRef.current = false;
@@ -5234,6 +5244,31 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
         }
         setIsMoving(false);
         onGuides({ vCenter: false, hCenter: false });
+
+        // Check if an un-framed image was dragged and dropped over an existing frame layer
+        if (set && d) {
+          const currentImg = getImageLayers(sRef.current).find((i) => i.id === (d.activeId || img.id));
+          if (currentImg && !currentImg.frameShape) {
+            const allImages = getImageLayers(sRef.current);
+            const targetFrame = allImages.find((other) => {
+              if (other.id === currentImg.id || !other.frameShape) return false;
+              const dx = Math.abs(other.x - currentImg.x);
+              const dy = Math.abs(other.y - currentImg.y);
+              return dx < 12 && dy < 12;
+            });
+            if (targetFrame) {
+              const updated = allImages
+                .filter((i) => i.id !== currentImg.id)
+                .map((i) =>
+                  i.id === targetFrame.id
+                    ? { ...i, src: currentImg.src, originalSrc: currentImg.originalSrc || currentImg.src }
+                    : i,
+                );
+              set("images", updated);
+              onSelect(targetFrame.id);
+            }
+          }
+        }
       };
 
       window.addEventListener("pointermove", onMove, { passive: false });
@@ -5247,6 +5282,28 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
 
   if (img.hidden) return null;
 
+  // Frame-shape clip/border-radius must live on this OUTER container (the
+  // fixed-size box), not on the inner <img> below — the inner img also
+  // carries the zoom `transform: scale()` used to pan/zoom the photo inside
+  // the frame. clip-path is resolved against the element's OWN box before
+  // any transform on that same element is applied, so if the clip lived on
+  // the img, zooming would scale the star/cloud/etc. silhouette right along
+  // with the photo — ballooning it past this box's edges — and the outer
+  // box's plain rectangular `overflow: hidden` would then chop that
+  // oversized shape back down to a plain rectangle. That's exactly the
+  // "shape turns into a square when I change Zoom Level" bug. Keeping the
+  // clip on this never-scaled outer box and only zooming the photo inside
+  // it keeps the frame's outline fixed while its contents pan/zoom.
+  const frameStyle = frameShapeCss(img.frameShape, img.radius);
+  const hasClip = Boolean(frameStyle.clipPath);
+  const objectPosition = `${img.frameOffsetX ?? 50}% ${img.frameOffsetY ?? 50}%`;
+  const zoomScale = img.frameZoom && img.frameZoom > 100 ? img.frameZoom / 100 : 1;
+  const innerImgTransform = [
+    img.flipH ? "scaleX(-1)" : "",
+    img.flipV ? "scaleY(-1)" : "",
+    zoomScale !== 1 ? `scale(${zoomScale})` : "",
+  ].filter(Boolean).join(" ") || undefined;
+
   return (
     <>
       <div
@@ -5256,15 +5313,68 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          if (img.frameShape) {
+            onOpenFrameAdjust?.(img.id);
+          }
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragTarget(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragTarget(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragTarget(false);
+          const file = e.dataTransfer.files?.[0];
+          if (file && file.type.startsWith("image/")) {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const dataUrl = reader.result as string;
+              update({ src: dataUrl, originalSrc: dataUrl });
+            };
+            reader.readAsDataURL(file);
+          }
+        }}
         style={{
           position: "absolute",
           left: `${img.x}%`,
           top: `${img.y}%`,
           transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
           width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
-          height:
-            hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
-              ? `${img.height}px`
+          height: `${hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
+            ? img.height
+            : Boolean(img.frameShape)
+              ? (img.frameShape === "pill-h" || img.frameShape === "ribbon-horizontal" || img.frameShape === "hexagon-horizontal-pill"
+                ? Math.round(img.size * 0.5)
+                : img.size)
+              : (naturalAspect !== null ? Math.round(img.size * naturalAspect) : img.size)
+          }px`,
+          overflow: "hidden",
+          borderRadius: frameStyle.borderRadius ?? (img.radius > 0 ? `${img.radius}px` : undefined),
+          clipPath: frameStyle.clipPath,
+          boxShadow:
+            !hasClip && img.shadow
+              ? `${img.shadowX ?? 0}px ${img.shadowY ?? 12}px ${img.shadowBlur}px ${img.shadowSpread ?? 0}px ${hexToRgba(
+                  img.shadowColor ?? "#000000",
+                  (img.shadowOpacity ?? 35) / 100,
+                )}`
+              : "none",
+          filter:
+            hasClip && img.shadow
+              ? `drop-shadow(${img.shadowX ?? 0}px ${img.shadowY ?? 12}px ${Math.round((img.shadowBlur ?? 24) / 2)}px ${hexToRgba(
+                  img.shadowColor ?? "#000000",
+                  (img.shadowOpacity ?? 35) / 100,
+                )})`
               : undefined,
           cursor: canInteract ? (locked ? "pointer" : "grab") : undefined,
           zIndex: 10 + index,
@@ -5272,7 +5382,7 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
           userSelect: "none",
           outline: "none",
         }}
-        className="group"
+        className={cn("group", isDragTarget && "ring-4 ring-primary ring-offset-2 animate-pulse")}
       >
         <img
           src={img.src}
@@ -5285,17 +5395,11 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
           style={{
             display: "block",
             width: "100%",
-            height: hasExplicitHeight ? "100%" : "auto",
-            borderRadius: img.radius,
+            height: "100%",
             objectFit: img.objectFit ?? "cover",
+            objectPosition,
             opacity: (img.opacity ?? 100) / 100,
-            transform: `${img.flipH ? "scaleX(-1)" : ""} ${img.flipV ? "scaleY(-1)" : ""}`.trim() || undefined,
-            boxShadow: img.shadow
-              ? `${img.shadowX ?? 0}px ${img.shadowY ?? 12}px ${img.shadowBlur}px ${img.shadowSpread ?? 0}px ${hexToRgba(
-                img.shadowColor ?? "#000000",
-                (img.shadowOpacity ?? 35) / 100,
-              )}`
-              : "none",
+            transform: innerImgTransform,
             pointerEvents: "none",
             userSelect: "none",
           }}
@@ -5311,24 +5415,14 @@ const DraggableImageLayer = memo(function DraggableImageLayer({
               top: `${img.y}%`,
               transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
               width: `${typeof img.size === "number" && Number.isFinite(img.size) && img.size > 0 ? img.size : 120}px`,
-              height:
-                hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
-                  ? `${img.height}px`
-                  // Prefers the real post-commit measurement (measuredBox)
-                  // over a computed guess, and the decoded aspect ratio
-                  // (naturalAspect) over a raw live offsetHeight read —
-                  // right after a fresh upload, a raw read here can still
-                  // reflect the DOM from before the image finished
-                  // decoding, which is what made the outline and resize
-                  // handles land far from the image instead of hugging it.
-                  // measuredBox is only trusted once it's actually
-                  // non-zero — before the image decodes, the container
-                  // itself has no intrinsic height yet, so an early
-                  // measurement of exactly 0 means "not measured
-                  // meaningfully yet", not "the image is 0px tall".
-                  : `${(measuredBox && measuredBox.h > 0 ? measuredBox.h : null) ??
-                    (naturalAspect !== null ? img.size * naturalAspect : (containerRef.current?.offsetHeight ?? img.size))
-                  }px`,
+              height: `${hasExplicitHeight && typeof img.height === "number" && Number.isFinite(img.height) && img.height > 0
+                ? img.height
+                : Boolean(img.frameShape)
+                  ? (img.frameShape === "pill-h" || img.frameShape === "ribbon-horizontal" || img.frameShape === "hexagon-horizontal-pill"
+                    ? Math.round(img.size * 0.5)
+                    : img.size)
+                  : (naturalAspect !== null ? Math.round(img.size * naturalAspect) : img.size)
+              }px`,
               zIndex: 80 + index,
               pointerEvents: "none",
             }}
