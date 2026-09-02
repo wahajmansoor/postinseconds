@@ -991,6 +991,42 @@ export function Select({
 // scrolled near the visible area, via IntersectionObserver — so scrolling
 // through the full list loads previews progressively instead of all at
 // once, and a name never dispatched into view never costs a request at all.
+
+// Which labeled divider (if any) belongs directly above the row at `idx` in
+// a font results list — every picker sorts custom (isCustom) fonts first,
+// then fonts already in the canvas (isCanvasFont), then the plain catalog
+// (see fontSortRank/searchAllFonts in types.ts), so there are at most two
+// transitions to label. The canvas-fonts group gets its header even when
+// it's the very first thing in the list (most users have canvas fonts —
+// any font already applied to their quote/text — long before they ever
+// upload a custom one, so that group needs its own label to read as
+// intentional rather than an unexplained pair of "In use" badges); the
+// Google Fonts group only gets a header when something else precedes it —
+// a redundant "Google Fonts" heading atop an otherwise plain, ungrouped
+// list would just be noise. The "Yours" group is deliberately never
+// labeled here — its rows are already badge-marked and always sort first,
+// so a divider above it would only separate it from nothing.
+export function fontDividerLabelAt(list: FontOption[], idx: number): string | null {
+  const f = list[idx];
+  if (!f) return null;
+  const prev = idx > 0 ? list[idx - 1] : undefined;
+  if (f.isCanvasFont && !prev?.isCanvasFont) return "Fonts in This Canvas";
+  if (!f.isCustom && !f.isCanvasFont && prev && (prev.isCustom || prev.isCanvasFont)) return "Google Fonts";
+  return null;
+}
+
+export function FontListDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-1 py-1">
+      <div className="h-px flex-1 bg-border" />
+      <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
 export const FontRow = memo(function FontRow({
   font,
   active,
@@ -1063,9 +1099,19 @@ export const FontRow = memo(function FontRow({
       )}
     >
       <span className="min-w-0 flex-1 truncate">{font.label}</span>
+      {/* Both badges can show at once — a custom font already applied
+          somewhere in the canvas is both "yours" and "in use", and losing
+          either signal would be misleading (see the dedup-merge note on
+          searchAllFonts in types.ts for how isCanvasFont survives even
+          when a custom font shadows it in the pool). */}
       {font.isCustom ? (
         <span className="shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
           Yours
+        </span>
+      ) : null}
+      {font.isCanvasFont ? (
+        <span className="shrink-0 rounded-md bg-secondary px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+          In use
         </span>
       ) : null}
       {active ? <Tick02Icon size={13} className="shrink-0 text-primary" /> : null}
@@ -1088,6 +1134,7 @@ export function FontPickerField({
   catalog,
   customFonts,
   onOpenCustomFonts,
+  canvasFonts,
   className,
 }: {
   value: string;
@@ -1099,6 +1146,9 @@ export function FontPickerField({
   /** Renders an "Upload / manage your fonts" row above the list when
    * provided — fired on click, the caller owns the actual dialog. */
   onOpenCustomFonts?: () => void;
+  /** Fonts already used elsewhere in the current canvas (see
+   * getCanvasFontsInUse in types.ts) — sorted second, after custom fonts. */
+  canvasFonts?: FontOption[] | null;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -1117,11 +1167,14 @@ export function FontPickerField({
 
   const activeValue = optimisticVal ?? value;
 
-  const results = useMemo(() => searchAllFonts(search, catalog, customFonts), [search, catalog, customFonts]);
+  const results = useMemo(
+    () => searchAllFonts(search, catalog, customFonts, canvasFonts),
+    [search, catalog, customFonts, canvasFonts],
+  );
   const currentLabel = useMemo(() => {
-    const found = findFontOption(getFontPool(catalog, customFonts), activeValue);
+    const found = findFontOption(getFontPool(catalog, customFonts, canvasFonts), activeValue);
     return found?.label ?? fontFamilyToLabel(activeValue);
-  }, [catalog, customFonts, activeValue]);
+  }, [catalog, customFonts, canvasFonts, activeValue]);
 
   useLayoutEffect(() => {
     if (open && triggerRef.current) {
@@ -1261,22 +1314,27 @@ export function FontPickerField({
                 className="max-h-60 space-y-0.5 overflow-y-auto pr-0.5"
               >
                 {results.length ? (
-                  results.slice(0, renderLimit).map((f, idx) => (
-                    <FontRow
-                      key={f.value}
-                      font={f}
-                      active={isSameFontFamily(f.value, activeValue)}
-                      isFocused={idx === focusedIndex}
-                      onSelect={(v) => {
-                        setOptimisticVal(v);
-                        onChange(v);
-                        setOpen(false);
-                      }}
-                      scrollRef={scrollRef}
-                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors"
-                      activeClassName="bg-primary/15 text-primary font-semibold"
-                      idleClassName="text-foreground hover:bg-secondary"
-                    />
+                  results.slice(0, renderLimit).map((f, idx, slice) => (
+                    <div key={f.value}>
+                      {(() => {
+                        const label = fontDividerLabelAt(slice, idx);
+                        return label ? <FontListDivider label={label} /> : null;
+                      })()}
+                      <FontRow
+                        font={f}
+                        active={isSameFontFamily(f.value, activeValue)}
+                        isFocused={idx === focusedIndex}
+                        onSelect={(v) => {
+                          setOptimisticVal(v);
+                          onChange(v);
+                          setOpen(false);
+                        }}
+                        scrollRef={scrollRef}
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors"
+                        activeClassName="bg-primary/15 text-primary font-semibold"
+                        idleClassName="text-foreground hover:bg-secondary"
+                      />
+                    </div>
                   ))
                 ) : (
                   <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">

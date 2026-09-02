@@ -49,6 +49,8 @@ import { TextEffectsPanel } from "./TextEffectsPanel";
 import { VERIFIED_PICKER_ICONS } from "./VerifiedBadges";
 import {
   getAvailableFontWeights,
+  getCanvasFontsInUse,
+  getFontPool,
   loadGoogleFontsCatalog,
   PREMIUM_TEMPLATES,
   SHADOW_OVERLAY_PRESETS,
@@ -602,6 +604,15 @@ export function LeftPanel({
   const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
   const { options: customFontOptions } = useCustomFonts();
   const [customFontsDialogOpen, setCustomFontsDialogOpen] = useState(false);
+  // Fonts already used elsewhere in the current design — see
+  // getCanvasFontsInUse's own comment in types.ts. Recomputed whenever the
+  // font-bearing fields it reads change; the `pool` it resolves labels
+  // against is the same one the picker itself searches, so a canvas font's
+  // display label always matches what the rest of the app calls it.
+  const canvasFontsInUse = useMemo(
+    () => getCanvasFontsInUse(s, getFontPool(fontCatalog, customFontOptions)),
+    [s.quote, s.quoteFont, s.name, s.authorFont, s.tagline, s.taglineFont, s.showTopButton, s.topButtonText, s.topButtonFont, s.texts, fontCatalog, customFontOptions],
+  );
   useEffect(() => {
     if (tab !== "text" || fontCatalog) return;
     let cancelled = false;
@@ -1594,6 +1605,7 @@ export function LeftPanel({
                         }}
                         catalog={fontCatalog}
                         customFonts={customFontOptions}
+                        canvasFonts={canvasFontsInUse}
                         onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
                         className="h-8 rounded-xl px-2.5 py-0 text-xs font-medium"
                       />

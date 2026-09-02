@@ -39,6 +39,8 @@ import {
   DragHandle,
   FloatingDropdown,
   FloatingToolbarPortal,
+  fontDividerLabelAt,
+  FontListDivider,
   FontRow,
   Range,
   MinimizedToolbarButton,
@@ -94,6 +96,11 @@ interface MultiMixedSelectionToolbarProps {
   // from under the user (confirmed as the real cause of exactly that bug
   // report). Falls back to a local instance if not provided.
   onOpenCustomFonts?: (() => void) | undefined;
+  // Fonts already used elsewhere in the current canvas (see
+  // getCanvasFontsInUse in types.ts) — computed once in index.tsx (which
+  // has the full EditorState) and passed down, same reasoning as
+  // customFonts above but for canvas rather than uploaded fonts.
+  canvasFonts?: FontOption[] | null;
 }
 
 export function MultiMixedSelectionToolbar({
@@ -115,6 +122,7 @@ export function MultiMixedSelectionToolbar({
   detached = false,
   onAnyPopoverOpenChange,
   onOpenCustomFonts,
+  canvasFonts,
 }: MultiMixedSelectionToolbarProps) {
   const isMobile = useIsMobile();
   // ---- popover open / pin / drag states ----
@@ -210,7 +218,7 @@ export function MultiMixedSelectionToolbar({
   const fontLabel = (() => {
     if (!allText || textLayers.length === 0) return null;
     if (!uniformFont) return "Mixed Fonts";
-    const found = findFontOption(getFontPool(fontCatalog, customFontOptions), uniformFont);
+    const found = findFontOption(getFontPool(fontCatalog, customFontOptions, canvasFonts), uniformFont);
     return found?.label ?? fontFamilyToLabel(uniformFont);
   })();
 
@@ -221,8 +229,8 @@ export function MultiMixedSelectionToolbar({
   // network/jank hit. Each row (FontRow, in ui.tsx) instead loads its own
   // font lazily via IntersectionObserver as it scrolls into view.
   const filteredFonts = useMemo(
-    () => searchAllFonts(fontSearch, fontCatalog, customFontOptions),
-    [fontSearch, fontCatalog, customFontOptions],
+    () => searchAllFonts(fontSearch, fontCatalog, customFontOptions, canvasFonts),
+    [fontSearch, fontCatalog, customFontOptions, canvasFonts],
   );
   const fontListScrollRef = useRef<HTMLDivElement>(null);
 
@@ -426,16 +434,21 @@ export function MultiMixedSelectionToolbar({
               </button>
               {/* Font list */}
               <div ref={fontListScrollRef} className="flex max-h-64 flex-col overflow-y-auto">
-                {filteredFonts.map((f) => (
-                  <FontRow
-                    key={f.value}
-                    font={f}
-                    active={uniformFont === f.value}
-                    onSelect={(v) => onUpdateAllTexts({ fontFamily: v })}
-                    scrollRef={fontListScrollRef}
-                    className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-secondary"
-                    activeClassName="bg-primary/10 text-primary"
-                  />
+                {filteredFonts.map((f, idx, slice) => (
+                  <div key={f.value}>
+                    {(() => {
+                      const label = fontDividerLabelAt(slice, idx);
+                      return label ? <FontListDivider label={label} /> : null;
+                    })()}
+                    <FontRow
+                      font={f}
+                      active={uniformFont === f.value}
+                      onSelect={(v) => onUpdateAllTexts({ fontFamily: v })}
+                      scrollRef={fontListScrollRef}
+                      className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-secondary"
+                      activeClassName="bg-primary/10 text-primary"
+                    />
+                  </div>
                 ))}
               </div>
             </div>

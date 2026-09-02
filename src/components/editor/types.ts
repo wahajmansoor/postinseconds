@@ -633,6 +633,11 @@ export type FontOption = {
   /** True for a user-uploaded custom font (see lib/customFonts.ts) — lets a
    * picker badge it and sort it ahead of the Google Fonts catalog. */
   isCustom?: boolean;
+  /** True for a font already used somewhere else in the current canvas
+   * (see getCanvasFontsInUse below) — sorts second, after isCustom but
+   * ahead of the plain catalog, so reusing a font already in the design is
+   * as quick as picking a custom one. */
+  isCanvasFont?: boolean;
 };
 
 export const ALL_FONT_WEIGHTS = [
@@ -780,12 +785,23 @@ export async function loadGoogleFontsCatalog(): Promise<FontOption[]> {
 // The curated FONTS plus (once loaded) the full Google Fonts catalog, as
 // one deduped pool — every font picker's "what font is this value?" lookup
 // and its search box both read from this same combined list. `customFonts`
-// (see lib/customFonts.ts) go first so a name collision with a Google Font
-// resolves to the user's own upload — findFontOption/searchAllFonts below
-// both do a plain linear scan, so whichever list comes first wins ties.
-export function getFontPool(catalog?: FontOption[] | null, customFonts?: FontOption[] | null): FontOption[] {
-  const withCustom = customFonts && customFonts.length > 0 ? customFonts.concat(FONTS) : FONTS;
-  return catalog && catalog.length > 0 ? withCustom.concat(catalog) : withCustom;
+// (see lib/customFonts.ts) and `canvasFonts` (see getCanvasFontsInUse below)
+// go first, in that order, so a name collision resolves to the more
+// specific/relevant entry — findFontOption/searchAllFonts below both do a
+// plain linear scan, so whichever list comes first wins ties.
+export function getFontPool(
+  catalog?: FontOption[] | null,
+  customFonts?: FontOption[] | null,
+  canvasFonts?: FontOption[] | null,
+): FontOption[] {
+  let pool = FONTS;
+  if (canvasFonts && canvasFonts.length > 0) pool = canvasFonts.concat(pool);
+  if (customFonts && customFonts.length > 0) pool = customFonts.concat(pool);
+  return catalog && catalog.length > 0 ? pool.concat(catalog) : pool;
+}
+
+function fontSortRank(f: FontOption): number {
+  return f.isCustom ? 2 : f.isCanvasFont ? 1 : 0;
 }
 
 // Shared search/browse behavior for every font picker in the app —
@@ -801,23 +817,75 @@ export function searchAllFonts(
   query: string,
   catalog?: FontOption[] | null,
   customFonts?: FontOption[] | null,
+  canvasFonts?: FontOption[] | null,
 ): FontOption[] {
   const q = query.trim().toLowerCase();
-  const seen = new Set<string>();
+  const seenAt = new Map<string, number>();
   const results: FontOption[] = [];
-  for (const f of getFontPool(catalog, customFonts)) {
+  for (const f of getFontPool(catalog, customFonts, canvasFonts)) {
     const key = f.label.toLowerCase();
-    if (seen.has(key)) continue;
+    const existingIdx = seenAt.get(key);
+    if (existingIdx !== undefined) {
+      // Same font already added from an earlier (higher-priority) list —
+      // e.g. one of the user's own custom fonts that's also already used
+      // somewhere in the canvas. Merge isCanvasFont onto that existing
+      // entry instead of just dropping this duplicate outright, so a
+      // custom-and-in-use font still gets its "in use" badge rather than
+      // silently losing that signal to dedup.
+      if (f.isCanvasFont && !results[existingIdx]!.isCanvasFont) {
+        results[existingIdx] = { ...results[existingIdx]!, isCanvasFont: true };
+      }
+      continue;
+    }
     if (q && !key.includes(q)) continue;
-    seen.add(key);
+    seenAt.set(key, results.length);
     results.push(f);
   }
-  // Custom (user-uploaded) fonts sort as their own group ahead of
-  // everything else, alphabetical within each group — they're the ones the
-  // user went out of their way to add, so they shouldn't get lost
-  // alphabetically inside an 1,800+ entry Google Fonts list.
-  results.sort((a, b) => Number(Boolean(b.isCustom)) - Number(Boolean(a.isCustom)) || a.label.localeCompare(b.label));
+  // Custom (user-uploaded) fonts sort first, then fonts already used
+  // elsewhere in the canvas, alphabetical within each group — both are
+  // more relevant to reach for than scrolling an 1,800+ entry Google Fonts
+  // list, just in different ways (fonts you added vs. fonts you're already
+  // using in this design).
+  results.sort((a, b) => fontSortRank(b) - fontSortRank(a) || a.label.localeCompare(b.label));
   return results;
+}
+
+// Every font actually in use somewhere in the current design right now —
+// the fixed quote/author/tagline/repost-button fields plus every
+// free-floating Text gallery layer — deduped and shaped as FontOption so it
+// slots into the same pickers as the custom-fonts/Google-fonts lists (see
+// searchAllFonts above). Only counts a field whose own content is actually
+// non-empty/visible (an empty tagline's font isn't really "in use" yet),
+// and resolves each raw fontFamily value against `pool` (curated + loaded
+// Google catalog + custom fonts, whichever the caller already has handy)
+// so the label shown matches what the rest of the app calls that font
+// rather than falling back to a raw CSS value.
+export function getCanvasFontsInUse(s: EditorState, pool: FontOption[]): FontOption[] {
+  const seen = new Set<string>();
+  const result: FontOption[] = [];
+  const add = (fontFamily: string | undefined) => {
+    if (!fontFamily) return;
+    const key = cleanFontFamily(fontFamily).toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const found = findFontOption(pool, fontFamily);
+    result.push({
+      label: found?.label ?? fontFamilyToLabel(fontFamily),
+      value: found?.value ?? fontFamily,
+      ...(found?.weights ? { weights: found.weights } : {}),
+      isCanvasFont: true,
+    });
+  };
+
+  if (s.quote?.trim()) add(s.quoteFont);
+  if (s.name?.trim()) add(s.authorFont);
+  if (s.tagline?.trim()) add(s.taglineFont);
+  if (s.showTopButton && s.topButtonText?.trim()) add(s.topButtonFont);
+  for (const t of getTextLayers(s)) {
+    if (t.text?.trim()) add(t.fontFamily);
+  }
+
+  return result;
 }
 
 export const WEIGHTS = ALL_FONT_WEIGHTS;

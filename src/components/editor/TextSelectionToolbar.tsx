@@ -47,7 +47,7 @@ import {
   type FontOption,
   type TextLayer,
 } from "./types";
-import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, FloatingToolbarPortal, FontRow, MinimizedToolbarButton, MinimizeToolbarButton, ToolbarDragGrip, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
+import { Chip, ColorPickerContent, DragHandle, FloatingDropdown, FloatingToolbarPortal, fontDividerLabelAt, FontListDivider, FontRow, MinimizedToolbarButton, MinimizeToolbarButton, ToolbarDragGrip, useDraggableOffset, useHoldRepeat, useStableAnchor } from "./ui";
 
 // Canva-style top-docked toolbar: appears the instant a single free-floating
 // text layer is selected (a plain click — well before, or entirely without,
@@ -87,6 +87,7 @@ export function TextSelectionToolbar({
   canArrange,
   onOpenEffectsTab,
   onOpenCustomFonts,
+  canvasFonts,
   detached = false,
   onAnyPopoverOpenChange,
 }: {
@@ -104,6 +105,11 @@ export function TextSelectionToolbar({
   // report). Falls back to a local instance if not provided, so this still
   // works standalone.
   onOpenCustomFonts?: () => void;
+  // Fonts already used elsewhere in the current canvas (see
+  // getCanvasFontsInUse in types.ts) — computed once in index.tsx (which
+  // has the full EditorState) and passed down, same reasoning as
+  // customFonts above but for canvas rather than uploaded fonts.
+  canvasFonts?: FontOption[] | null;
   // True once this layer is no longer the live canvas selection (e.g. the
   // user clicked the canvas background, or selected something else) but one
   // of this toolbar's own popovers was still open at that moment — see the
@@ -255,7 +261,7 @@ export function TextSelectionToolbar({
 
   const currentFontLabel = useMemo(() => {
     if (optimisticFont) {
-      const fontPool = getFontPool(fontCatalog, customFontOptions);
+      const fontPool = getFontPool(fontCatalog, customFontOptions, canvasFonts);
       const match = findFontOption(fontPool, optimisticFont);
       return match?.label ?? fontFamilyToLabel(optimisticFont);
     }
@@ -263,7 +269,7 @@ export function TextSelectionToolbar({
       return "Mixed Font";
     }
 
-    const fontPool = getFontPool(fontCatalog, customFontOptions);
+    const fontPool = getFontPool(fontCatalog, customFontOptions, canvasFonts);
     const targetFont = (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple")
       ? activeFormat.fontFamily
       : layer.fontFamily;
@@ -277,7 +283,7 @@ export function TextSelectionToolbar({
 
     const match = findFontOption(fontPool, layer.fontFamily);
     return match?.label ?? fontFamilyToLabel(layer.fontFamily);
-  }, [optimisticFont, activeFormat.fontFamily, layer.fontFamily, fontCatalog, customFontOptions]);
+  }, [optimisticFont, activeFormat.fontFamily, layer.fontFamily, fontCatalog, customFontOptions, canvasFonts]);
 
   const currentColors = useMemo((): string[] => {
     if (optimisticColor) {
@@ -341,8 +347,8 @@ export function TextSelectionToolbar({
     return [baseColor];
   }, [activeFormat.colors, activeFormat.color, layer.color, layer.html]);
   const filteredFonts = useMemo(
-    () => searchAllFonts(fontSearch, fontCatalog, customFontOptions),
-    [fontSearch, fontCatalog, customFontOptions],
+    () => searchAllFonts(fontSearch, fontCatalog, customFontOptions, canvasFonts),
+    [fontSearch, fontCatalog, customFontOptions, canvasFonts],
   );
 
   useEffect(() => {
@@ -642,21 +648,26 @@ export function TextSelectionToolbar({
             className="max-h-72 space-y-0.5 overflow-y-auto pr-0.5"
           >
             {filteredFonts.length ? (
-              filteredFonts.slice(0, fontRenderLimit).map((f, idx) => (
-                <FontRow
-                  key={f.value}
-                  font={f}
-                  active={isSameFontFamily(f.value, optimisticFont ? optimisticFont : (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily)}
-                  isFocused={idx === fontFocusedIndex}
-                  onSelect={(v) => {
-                    handleSetFontFamily(v);
-                    setFontFocusedIndex(idx);
-                  }}
-                  scrollRef={fontListScrollRef}
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors"
-                  activeClassName="bg-primary/15 text-primary font-semibold"
-                  idleClassName="text-foreground hover:bg-secondary"
-                />
+              filteredFonts.slice(0, fontRenderLimit).map((f, idx, slice) => (
+                <div key={f.value}>
+                  {(() => {
+                    const label = fontDividerLabelAt(slice, idx);
+                    return label ? <FontListDivider label={label} /> : null;
+                  })()}
+                  <FontRow
+                    font={f}
+                    active={isSameFontFamily(f.value, optimisticFont ? optimisticFont : (activeFormat.fontFamily && activeFormat.fontFamily !== "multiple") ? activeFormat.fontFamily : layer.fontFamily)}
+                    isFocused={idx === fontFocusedIndex}
+                    onSelect={(v) => {
+                      handleSetFontFamily(v);
+                      setFontFocusedIndex(idx);
+                    }}
+                    scrollRef={fontListScrollRef}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors"
+                    activeClassName="bg-primary/15 text-primary font-semibold"
+                    idleClassName="text-foreground hover:bg-secondary"
+                  />
+                </div>
               ))
             ) : (
               <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">

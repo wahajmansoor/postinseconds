@@ -118,6 +118,8 @@ import {
   withUnifiedLayersReordered,
   getUnifiedLayers,
   getArrangeEligibility,
+  getCanvasFontsInUse,
+  getFontPool,
   findCanvasPresetGroupKey,
   groupHasExactPreset,
   resizeEditorStateToNewSize,
@@ -682,9 +684,10 @@ function Index() {
   // the editor mounts (not just whenever a font picker happens to open) —
   // needed so a design that already uses one renders correctly right away,
   // and so the rules exist in <head> by the time an export snapshot runs.
-  // See useCustomFonts.ts; the return value itself isn't needed here, every
-  // picker that needs it calls the same hook (react-query dedupes the fetch).
-  useCustomFonts();
+  // See useCustomFonts.ts — every picker that needs the font list itself
+  // calls this same hook (react-query dedupes the fetch), but `options` is
+  // also needed here to compute canvasFontsInUse below.
+  const { options: customFontOptions } = useCustomFonts();
   const [s, setS] = useState<EditorState>(() => {
     const draft = getSavedDraft();
     if (draft) {
@@ -2876,6 +2879,21 @@ function Index() {
     [s.layerOrder, s.texts, s.images, s.shapes],
   );
 
+  // Fonts already used somewhere in the current design — computed once
+  // here (index.tsx has the full EditorState) and passed down to every
+  // font picker (TextSelectionToolbar, MultiMixedSelectionToolbar) that
+  // doesn't otherwise receive `s`, same reasoning/shape as customFontOptions
+  // above. See getCanvasFontsInUse's own comment in types.ts for exactly
+  // which fields count as "in use". `pool` only has the curated FONTS +
+  // custom fonts, not the full lazily-loaded Google catalog (not loaded
+  // here) — a canvas font that's only in that bigger catalog still works
+  // and is still detected, it just falls back to a cleaned-up label instead
+  // of the catalog's official one, which is a cosmetic difference only.
+  const canvasFontsInUse = useMemo(
+    () => getCanvasFontsInUse(s, getFontPool(null, customFontOptions)),
+    [s.quote, s.quoteFont, s.name, s.authorFont, s.tagline, s.taglineFont, s.showTopButton, s.topButtonText, s.topButtonFont, s.texts, customFontOptions],
+  );
+
   // Position-panel callbacks for the multi-shape toolbar (Arrange/Align/
   // Advanced X-Y) — shared between the desktop and mobile render slots
   // below rather than re-inlined at each, since both need the exact same
@@ -3485,6 +3503,7 @@ function Index() {
                     setLeftPanelCollapsed(false);
                   }}
                   onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
+                  canvasFonts={canvasFontsInUse}
                 />
               ) : null}
               {selectedImageLayer || (imageDetached && pinnedImageLayer) ? (
@@ -3761,6 +3780,7 @@ function Index() {
                     setCanvasSelection([]);
                   }}
                   onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
+                  canvasFonts={canvasFontsInUse}
                 />
               ) : null}
               {isBackgroundSelected || backgroundDetached ? (
@@ -4414,6 +4434,7 @@ function Index() {
                             setMobileToolDrawerOpen(true);
                           }}
                           onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
+                          canvasFonts={canvasFontsInUse}
                         />
                       ) : selectedImageLayer ? (
                         <ImageSelectionToolbar
@@ -4615,6 +4636,7 @@ function Index() {
                             setCanvasSelection([]);
                           }}
                           onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
+                          canvasFonts={canvasFontsInUse}
                         />
                       ) : isBackgroundSelected ? (
                         <BackgroundSelectionToolbar
