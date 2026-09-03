@@ -659,7 +659,18 @@ export function FloatingDropdown({
           <div
             data-keep-text-editing=""
             className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y px-3 py-2 scroll-smooth"
-            style={{ paddingBottom: "calc(60px + env(safe-area-inset-bottom) + 16px)" }}
+            // Just the safe-area inset + a little breathing room — NOT an
+            // extra 60px for the persistent mobile bottom bar underneath.
+            // That bar fades itself out (opacity/pointer-events, see
+            // mobileDrawerLiftActive in index.tsx) for as long as any
+            // FloatingDropdown Drawer like this one is open — every caller
+            // of this component is one of the selection toolbars that bar
+            // wraps, so "this Drawer is open" and "that bar is hidden" hold
+            // together. Padding for it here on top of that would just be
+            // dead space at the bottom of an already-short max-h-[45vh]
+            // sheet, reserving room for a bar that isn't there to reserve
+            // room for.
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
           >
             {children}
           </div>
