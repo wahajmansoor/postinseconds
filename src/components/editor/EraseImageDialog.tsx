@@ -117,6 +117,7 @@ function FloatingColorPanel({
   setBrushColor: (c: string) => void;
 }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [isSampling, setIsSampling] = useState(false);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number }>({
     startX: 0,
@@ -214,6 +215,7 @@ function FloatingColorPanel({
       onPointerDown={(e) => e.stopPropagation()}
       data-nopan=""
       data-keep-text-editing=""
+      data-color-panel="true"
       style={{
         position: "fixed",
         left: `${pos.x}px`,
@@ -227,7 +229,9 @@ function FloatingColorPanel({
         // so without this override it silently inherited "none" from body
         // and was a dead zone for every pointer event: no drag, no clicks
         // on the color area/sliders/swatches, nothing.
-        pointerEvents: "auto",
+        pointerEvents: isSampling ? "none" : "auto",
+        opacity: isSampling ? 0 : 1,
+        transition: "opacity 0.15s ease",
       }}
       className="w-64 max-w-[calc(100vw-24px)] rounded-2xl border border-border/90 bg-popover/98 shadow-2xl backdrop-blur-2xl animate-in fade-in-0 zoom-in-95 duration-150 overflow-hidden ring-1 ring-white/15"
     >
@@ -262,7 +266,12 @@ function FloatingColorPanel({
         </button>
       </div>
 
-      <ColorPickerContent value={brushColor} onChange={setBrushColor} showAlpha={false} />
+      <ColorPickerContent
+        value={brushColor}
+        onChange={setBrushColor}
+        showAlpha={false}
+        onSamplingChange={setIsSampling}
+      />
     </div>,
     document.body,
   );
@@ -684,6 +693,7 @@ export function EraseImageDialog({ open, onClose, imageSrc, originalImageSrc, on
           >
             <canvas
               ref={canvasRef}
+              data-eyedropper-canvas="true"
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={endStroke}

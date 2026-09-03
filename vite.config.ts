@@ -37,11 +37,19 @@ export default defineConfig(({ command, mode }) => {
         "react/jsx-dev-runtime",
       ],
     },
+    server: {
+      port: 8081,
+      host: true,
+    },
     plugins: [
       tailwindcss(),
-      tanstackStart({
-        server: { entry: "server" },
-      }),
+      tanstackStart(
+        command === "build"
+          ? {
+              server: { entry: "server" },
+            }
+          : undefined,
+      ),
       command === "build"
         ? nitro({
             defaultPreset: "cloudflare-module",

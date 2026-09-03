@@ -554,7 +554,9 @@ function InteractiveCanvasEyedropper({
     let unmounted = false;
     const capture = async () => {
       try {
+        const activeDialog = document.querySelector<HTMLElement>('[role="dialog"]');
         const target =
+          activeDialog ||
           document.querySelector<HTMLElement>("[data-quote-canvas]") ||
           document.querySelector<HTMLElement>("#quote-canvas-root") ||
           document.body;
@@ -565,13 +567,25 @@ function InteractiveCanvasEyedropper({
           pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
           cacheBust: false,
           skipFonts: true,
+          filter: (node) => {
+            if (node instanceof HTMLElement) {
+              if (
+                node.hasAttribute("data-eyedropper-ui") ||
+                node.hasAttribute("data-color-panel") ||
+                node.getAttribute("data-radix-popper-content-wrapper") !== null
+              ) {
+                return false;
+              }
+            }
+            return true;
+          },
         });
         if (!unmounted) {
           sampledCanvasRef.current = canvas;
           setIsCapturing(false);
         }
       } catch (err) {
-        console.warn("Eyedropper canvas snapshot failed, using element sampling:", err);
+        console.warn("Eyedropper canvas snapshot failed, using direct element sampling:", err);
         if (!unmounted) setIsCapturing(false);
       }
     };
@@ -581,37 +595,143 @@ function InteractiveCanvasEyedropper({
     };
   }, []);
 
-  const sampleColorAt = useCallback((clientX: number, clientY: number): string => {
-    const canvas = sampledCanvasRef.current;
-    const rect = canvasRectRef.current;
-    if (canvas && rect && rect.width > 0 && rect.height > 0) {
-      const relX = (clientX - rect.left) / rect.width;
-      const relY = (clientY - rect.top) / rect.height;
-      if (relX >= 0 && relX <= 1 && relY >= 0 && relY <= 1) {
-        const px = Math.max(0, Math.min(canvas.width - 1, Math.round(relX * canvas.width)));
-        const py = Math.max(0, Math.min(canvas.height - 1, Math.round(relY * canvas.height)));
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        if (ctx) {
-          const pixel = ctx.getImageData(px, py, 1, 1).data;
-          const r = (pixel[0] ?? 0).toString(16).padStart(2, "0");
-          const g = (pixel[1] ?? 0).toString(16).padStart(2, "0");
-          const b = (pixel[2] ?? 0).toString(16).padStart(2, "0");
-          return `#${r}${g}${b}`;
+  const sampleColorAt = useCallback(
+    (clientX: number, clientY: number): string => {
+      // 1. Direct <canvas> inspection — instant, 100% accurate, handles transforms & dialog canvases
+      const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>("canvas"));
+      const sortedCanvases = canvases.sort((a, b) => {
+        const aScore = (a.hasAttribute("data-eyedropper-canvas") ? 2 : 0) + (a.closest('[role="dialog"]') ? 1 : 0);
+        const bScore = (b.hasAttribute("data-eyedropper-canvas") ? 2 : 0) + (b.closest('[role="dialog"]') ? 1 : 0);
+        return bScore - aScore;
+      });
+
+      for (const canvas of sortedCanvases) {
+        if (canvas.width <= 0 || canvas.height <= 0) continue;
+        const rect = canvas.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom &&
+          rect.width > 0 &&
+          rect.height > 0
+        ) {
+          const relX = (clientX - rect.left) / rect.width;
+          const relY = (clientY - rect.top) / rect.height;
+          const px = Math.max(0, Math.min(canvas.width - 1, Math.floor(relX * canvas.width)));
+          const py = Math.max(0, Math.min(canvas.height - 1, Math.floor(relY * canvas.height)));
+          try {
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            if (ctx) {
+              const pixel = ctx.getImageData(px, py, 1, 1).data;
+              if ((pixel[3] ?? 0) > 0) {
+                const r = (pixel[0] ?? 0).toString(16).padStart(2, "0");
+                const g = (pixel[1] ?? 0).toString(16).padStart(2, "0");
+                const b = (pixel[2] ?? 0).toString(16).padStart(2, "0");
+                return `#${r}${g}${b}`;
+              }
+            }
+          } catch {
+            // Canvas might be tainted or unreadable, continue
+          }
         }
       }
-    }
-    // Fallback: query element under pointer
-    const el = document.elementFromPoint(clientX, clientY);
-    if (el) {
-      const style = window.getComputedStyle(el);
-      const bg = style.backgroundColor || style.color;
-      if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
-        const rgba = parseColorToRgba(bg);
-        return rgbaToHex(rgba, false);
+
+      // 2. Direct <img> tag inspection
+      const images = Array.from(document.querySelectorAll<HTMLImageElement>("img"));
+      const sortedImages = images.sort((a, b) => {
+        const aInDialog = a.closest('[role="dialog"]') ? 1 : 0;
+        const bInDialog = b.closest('[role="dialog"]') ? 1 : 0;
+        return bInDialog - aInDialog;
+      });
+
+      for (const img of sortedImages) {
+        if (!img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) continue;
+        const rect = img.getBoundingClientRect();
+        if (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom &&
+          rect.width > 0 &&
+          rect.height > 0
+        ) {
+          const relX = (clientX - rect.left) / rect.width;
+          const relY = (clientY - rect.top) / rect.height;
+          const px = Math.max(0, Math.min(img.naturalWidth - 1, Math.floor(relX * img.naturalWidth)));
+          const py = Math.max(0, Math.min(img.naturalHeight - 1, Math.floor(relY * img.naturalHeight)));
+          try {
+            const offscreen = document.createElement("canvas");
+            offscreen.width = 1;
+            offscreen.height = 1;
+            const ctx = offscreen.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(img, px, py, 1, 1, 0, 0, 1, 1);
+              const pixel = ctx.getImageData(0, 0, 1, 1).data;
+              if ((pixel[3] ?? 0) > 0) {
+                const r = (pixel[0] ?? 0).toString(16).padStart(2, "0");
+                const g = (pixel[1] ?? 0).toString(16).padStart(2, "0");
+                const b = (pixel[2] ?? 0).toString(16).padStart(2, "0");
+                return `#${r}${g}${b}`;
+              }
+            }
+          } catch {
+            // ignore CORS
+          }
+        }
       }
-    }
-    return sampledColor;
-  }, [sampledColor]);
+
+      // 3. Sample from html-to-image snapshot if available
+      const snapCanvas = sampledCanvasRef.current;
+      const snapRect = canvasRectRef.current;
+      if (snapCanvas && snapRect && snapRect.width > 0 && snapRect.height > 0) {
+        const relX = (clientX - snapRect.left) / snapRect.width;
+        const relY = (clientY - snapRect.top) / snapRect.height;
+        if (relX >= 0 && relX <= 1 && relY >= 0 && relY <= 1) {
+          const px = Math.max(0, Math.min(snapCanvas.width - 1, Math.round(relX * snapCanvas.width)));
+          const py = Math.max(0, Math.min(snapCanvas.height - 1, Math.round(relY * snapCanvas.height)));
+          const ctx = snapCanvas.getContext("2d", { willReadFrequently: true });
+          if (ctx) {
+            const pixel = ctx.getImageData(px, py, 1, 1).data;
+            if ((pixel[3] ?? 0) > 0) {
+              const r = (pixel[0] ?? 0).toString(16).padStart(2, "0");
+              const g = (pixel[1] ?? 0).toString(16).padStart(2, "0");
+              const b = (pixel[2] ?? 0).toString(16).padStart(2, "0");
+              return `#${r}${g}${b}`;
+            }
+          }
+        }
+      }
+
+      // 4. Query elements under pointer (excluding eyedropper UI & floating panels)
+      if (typeof document !== "undefined" && typeof document.elementsFromPoint === "function") {
+        const elements = document.elementsFromPoint(clientX, clientY);
+        for (const el of elements) {
+          if (
+            el.closest("[data-eyedropper-ui]") ||
+            el.closest("[data-color-panel]") ||
+            el.closest("[data-radix-popper-content-wrapper]")
+          ) {
+            continue;
+          }
+          const style = window.getComputedStyle(el);
+          const bg = style.backgroundColor;
+          if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") {
+            const rgba = parseColorToRgba(bg);
+            if (rgba.a > 0.05) return rgbaToHex(rgba, false);
+          }
+          const color = style.color;
+          if (color && color !== "transparent" && color !== "rgba(0, 0, 0, 0)") {
+            const rgba = parseColorToRgba(color);
+            if (rgba.a > 0.05) return rgbaToHex(rgba, false);
+          }
+        }
+      }
+
+      return sampledColor;
+    },
+    [sampledColor],
+  );
 
   const handlePointerDown = (e: React.PointerEvent) => {
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -635,30 +755,37 @@ function InteractiveCanvasEyedropper({
 
   return createPortal(
     <div
+      data-eyedropper-ui="true"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={() => setLoupePos((p) => ({ ...p, visible: false }))}
-      // Radix's DismissableLayer sets document.body.style.pointerEvents =
-      // "none" while a modal Dialog/Popover is open, re-enabling "auto"
-      // only on the layer node(s) it manages itself. This overlay is a
-      // separate portal straight to document.body, so without this
-      // override it silently inherits "none" whenever the eyedropper is
-      // opened from inside a modal (e.g. EraseImageDialog) — the crosshair
-      // shows, but no click/drag on it would ever register.
-      style={{ touchAction: "none", pointerEvents: "auto" }}
-      className="fixed inset-0 z-[99999] cursor-crosshair select-none bg-black/20 backdrop-blur-[1px] animate-in fade-in duration-150"
+      style={{ touchAction: "none", pointerEvents: "auto", zIndex: 1000000 }}
+      className="fixed inset-0 cursor-crosshair select-none bg-black/10 backdrop-blur-[0.5px] animate-in fade-in duration-150"
     >
       {/* Top instruction header */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full border border-white/20 bg-background/95 px-4 py-2 shadow-2xl backdrop-blur-xl pointer-events-auto">
+      <div
+        data-eyedropper-ui="true"
+        className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-2.5 sm:gap-3 rounded-full border border-white/20 bg-background/95 px-3 sm:px-4 py-1.5 sm:py-2 shadow-2xl backdrop-blur-xl pointer-events-auto"
+      >
         <span
-          className="h-5 w-5 rounded-full border border-black/20 shadow-sm"
+          className="h-5 w-5 rounded-full border border-black/20 shadow-sm shrink-0"
           style={{ backgroundColor: sampledColor }}
         />
         <span className="font-mono text-xs font-bold text-foreground">{sampledColor.toUpperCase()}</span>
         <span className="text-[11px] text-muted-foreground hidden sm:inline">
-          {isCapturing ? "Preparing eyedropper..." : "Tap or drag across canvas to sample"}
+          {isCapturing ? "Preparing eyedropper..." : "Tap or drag across image to sample"}
         </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(sampledColor);
+          }}
+          className="rounded-full bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground hover:opacity-90 active:scale-95 cursor-pointer shadow-sm"
+        >
+          Done
+        </button>
         <button
           type="button"
           onClick={(e) => {
@@ -674,20 +801,21 @@ function InteractiveCanvasEyedropper({
       {/* Floating Magnifier Loupe */}
       {loupePos.visible ? (
         <div
-          className="pointer-events-none absolute -translate-x-1/2 -translate-y-[120%] flex flex-col items-center gap-1 transition-transform ease-out duration-75"
+          data-eyedropper-ui="true"
+          className="pointer-events-none absolute -translate-x-1/2 -translate-y-[125%] flex flex-col items-center gap-1 transition-transform ease-out duration-75"
           style={{
             left: loupePos.x,
-            top: Math.max(80, loupePos.y - 20),
+            top: Math.max(70, loupePos.y - 15),
           }}
         >
           <div
-            className="relative grid h-16 w-16 place-items-center rounded-full border-4 border-white shadow-[0_4px_20px_rgba(0,0,0,0.5)] ring-2 ring-black/20"
+            className="relative grid h-16 w-16 place-items-center rounded-full border-4 border-white shadow-[0_4px_24px_rgba(0,0,0,0.6)] ring-2 ring-black/20"
             style={{ backgroundColor: sampledColor }}
           >
             {/* Center crosshair */}
-            <div className="h-2 w-2 rounded-full border border-white bg-black/40 shadow-sm" />
+            <div className="h-2.5 w-2.5 rounded-full border border-white bg-black/60 shadow-sm" />
           </div>
-          <span className="rounded-md bg-black/80 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-md">
+          <span className="rounded-md bg-black/90 px-2 py-0.5 font-mono text-[10px] font-bold text-white shadow-md tracking-wider">
             {sampledColor.toUpperCase()}
           </span>
         </div>
@@ -702,11 +830,13 @@ export function ColorPickerContent({
   onChange,
   showAlpha = false,
   enableEyeDropper = true,
+  onSamplingChange,
 }: {
   value: string;
   onChange: (value: string) => void;
   showAlpha?: boolean | undefined;
   enableEyeDropper?: boolean | undefined;
+  onSamplingChange?: ((isSampling: boolean) => void) | undefined;
 }) {
   const [hsva, setHsva] = useState<HSVA>(() => {
     const rgba = parseColorToRgba(value || "#000000");
@@ -717,6 +847,16 @@ export function ColorPickerContent({
   const [hexInput, setHexInput] = useState(() => rgbaToHex(parseColorToRgba(value || "#000000")).replace("#", ""));
   const [copied, setCopied] = useState(false);
   const [isSamplingScreen, setIsSamplingScreen] = useState(false);
+
+  const startSampling = () => {
+    setIsSamplingScreen(true);
+    onSamplingChange?.(true);
+  };
+
+  const stopSampling = () => {
+    setIsSamplingScreen(false);
+    onSamplingChange?.(false);
+  };
 
   // Sync external changes
   useEffect(() => {
@@ -750,12 +890,12 @@ export function ColorPickerContent({
           updateHsva(rgbaToHsva(rgba));
           return;
         }
-      } catch (err: any) {
-        if (err?.name === "AbortError") return;
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
       }
     }
     // Fallback: full-screen touch color sampler for mobile, Android, iOS & WebViews
-    setIsSamplingScreen(true);
+    startSampling();
   };
 
   const handleCopy = () => {
@@ -773,30 +913,17 @@ export function ColorPickerContent({
   const commitHex = (raw: string) => {
     const rgba = parseColorToRgba(`#${raw}`);
     const newHsva = rgbaToHsva(rgba);
-    setHsva(newHsva);
-    onChange(rgbaToHex(rgba, showAlpha && newHsva.a < 1));
+    updateHsva(newHsva);
   };
 
   const handleHexChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = sanitizeHex(e.target.value);
-    setHexInput(raw);
-    // Only auto-commit once a FULL hex has been typed (6 digits, or 8 with
-    // alpha) — a 3/4-digit shorthand is valid too, but it's also just the
-    // first half of most 6-digit codes someone is still in the middle of
-    // typing. Committing right at 3 characters used to re-derive and
-    // rewrite the field mid-keystroke (the sync effect above pulls
-    // `hexInput` back from `value`), which is what made typing a hex code
-    // by hand feel like it was fighting/"auto-correcting" you. A
-    // deliberate shorthand still commits on blur or Enter (handleHexBlur).
-    if (raw.length === maxHexLen) {
-      commitHex(raw);
+    const cleaned = sanitizeHex(e.target.value);
+    setHexInput(cleaned);
+    if (cleaned.length === (showAlpha ? 8 : 6)) {
+      commitHex(cleaned);
     }
   };
 
-  // Paste delivers the whole intended string in one go — unlike typing,
-  // there's no "still typing more characters" ambiguity, so a pasted
-  // 3/4-digit shorthand (or a full 6/8-digit code, with or without a
-  // leading #) commits immediately instead of waiting for blur.
   const handleHexPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const pasted = sanitizeHex(e.clipboardData.getData("text"));
     if (!pasted) return;
@@ -805,15 +932,12 @@ export function ColorPickerContent({
     if (isCompleteHexLen(pasted.length)) commitHex(pasted);
   };
 
-  // Typing a deliberate 3/4-digit shorthand and then clicking/tabbing away
-  // (or pressing Enter) commits it, same as it would if pasted. Anything
-  // left incomplete on blur reverts the field to the last committed color
-  // instead of leaving a half-typed value just sitting there unapplied.
   const handleHexBlur = () => {
-    if (hexInput.length === 3 || hexInput.length === 4) {
+    if (isCompleteHexLen(hexInput.length)) {
       commitHex(hexInput);
-    } else if (hexInput.length !== 6 && hexInput.length !== 8) {
-      setHexInput(rgbaToHex(hsvaToRgba(hsva), showAlpha).replace("#", ""));
+    } else {
+      const rgba = hsvaToRgba(hsva);
+      setHexInput(rgbaToHex(rgba, showAlpha && hsva.a < 1).replace("#", ""));
     }
   };
 
@@ -822,23 +946,12 @@ export function ColorPickerContent({
   const currentColor = rgbaToHex(rgba, showAlpha && hsva.a < 1);
 
   return (
-    // w-full, not a fixed w-68 — this renders both as a free-floating
-    // Popover's own body (ColorPicker below, whose PopoverContent now
-    // carries the fixed w-68 itself, sized however IT likes since nothing
-    // constrains a portal-positioned popover) AND embedded directly inline
-    // inside an already-sized parent (e.g. the Custom Gradient panel's
-    // Start/End/Middle color Fields, each inside its own ~256px-wide
-    // FloatingDropdown). A hardcoded w-68 (272px) here overflowed that
-    // narrower parent — with the parent's own overflow-hidden, the excess
-    // just got silently clipped rather than wrapping or scrolling, which
-    // is what "cut off on the right" was.
-    <div className="flex w-full flex-col gap-3 p-3.5 max-md:gap-2.5 max-md:p-2.5 text-popover-foreground">
-      {/* 1. HeroUI 2D Color Area — shown on every breakpoint. This used to
-          be "hidden md:block" (Tailwind's md: is a viewport-width query,
-          not a container one, so on an actual phone it stayed hidden no
-          matter how this component was embedded), leaving touch users with
-          only a thin hue strip and numeric fields to pick a color from —
-          much harder to land on a precise shade by touch than a 2D area. */}
+    <div
+      data-nopan=""
+      data-keep-text-editing=""
+      className="flex w-full flex-col gap-3 p-3 bg-popover text-popover-foreground rounded-2xl select-none"
+    >
+      {/* 1. HeroUI ColorArea (Saturation x Brightness Plane) */}
       <ColorArea hsva={hsva} onChange={updateHsva} />
 
       {/* 2. Color Controls (Sliders + EyeDropper + Swatch) */}
@@ -870,9 +983,9 @@ export function ColorPickerContent({
           onSelect={(hex) => {
             const parsed = parseColorToRgba(hex);
             updateHsva(rgbaToHsva(parsed));
-            setIsSamplingScreen(false);
+            stopSampling();
           }}
-          onClose={() => setIsSamplingScreen(false)}
+          onClose={() => stopSampling()}
         />
       ) : null}
 
@@ -1072,6 +1185,7 @@ export function ColorPicker({
   align = "start",
 }: ColorPickerProps) {
   const [open, setOpen] = useState(false);
+  const [isSampling, setIsSampling] = useState(false);
 
   // Local staging buffer for the quick-entry field below, decoupled from
   // `value` while the user is actively typing — the old version bound the
@@ -1125,14 +1239,21 @@ export function ColorPicker({
         <PopoverContent
           data-keep-text-editing=""
           data-nopan=""
+          data-color-panel="true"
           align={align}
           sideOffset={6}
+          style={{
+            opacity: isSampling ? 0 : 1,
+            pointerEvents: isSampling ? "none" : "auto",
+            transition: "opacity 0.15s ease",
+          }}
           className="w-68 max-md:w-[calc(100vw-1.5rem)] rounded-3xl border border-border/80 bg-popover/95 p-0 shadow-2xl backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-150 z-[100]"
         >
           <ColorPickerContent
             value={value}
             onChange={onChange}
             showAlpha={showAlpha}
+            onSamplingChange={setIsSampling}
           />
         </PopoverContent>
       </Popover>
