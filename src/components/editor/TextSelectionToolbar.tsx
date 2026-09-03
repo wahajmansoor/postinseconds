@@ -519,75 +519,7 @@ export function TextSelectionToolbar({
     e.stopPropagation();
   };
 
-  // Mobile only: a fake highlight, drawn on top of the canvas, standing in
-  // for the real native selection highlight for as long as the font strip/
-  // list is open. Needed because closeMobileKeyboard (right below) has to
-  // blur the text layer's contentEditable to actually dismiss the on-screen
-  // keyboard — and blurring it collapses window.getSelection() (confirmed
-  // live: it does NOT survive blur the way e.g. the color input's
-  // snapshotSelection fallback might suggest — that one works by keeping
-  // its own CLONED Range in selectionSnapshotRef, precisely because the
-  // live Selection can't be trusted to still be there later, not because
-  // blur leaves it alone). One rect per line the highlighted range spans
-  // (range.getClientRects() already returns viewport coordinates, same
-  // basis as this overlay's `position: fixed` boxes, so no transform math
-  // is needed despite the canvas itself being panned/zoomed underneath).
-  const [highlightOverlayRects, setHighlightOverlayRects] = useState<DOMRect[] | null>(null);
 
-  useEffect(() => {
-    setHighlightOverlayRects(null);
-  }, [layer.id]);
-
-  // Captures the current live selection's rects for the fake overlay above,
-  // THEN blurs to actually dismiss the keyboard — order matters, blurring
-  // first would leave nothing left to capture. No-ops (clears any stale
-  // rects instead) when there's nothing highlighted right now, e.g. the
-  // user tapped Font with just a caret placed rather than a real
-  // highlighted range — nothing for the overlay to stand in for there.
-  // Same "blur whatever's focused" call the mobile bottom bar's own Done
-  // button already uses to force-close the keyboard — see its own comment
-  // in index.tsx.
-  const closeMobileKeyboard = () => {
-    if (!isMobile) return;
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
-      setHighlightOverlayRects(Array.from(sel.getRangeAt(0).getClientRects()));
-    }
-    // No live (non-collapsed) selection right now: leaves any rects already
-    // captured alone rather than clearing them. This fires from BOTH the
-    // "Text font" tap and the "Browse all fonts" tap right after it — by
-    // the second one, the first call's own blur() has already collapsed
-    // window.getSelection(), so treating "nothing live to capture" as "wipe
-    // the overlay" here would erase the very rects the first call just
-    // captured, the instant the user finishes opening the full list
-    // (confirmed live: that's exactly what was happening before this
-    // guard — the overlay flashed on then vanished one tap later).
-    (document.activeElement as HTMLElement | null)?.blur();
-  };
-
-  const highlightOverlay =
-    isMobile && highlightOverlayRects && highlightOverlayRects.length && typeof document !== "undefined"
-      ? createPortal(
-          <div data-nopan="" className="pointer-events-none fixed inset-0 z-40">
-            {highlightOverlayRects.map((r, i) => (
-              <div
-                key={i}
-                className="absolute bg-blue-500/35"
-                style={{ top: r.top, left: r.left, width: r.width, height: r.height }}
-              />
-            ))}
-          </div>,
-          document.body,
-        )
-      : null;
-
-  // Clears the fake highlight once the flow it stood in for is actually
-  // done — back out of the font strip without opening the full list, or
-  // close the full list itself — so it doesn't linger into whatever this
-  // toolbar shows next.
-  useEffect(() => {
-    if (!fontStripOpen && !fontOpen) setHighlightOverlayRects(null);
-  }, [fontStripOpen, fontOpen]);
 
   // Press-and-hold repeat for the Decrease/Increase size buttons below —
   // see useHoldRepeat's own comment in ui.tsx. Composed with
@@ -909,7 +841,6 @@ export function TextSelectionToolbar({
             }}
             onClick={() => {
               handle.snapshotSelection();
-              closeMobileKeyboard();
               fontDrag.reset();
               setFontSearch("");
               setFontPinned(false);
@@ -921,7 +852,6 @@ export function TextSelectionToolbar({
           </button>
         </AppTooltip>
         {fontFloatingDropdown}
-        {highlightOverlay}
       </div>
     );
   }
@@ -1072,7 +1002,6 @@ export function TextSelectionToolbar({
           }}
           onClick={() => {
             if (isMobile) {
-              closeMobileKeyboard();
               setFontStripOpen(true);
               return;
             }
@@ -1104,7 +1033,6 @@ export function TextSelectionToolbar({
         </button>
       </AppTooltip>
       {fontFloatingDropdown}
-      {highlightOverlay}
 
       <AppTooltip content={availableWeights.length <= 1 ? `Only ${currentWeightLabel} available for this font` : "Font Weight"}>
         <button

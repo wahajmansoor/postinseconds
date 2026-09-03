@@ -653,6 +653,8 @@ export function FloatingDropdown({
         <DrawerContent
           data-floating-dropdown=""
           data-keep-text-editing=""
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
           overlayClassName="bg-transparent pointer-events-none"
           className="mt-0 flex max-h-[45vh] flex-col rounded-t-2xl border bg-background shadow-2xl"
         >
@@ -1102,6 +1104,12 @@ export const FontRow = memo(function FontRow({
     <button
       ref={rowRef}
       type="button"
+      onPointerDown={(e) => {
+        e.preventDefault();
+      }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+      }}
       onClick={() => onSelect(font.value)}
       style={ready ? { fontFamily: font.value } : undefined}
       className={cn(
