@@ -107,17 +107,49 @@ export type UploadCustomFontVariantInput = {
   format: "truetype" | "opentype";
 };
 
+// 5 MB — matches the hard cap set on the storage bucket itself in
+// supabase_schema.sql; checked here too so a caller gets an immediate,
+// clear error instead of waiting on a network round-trip to be told no.
+const MAX_FONT_FILE_BYTES = 5 * 1024 * 1024;
+
 export async function uploadCustomFontVariant(
   input: UploadCustomFontVariantInput,
 ): Promise<CustomFontVariant> {
+  // Both checks below used to live only in CustomFontsDialog.tsx's own
+  // upload handler (inspectFontFile's magic-byte check, and no size check
+  // at all) — meaning they were bypassable by anyone calling this
+  // exported function directly instead of going through that dialog,
+  // exactly like the is_pro check that was ALSO only enforced in that same
+  // dialog (see the RLS policy fix in supabase_schema.sql for that one).
+  // Re-validating here, in the one function every upload path actually
+  // goes through, means it can't be skipped by calling this differently.
+  if (input.file.size > MAX_FONT_FILE_BYTES) {
+    throw new Error(`Font file is too large (max ${MAX_FONT_FILE_BYTES / (1024 * 1024)}MB).`);
+  }
+  const buffer = await input.file.arrayBuffer();
+  const detected = parseFontFile(buffer);
+  if (!detected.format) {
+    throw new Error("Not a recognizable TTF/OTF font file.");
+  }
+
+  // From here on, use the detected format (verified from the file's own
+  // bytes above) rather than input.format (whatever the caller claims) —
+  // otherwise a mismatched claim (e.g. a real .otf file passed with
+  // format: "truetype") would still store a wrong extension/DB record even
+  // though the upload itself is now honestly typed.
+  const format = detected.format;
   const variantId = crypto.randomUUID();
-  const ext = input.format === "opentype" ? "otf" : "ttf";
+  const ext = format === "opentype" ? "otf" : "ttf";
   const storagePath = `${input.userId}/${input.familyId}/${variantId}-${sanitizeForPath(input.file.name)}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
     .upload(storagePath, input.file, {
-      contentType: input.format === "opentype" ? "font/otf" : "font/ttf",
+      // Use the format actually detected from the file's own bytes, not
+      // whatever the caller claims — the storage bucket's allowed_mime_types
+      // only accepts these two content-types either way, but this keeps
+      // the declared content-type honest with what's actually being stored.
+      contentType: format === "opentype" ? "font/otf" : "font/ttf",
       upsert: false,
     });
   if (uploadError) throw uploadError;
@@ -132,7 +164,7 @@ export async function uploadCustomFontVariant(
     italic: input.italic,
     file_name: input.file.name,
     storage_path: storagePath,
-    format: input.format,
+    format,
   };
   const { error: insertError } = await supabase.from("custom_font_variants").insert(row);
   if (insertError) {

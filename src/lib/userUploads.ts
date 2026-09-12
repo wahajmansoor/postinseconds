@@ -8,6 +8,40 @@ export interface UserUploadItem {
 const STORAGE_KEY = "postinseconds_uploaded_images_v2";
 const EVENT_NAME = "postinseconds_user_uploads_updated";
 
+// PERFORMANCE: this library stores base64 data URLs (not just references)
+// directly in localStorage, and every save re-serializes the WHOLE array
+// with JSON.stringify — cheap for a few small images, but the existing
+// 50-item cap alone doesn't bound total size (50 large images can still be
+// tens of MB), so a heavy user's every single new upload could mean
+// stringifying+writing a multi-MB blob synchronously on the main thread,
+// and risks silently hitting localStorage's ~5-10MB quota (already caught
+// further down, but only after paying the cost of building the oversized
+// string). Trimming by an approximate total-byte budget (evicting oldest
+// first, same as the existing count cap already did) keeps the typical
+// case small regardless of how large individual uploads are.
+const MAX_TOTAL_BYTES = 8 * 1024 * 1024; // ~8MB of stored data URLs
+
+type UploadItemLike = { src: string };
+
+// A data URL's on-the-wire base64 payload is ~4/3 the size of the actual
+// decoded bytes; approximate is fine here, this only drives an eviction
+// heuristic, not anything correctness-sensitive.
+function approxBytes(dataUrl: string): number {
+  return Math.ceil((dataUrl.length * 3) / 4);
+}
+
+function trimToByteBudget<T extends UploadItemLike>(items: T[]): T[] {
+  let total = 0;
+  const kept: T[] = [];
+  for (const item of items) {
+    const size = approxBytes(item.src);
+    if (kept.length > 0 && total + size > MAX_TOTAL_BYTES) break;
+    kept.push(item);
+    total += size;
+  }
+  return kept;
+}
+
 export function getSavedUserUploads(): UserUploadItem[] {
   if (typeof window === "undefined") return [];
   try {
@@ -34,7 +68,10 @@ export function saveUserUpload(src: string, name?: string): UserUploadItem {
     createdAt: new Date().toISOString(),
   };
 
-  const next = [newItem, ...current.slice(0, 49)]; // keep up to 50 uploads
+  // Count cap (50) first, then the byte-budget trim — newest-first order is
+  // already established by the [newItem, ...current] order, so trimming
+  // either list just drops the oldest overflow off the end either way.
+  const next = trimToByteBudget([newItem, ...current.slice(0, 49)]);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: next }));
@@ -61,7 +98,7 @@ export function saveUserUploads(items: { src: string; name?: string }[]): UserUp
     current.unshift(newItem);
   }
 
-  const next = current.slice(0, 50);
+  const next = trimToByteBudget(current.slice(0, 50));
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: next }));

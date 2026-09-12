@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import type Stripe from "stripe";
+import { isEmailAdmin } from "@/lib/adminEmails";
 
 export interface PricingPlan {
   id: "lifetime" | "pro_lifetime" | string;
@@ -87,6 +88,88 @@ async function getServerSupabase() {
     console.error("Failed to load supabase client:", err);
     return null;
   }
+}
+
+// ==============================================================================
+// SECURITY: every server function below used to trust whatever `userId` /
+// `userEmail` / `role` the CLIENT sent in its request body as the caller's
+// real identity — a client can put anything it wants in a fetch body, so
+// that was equivalent to no authorization check at all (confirmed
+// exploitable: grant yourself Pro for free, read/write other accounts'
+// data, wipe every template). The fix is the same in every handler below:
+// never trust an identity field from `data`, always re-derive who's really
+// calling from a Supabase access token, verified against Supabase's own
+// Auth server (a client can send any string as a token, but it cannot
+// forge one that verifies as belonging to a real, different user — the
+// token is cryptographically signed by Supabase, not by this app).
+//
+// getVerifiedCaller() does that verification. It deliberately uses the
+// ANON key (not the service-role key getServerSupabase() may return) for
+// this — verifying a token is a plain "is this real" check that works the
+// same regardless of which key asks, and using the weaker key here is
+// itself a safety margin: a bug in this one function can't accidentally
+// gain service-role powers. The returned client has the caller's own
+// verified token attached as its Authorization header (not just the anon
+// key), so any further query made through it runs AS that user for RLS
+// purposes — e.g. `auth.uid() = id` policies resolve correctly — without
+// needing a service-role key at all, unlike getServerSupabase().
+async function getVerifiedCaller(
+  accessToken?: string | undefined,
+): Promise<{ id: string; email: string; client: any } | null> {
+  if (!accessToken) return null;
+
+  const url =
+    process.env["VITE_SUPABASE_URL"] ||
+    process.env["SUPABASE_URL"] ||
+    (typeof import.meta !== "undefined" && (import.meta as any).env
+      ? (import.meta as any).env["VITE_SUPABASE_URL"]
+      : "");
+  const anonKey =
+    process.env["VITE_SUPABASE_ANON_KEY"] ||
+    (typeof import.meta !== "undefined" && (import.meta as any).env
+      ? (import.meta as any).env["VITE_SUPABASE_ANON_KEY"]
+      : "");
+  if (!url || !anonKey) return null;
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const authClient = createClient(url, anonKey, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    });
+    // .auth.getUser(token) — unlike reading a locally-cached session — makes
+    // a real request to Supabase's Auth server to validate this exact token
+    // right now (rejects expired/forged/tampered tokens), which is what
+    // makes its result safe to base an authorization decision on. This is
+    // Supabase's own documented pattern for verifying a caller server-side.
+    const { data, error } = await authClient.auth.getUser(accessToken);
+    if (error || !data?.user) return null;
+    return { id: data.user.id, email: data.user.email || "", client: authClient };
+  } catch (err) {
+    console.error("getVerifiedCaller error:", err);
+    return null;
+  }
+}
+
+// Verifies the caller AND that they're an admin — by email allowlist (same
+// exact-match check used everywhere else in the app) or by their real
+// profiles.role. Queries that role through the caller's OWN verified
+// client (not getServerSupabase()'s possibly-service-role one) specifically
+// so this works correctly whether or not a service-role key happens to be
+// configured — profiles' "view own profile" RLS policy already lets any
+// user read their own role, no elevated key required. Throws (callers
+// should let this propagate — createServerFn surfaces it as a rejected
+// request) rather than returning a boolean, so a handler literally cannot
+// proceed to the privileged code below by accident.
+async function requireAdmin(accessToken?: string | undefined): Promise<{ id: string; email: string }> {
+  const caller = await getVerifiedCaller(accessToken);
+  if (!caller) throw new Error("Not authenticated.");
+  if (isEmailAdmin(caller.email)) return caller;
+
+  const { data: profile } = await caller.client.from("profiles").select("role").eq("id", caller.id).maybeSingle();
+  if (profile?.role === "admin") return caller;
+
+  throw new Error("Not authorized: admin access required.");
 }
 
 export const createStripeCheckoutSession = createServerFn({ method: "POST" })
@@ -215,22 +298,42 @@ export const verifyStripeSession = createServerFn({ method: "POST" })
   .validator(
     (data: {
       sessionId: string;
+      accessToken?: string | undefined;
       userId?: string | undefined;
       userEmail?: string | undefined;
       planId?: string | undefined;
     }) => data,
   )
   .handler(async ({ data }) => {
-    const { sessionId, userId, userEmail, planId = "lifetime" } = data;
+    const { sessionId, accessToken, userEmail, planId = "lifetime" } = data;
 
+    // This used to trigger on the client-supplied sessionId string ALONE,
+    // with no check on whether the server even lacks real Stripe config —
+    // meaning anyone, on production, with Stripe fully configured, could
+    // call this with `sessionId: "mock_anything"` and instantly get
+    // `is_pro: true` for free (confirmed exploitable in the security
+    // review this fixes). It now requires BOTH a verified caller (can't be
+    // forged — see getVerifiedCaller) AND that the server genuinely has no
+    // Stripe instance to check against, matching createStripeCheckoutSession's
+    // own mock-fallback condition just above — so this path can only ever
+    // fire in the same local-dev-without-Stripe-keys situation it was built
+    // for, never in a real deployment. The verified caller's OWN id is used
+    // — never the client-supplied `userId` — so this can only ever grant
+    // Pro to the account making the request.
     if (sessionId.startsWith("mock_")) {
+      const caller = await getVerifiedCaller(accessToken);
+      if (!caller) throw new Error("Not authenticated.");
+      const stripeConfigured = await getStripeInstance();
+      if (stripeConfigured) {
+        throw new Error("Mock checkout is not available — Stripe is configured on this server.");
+      }
       const sb = await getServerSupabase();
-      if (sb && userId) {
+      if (sb) {
         try {
           const { data: existing } = await sb
             .from("profiles")
             .select("id")
-            .eq("id", userId)
+            .eq("id", caller.id)
             .maybeSingle();
 
           if (existing) {
@@ -242,11 +345,11 @@ export const verifyStripeSession = createServerFn({ method: "POST" })
                 subscription_status: "active",
                 updated_at: new Date().toISOString(),
               })
-              .eq("id", userId);
+              .eq("id", caller.id);
           } else {
             await sb.from("profiles").insert({
-              id: userId,
-              email: userEmail || undefined,
+              id: caller.id,
+              email: caller.email || userEmail || undefined,
               is_pro: true,
               plan: planId,
               role: "user",
@@ -272,12 +375,31 @@ export const verifyStripeSession = createServerFn({ method: "POST" })
         return { success: false, error: "Payment was not completed" };
       }
 
-      const activeUserId =
+      // Verify the caller (if a token was sent) and use ONLY the payment
+      // session's own server-set fields (client_reference_id/metadata,
+      // written by this app's own createStripeCheckoutSession at checkout
+      // time — never client-writable afterward) to decide whose account
+      // gets marked Pro. The client-supplied `userId` field is deliberately
+      // never consulted here anymore: it used to be the final fallback,
+      // meaning anyone who could produce ANY real "paid" Stripe session id
+      // lacking that metadata (e.g. one of their own $0 test purchases)
+      // could hand it to this endpoint together with an arbitrary victim
+      // `userId` and grant that victim's account Pro. If the session
+      // genuinely carries no identifying metadata, fall back to the
+      // verified caller's own id — never an unverified one — and if the
+      // session DOES identify a different account than the verified
+      // caller, refuse rather than silently acting on someone else's
+      // payment.
+      const caller = await getVerifiedCaller(accessToken);
+      const sessionUserId =
         session.client_reference_id ||
         (session.metadata?.["userId"] as string) ||
         (session.metadata?.["user_id"] as string) ||
-        userId ||
         "";
+      if (sessionUserId && caller && sessionUserId !== caller.id) {
+        return { success: false, error: "This payment session does not belong to the signed-in account." };
+      }
+      const activeUserId = sessionUserId || caller?.id || "";
       const activePlanId =
         (session.metadata?.["planId"] as string) ||
         (session.metadata?.["plan_id"] as string) ||
@@ -287,8 +409,14 @@ export const verifyStripeSession = createServerFn({ method: "POST" })
         typeof session.customer === "string" ? session.customer : session.customer?.id;
       const subscriptionId =
         typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
-      const customerEmail =
-        session.customer_details?.email || session.customer_email || userEmail || "";
+      // Deliberately NOT falling back to the client-supplied `userEmail`
+      // here (unlike before) — this value drives a second, email-keyed
+      // profile update a few lines down that isn't scoped to activeUserId
+      // at all, so trusting an unverified client-supplied email would let
+      // a request for the caller's OWN genuine, verified payment ALSO grant
+      // Pro to any other email the client cared to name. Only Stripe's own
+      // record of who actually paid should ever drive that.
+      const customerEmail = session.customer_details?.email || session.customer_email || "";
 
       const sb = await getServerSupabase();
       if (sb) {
@@ -363,9 +491,23 @@ export const verifyStripeSession = createServerFn({ method: "POST" })
   });
 
 export const createStripePortalSession = createServerFn({ method: "POST" })
-  .validator((data: { userId: string; returnUrl: string; userEmail?: string | undefined }) => data)
+  .validator(
+    (data: { accessToken?: string | undefined; returnUrl: string }) => data,
+  )
   .handler(async ({ data }) => {
-    const { userId, returnUrl, userEmail } = data;
+    const { accessToken, returnUrl } = data;
+    // Used to take `userId`/`userEmail` straight from the client and build
+    // a Stripe billing-portal link for THAT account — no check that the
+    // caller was actually that account. Anyone who knew or guessed another
+    // user's id or email could get a live link to manage that person's
+    // payment methods/subscription. Now the verified caller is the only
+    // possible target; there is no other-account code path left at all.
+    const caller = await getVerifiedCaller(accessToken);
+    if (!caller) {
+      throw new Error("Not authenticated.");
+    }
+    const userId = caller.id;
+
     const stripe = await getStripeInstance();
     if (!stripe) {
       throw new Error("Stripe is not configured on server.");
@@ -373,7 +515,7 @@ export const createStripePortalSession = createServerFn({ method: "POST" })
 
     const sb = await getServerSupabase();
     let customerId: string | null = null;
-    let email = userEmail?.trim().toLowerCase() || "";
+    let email = caller.email?.trim().toLowerCase() || "";
 
     if (sb && userId) {
       try {
@@ -467,11 +609,22 @@ export const savePlatformTemplateServerFn = createServerFn({ method: "POST" })
         [key: string]: any;
       };
       isPremium: boolean;
+      accessToken?: string | undefined;
       userEmail?: string | undefined;
     }) => data,
   )
   .handler(async ({ data }) => {
-    const { template, isPremium, userEmail } = data;
+    // This had NO authorization check at all — not even a userId field to
+    // check — meaning any unauthenticated visitor who found this
+    // endpoint could create, overwrite, or (via deletePlatformTemplateServerFn
+    // below) delete any template. It's reached automatically as a silent
+    // fallback whenever the client-side RLS-protected write is rejected
+    // (see upsertTemplate in supabase.ts), so it was a full bypass of the
+    // "Only admins can modify templates" RLS policy for anyone, not just a
+    // theoretical direct-request risk. requireAdmin throws before any of
+    // the code below can run if the caller isn't verified AND admin.
+    await requireAdmin(data.accessToken);
+    const { template, isPremium } = data;
     const sb = await getServerSupabase();
     if (!sb) {
       throw new Error("Supabase client not available on server.");
@@ -506,8 +659,12 @@ export const savePlatformTemplateServerFn = createServerFn({ method: "POST" })
   });
 
 export const deletePlatformTemplateServerFn = createServerFn({ method: "POST" })
-  .validator((data: { id: string }) => data)
+  .validator((data: { id: string; accessToken?: string | undefined }) => data)
   .handler(async ({ data }) => {
+    // Same missing-authorization bug as savePlatformTemplateServerFn just
+    // above, and the more damaging of the two: this is what let anyone
+    // wipe the entire live templates table with no admin check whatsoever.
+    await requireAdmin(data.accessToken);
     const { id } = data;
     const sb = await getServerSupabase();
     if (!sb) {
@@ -526,7 +683,7 @@ export const deletePlatformTemplateServerFn = createServerFn({ method: "POST" })
 export const updateProfileServerFn = createServerFn({ method: "POST" })
   .validator(
     (data: {
-      userId: string;
+      accessToken?: string | undefined;
       userEmail?: string | undefined;
       updates: {
         full_name?: string | undefined;
@@ -535,7 +692,18 @@ export const updateProfileServerFn = createServerFn({ method: "POST" })
     }) => data,
   )
   .handler(async ({ data }) => {
-    const { userId, userEmail, updates } = data;
+    // This is meant to update the CALLER's own profile only (it's the
+    // fallback for updateOwnProfile in supabase.ts) — it used to take
+    // `userId` straight from the client with no check that the caller
+    // actually was that user, so anyone could rewrite any other account's
+    // full_name/avatar_url. Only the verified caller's own id is used now.
+    const caller = await getVerifiedCaller(data.accessToken);
+    if (!caller) {
+      throw new Error("Not authenticated.");
+    }
+    const userId = caller.id;
+    const userEmail = data.userEmail || caller.email;
+    const { updates } = data;
     const sb = await getServerSupabase();
     if (!sb) {
       throw new Error("Supabase client not available on server.");
@@ -583,23 +751,56 @@ export const updateProfileServerFn = createServerFn({ method: "POST" })
     return { success: true };
   });
 
+// PERFORMANCE: the Stripe-ledger fallback below (section 3) makes several
+// external API calls and used to run on every single call to this
+// function for every free-tier user — and this function itself runs on
+// every page load, every auth-state change, AND every background token
+// refresh (see syncUserFromSession in auth.tsx), so a free user could
+// trigger it repeatedly through a long session, each time paying the full
+// latency cost (multiple sequential round-trips to Stripe, likely
+// seconds) and spending this app's Stripe API rate-limit budget on an
+// account that's never paid. Caching a NEGATIVE result for a few minutes
+// (never a positive one — a real purchase already gets written straight
+// to `profiles` by verifyStripeSession/checkUserProStatusServerFn itself,
+// so the cheap DB check just above already picks that up immediately;
+// only the expensive "definitely still not pro" answer is worth reusing)
+// cuts that down to roughly once per cache window per user instead of
+// once per token refresh. Plain in-memory Map: fine for cutting redundant
+// calls within one server process/session; a horizontally-scaled
+// deployment would want a shared cache (e.g. a dedicated small table or
+// Redis) for the same effect across instances, but that's an
+// infrastructure change beyond this fix.
+const STRIPE_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+const stripeProCheckNegativeCache = new Map<string, number>(); // key -> expiresAt
+
 export const checkUserProStatusServerFn = createServerFn({ method: "POST" })
   .validator(
     (data: {
+      accessToken?: string | undefined;
       userId?: string | undefined;
       email?: string | undefined;
     }) => data,
   )
   .handler(async ({ data }) => {
-    const { userId = "", email = "" } = data;
-    const normalizedEmail = email.trim().toLowerCase();
+    // Two separate problems used to live here:
+    // 1. This trusted a client-supplied `userId`/`email` outright — anyone
+    //    could ask "is this OTHER account Pro/admin?" for any id/email they
+    //    named (an information-disclosure issue on its own), and combined
+    //    with syncUserFromSession OR-ing this result into the client's own
+    //    isPro/role state client-side, this was also part of the larger
+    //    privilege-spoofing chain. Now the verified caller's own identity
+    //    is always used when a token is provided.
+    // 2. `.includes("buildinseconds")` matched ANY email merely containing
+    //    that substring (e.g. "x@buildinsecondsfake.com") as admin — every
+    //    other admin check in this app (isEmailAdmin) already used an exact
+    //    match; this was the one that had regressed. Now reuses that same
+    //    shared, exact-match function.
+    const caller = await getVerifiedCaller(data.accessToken);
+    const userId = caller?.id || "";
+    const normalizedEmail = (caller?.email || "").trim().toLowerCase();
 
     // 1. Whitelisted admin
-    if (
-      normalizedEmail &&
-      (normalizedEmail === "buildinseconds@gmail.com" ||
-        normalizedEmail.includes("buildinseconds"))
-    ) {
+    if (isEmailAdmin(normalizedEmail)) {
       return { isPro: true, role: "admin" as const, plan: "lifetime" };
     }
 
@@ -641,7 +842,10 @@ export const checkUserProStatusServerFn = createServerFn({ method: "POST" })
     }
 
     // 3. Direct Stripe Verification: If user purchased via Stripe with this email/ID, confirm immediately!
-    if (!isPro && normalizedEmail) {
+    const cacheKey = userId || normalizedEmail;
+    const cachedNegativeExpiry = stripeProCheckNegativeCache.get(cacheKey);
+    const skipStripeCheck = !!cachedNegativeExpiry && cachedNegativeExpiry > Date.now();
+    if (!isPro && normalizedEmail && !skipStripeCheck) {
       try {
         const stripe = await getStripeInstance();
         if (stripe) {
@@ -675,19 +879,20 @@ export const checkUserProStatusServerFn = createServerFn({ method: "POST" })
             return false;
           };
 
-          // Check Stripe customers
+          // Check Stripe customers — run the per-customer sessions lookup
+          // for all of them concurrently (was a sequential `for` loop
+          // awaiting each one in turn) since there are at most 5 and each
+          // is an independent external API round-trip; no early-exit lost
+          // here that actually mattered given the cap is already small.
           const customers = await stripe.customers.list({ email: normalizedEmail, limit: 5 });
-          for (const cust of customers.data) {
-            const sessions = await stripe.checkout.sessions.list({
-              customer: cust.id,
-              limit: 20,
-            });
-            const paid = sessions.data.find(isPostInSecondsSession);
-            if (paid) {
-              isPro = true;
-              plan = "lifetime";
-              break;
-            }
+          const perCustomerResults = await Promise.all(
+            customers.data.map((cust) =>
+              stripe.checkout.sessions.list({ customer: cust.id, limit: 20 }),
+            ),
+          );
+          if (perCustomerResults.some((sessions) => sessions.data.some(isPostInSecondsSession))) {
+            isPro = true;
+            plan = "lifetime";
           }
 
           // Also check recent checkout sessions
@@ -705,6 +910,10 @@ export const checkUserProStatusServerFn = createServerFn({ method: "POST" })
               isPro = true;
               plan = "lifetime";
             }
+          }
+
+          if (!isPro) {
+            stripeProCheckNegativeCache.set(cacheKey, Date.now() + STRIPE_NEGATIVE_CACHE_TTL_MS);
           }
 
           // If verified from Stripe, cache/upsert to profiles table

@@ -11,22 +11,13 @@ import { supabase } from "@/lib/supabase";
 // in Supabase's Authentication > Providers > Google settings, reused here.
 const GOOGLE_WEB_CLIENT_ID = import.meta.env["VITE_GOOGLE_WEB_CLIENT_ID"] as string;
 
-export const DEFAULT_ADMIN_EMAILS = [
-  "buildinseconds@gmail.com",
-];
-
-export function isEmailAdmin(email?: string | null): boolean {
-  if (!email) return false;
-  const normalized = email.trim().toLowerCase();
-  if (DEFAULT_ADMIN_EMAILS.some((adm) => adm.toLowerCase() === normalized)) return true;
-  
-  const envAdmins = (typeof import.meta !== "undefined" && (import.meta as any).env?.["VITE_ADMIN_EMAILS"]) || "";
-  if (envAdmins) {
-    const list = envAdmins.split(",").map((e: string) => e.trim().toLowerCase());
-    if (list.includes(normalized)) return true;
-  }
-  return false;
-}
+// Moved to adminEmails.ts so src/lib/stripe.ts's server functions can reuse
+// the exact same (correct, exact-match) check — imported (not just
+// re-exported) since this file also uses it directly below, and
+// re-exported so existing imports of these two names from "@/lib/auth"
+// keep working unchanged.
+import { DEFAULT_ADMIN_EMAILS, isEmailAdmin } from "./adminEmails";
+export { DEFAULT_ADMIN_EMAILS, isEmailAdmin };
 
 export interface AuthUser {
   id: string;
@@ -357,25 +348,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription_status?: string;
     } | null = null;
 
-    // Check stored user state in localStorage as base
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed?.id === sbUser.id && parsed?.isPro) {
-          isPro = true;
-          plan = parsed.plan || "lifetime";
-        }
-      }
-    } catch {}
-
+    // SECURITY: this used to seed `isPro`/`plan` from localStorage and from
+    // sbUser.user_metadata here, then only ever OR further signals on top —
+    // nothing later could ever correct it back down even if the real
+    // database said otherwise. Both of those are directly client-writable:
+    // localStorage by definition, and user_metadata (unlike app_metadata)
+    // via a plain `supabase.auth.updateUser({ data: {...} })` call any
+    // signed-in user can make themselves. That meant granting yourself Pro
+    // (and, since `role` below also folded into similar checks elsewhere,
+    // effectively spoofing admin-gated UI) took one line in the browser
+    // console, no server involved. `meta`/`appMeta` are computed below only
+    // for genuinely client-safe display fields (name/avatar), never for
+    // isPro/role/plan — those three are now derived exclusively from the
+    // `profiles` row (server-authoritative, RLS-protected, and only
+    // writable through the admin RPCs / server functions that were also
+    // hardened in this same pass) and the verified-server-email admin
+    // check just below. `meta` (user_metadata) is kept only for genuinely
+    // client-safe display fields (name/avatar) further down —
+    // app_metadata isn't read at all: it genuinely can't be written by the
+    // client, but nothing in this app writes it server-side either, so
+    // there was nothing safe to read from it, just an always-empty second
+    // "source of truth."
     const meta = sbUser?.user_metadata || {};
-    const appMeta = sbUser?.app_metadata || {};
-
-    if (meta.is_pro || meta.plan === "lifetime" || appMeta.is_pro || appMeta.plan === "lifetime") {
-      isPro = true;
-      plan = meta.plan || appMeta.plan || "lifetime";
-    }
 
     try {
       const profilePromise = supabase
@@ -422,10 +416,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isPro && sbUser.email) {
       try {
         const { checkUserProStatusServerFn } = await import("@/lib/stripe");
+        // checkUserProStatusServerFn now verifies the caller server-side
+        // from this access token instead of trusting the client-supplied
+        // userId/email — see its own comment in stripe.ts.
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         const srvCheck = await checkUserProStatusServerFn({
           data: {
-            userId: sbUser.id,
-            email: sbUser.email,
+            accessToken: session?.access_token,
           },
         });
         if (srvCheck?.isPro) {

@@ -19,6 +19,7 @@ import {
   FlashIcon,
 } from "hugeicons-react";
 import { createStripePortalSession } from "@/lib/stripe";
+import { supabase } from "@/lib/supabase";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
 
@@ -69,11 +70,17 @@ export function UserMenu() {
     setLoadingPortal(true);
     try {
       const returnUrl = typeof window !== "undefined" ? window.location.origin : "";
+      // createStripePortalSession now verifies the caller server-side from
+      // this access token instead of trusting a client-supplied userId —
+      // see its own comment in stripe.ts for why that used to let anyone
+      // open anyone else's Stripe billing portal.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       const { url } = await createStripePortalSession({
         data: {
-          userId: user.id,
+          accessToken: session?.access_token,
           returnUrl,
-          userEmail: user.email || undefined,
         },
       });
       if (url) {

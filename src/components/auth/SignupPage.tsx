@@ -472,7 +472,17 @@ export function SignupPage() {
                 </p>
 
                 {/* Google Identity Services Button with User Dropdown & Avatar */}
-                <div ref={googleButtonContainerRef} className="flex w-full justify-center overflow-hidden max-w-full" />
+                <div
+                  ref={googleButtonContainerRef}
+                  // p-0.5 (2px): this wrapper's own overflow-hidden was
+                  // clipping the focus ring's box-shadow flush against the
+                  // button's edge (a box-shadow on the iframe renders
+                  // relative to it, but still gets cut by an ancestor's
+                  // overflow:hidden) — a couple px of breathing room here
+                  // lets the 2px ring render in full instead of getting
+                  // clipped on the sides.
+                  className="google-gsi-button flex w-full justify-center overflow-hidden max-w-full p-0.5"
+                />
                 {!isGoogleButtonReady && (
                   <button
                     type="button"

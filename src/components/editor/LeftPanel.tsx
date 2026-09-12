@@ -549,7 +549,15 @@ export function LeftPanel({
       fetchAllTemplates(),
     ]);
     setUserSavedQuotes(quotes);
-    if (allTemplates && allTemplates.length > 0) {
+    // Same class of bug as fetchAllTemplates() itself used to have: gating
+    // on `.length > 0` meant a legitimately empty result (every template
+    // deleted) was silently discarded, leaving whatever platformTemplates
+    // already held on screen instead of actually reflecting "there are now
+    // zero templates." `fetchAllTemplates()` only ever returns something
+    // other than an array here (it can't — every path returns
+    // Template[]), so the array-ness check is all that's actually needed;
+    // any array, including [], is a real result worth showing.
+    if (allTemplates) {
       setPlatformTemplates(allTemplates);
     }
     setTemplatesLoading(false);

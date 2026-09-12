@@ -1,4 +1,4 @@
-import { forwardRef, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Copy01Icon,
@@ -247,6 +247,35 @@ function getHandleVisualStyle(h: (typeof HANDLE_POSITIONS)[number], scale: numbe
     boxShadow: "0 0 4px 1px #39466024, 0 0 0 1px #2b354a4d",
     border: "1.5px solid #e2e8f0",
   };
+}
+
+// Curved-arrow rotation dial (RotateMoveHandleRow below) — shown as its own
+// standalone element above the live angle badge while dragging to rotate,
+// not embedded inside that small pill (too subtle in there to notice mid-
+// drag). Shows which way and how far the current gesture has turned the
+// layer: an arc sweeping from the layer's rotation when this drag began to
+// its current rotation, with an arrowhead at the tip pointing the
+// direction of travel. `deltaDeg` is signed (positive = clockwise, this
+// app's existing convention throughout — 0° = up, increasing clockwise,
+// see handleRotatePointerMove's own atan2 math) and always drawn starting
+// from the top (angle 0) of a fixed-size dial — not a literal trace of the
+// cursor's real on-screen orbit, which would need viewport-relative math
+// fighting through several nested zoom/rotation transforms elsewhere in
+// this component tree; this abstract "how much, which way" dial carries
+// the same information across far more simply and robustly.
+function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number): { x: number; y: number } {
+  const rad = ((angleDeg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function describeRotationArc(cx: number, cy: number, r: number, deltaDeg: number): string | null {
+  if (deltaDeg === 0) return null;
+  const clamped = Math.max(-359, Math.min(359, deltaDeg));
+  const start = polarToCartesian(cx, cy, r, 0);
+  const end = polarToCartesian(cx, cy, r, clamped);
+  const largeArcFlag = Math.abs(clamped) > 180 ? 1 : 0;
+  const sweepFlag = clamped >= 0 ? 1 : 0;
+  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArcFlag} ${sweepFlag} ${end.x} ${end.y}`;
 }
 
 export const QuoteCanvas = forwardRef<HTMLDivElement, Props>(function QuoteCanvas(
@@ -2720,10 +2749,18 @@ function RotateMoveHandleRow({
   })();
   const [liveAngle, setLiveAngle] = useState<number | null>(null);
   const [isRotating, setIsRotating] = useState(false);
+  // The layer's own committed rotation the instant this drag began — the
+  // curved-arrow indicator in the angle badge below sweeps from here to
+  // liveAngle, so it shows how far THIS gesture has turned it, not an
+  // absolute angle that would otherwise jump around confusingly whenever a
+  // layer already had some rotation before you started dragging.
+  const startAngleRef = useRef(0);
+  const rotateArcId = useId();
 
   const handleRotatePointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    startAngleRef.current = elementRotation;
     rotatingRef.current = true;
     setIsRotating(true);
     onRotatingChange?.(true);
@@ -2894,11 +2931,85 @@ function RotateMoveHandleRow({
             marginTop: 100 * invScale + rotationExtraOffset,
             zIndex: 90,
             pointerEvents: "none",
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            // Bumped again (8 -> 20 -> 32) — still read as crowded at 20.
+            // Same invScale-multiplication as marginTop above and every
+            // other spacing value in this docked layout — this whole
+            // overlay sits inside the canvas's own zoom transform, so raw
+            // layout gaps have to be pre-scaled by its inverse to read as a
+            // constant apparent size on screen regardless of zoom level.
+            gap: 32 * invScale,
           }}
         >
+          {(() => {
+            const rotationDelta =
+              (((liveAngle - startAngleRef.current + 180) % 360 + 360) % 360) - 180;
+            // Explicit fixed pixel size again — the previous attempt tried
+            // `alignSelf: "stretch"` + `aspectRatio: "1 / 1"` to have this
+            // auto-match the badge's real height with no hand-picked
+            // number to keep in sync, but that combination resolved to a
+            // wildly oversized circle in practice (confirmed directly:
+            // the dial ballooned to dominate the whole screenshot) rather
+            // than the badge's actual height — some other ancestor's cross
+            // size fed into the stretch calculation instead. Reverted to
+            // plain, predictable, explicit sizing: 36px chip, matched by
+            // hand to the badge's own text-xs + py-2.5 (~16px line-height
+            // + 20px padding). Not self-correcting if the badge's own size
+            // changes again later, but correct and stable right now,
+            // rather than a "clever" mechanism actively misbehaving.
+            const dialSize = 24;
+            const c = dialSize / 2;
+            const r = 8.5;
+            const arcPath = describeRotationArc(c, c, r, rotationDelta);
+            return (
+              <div
+                style={{ transform: `scale(${invScale})`, width: 36, height: 36 }}
+                className="grid shrink-0 place-items-center rounded-full bg-[#15161c]/95 shadow-2xl backdrop-blur-md"
+              >
+                <svg width={dialSize} height={dialSize} viewBox={`0 0 ${dialSize} ${dialSize}`}>
+                  <defs>
+                    {/* A plain dot instead of a triangular arrowhead — the
+                        arrow shape read as too heavy/prominent at this
+                        small size. orient="auto" is harmless to leave even
+                        though a symmetric dot has no real "direction" to
+                        rotate toward. */}
+                    <marker
+                      id={rotateArcId}
+                      viewBox="0 0 10 10"
+                      refX={5}
+                      refY={5}
+                      markerWidth={4}
+                      markerHeight={4}
+                      orient="auto"
+                    >
+                      <circle cx={5} cy={5} r={4} fill="white" />
+                    </marker>
+                  </defs>
+                  <circle cx={c} cy={c} r={r} fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth={2} />
+                  {arcPath ? (
+                    <path
+                      d={arcPath}
+                      fill="none"
+                      stroke="white"
+                      strokeWidth={2.25}
+                      strokeLinecap="round"
+                      markerEnd={`url(#${rotateArcId})`}
+                    />
+                  ) : null}
+                </svg>
+              </div>
+            );
+          })()}
           <div
             style={{ transform: `scale(${invScale})` }}
-            className="rounded-full bg-[#15161c]/95 px-3 py-1.5 text-xs font-semibold text-white shadow-2xl backdrop-blur-md whitespace-nowrap"
+            // py-1.5 -> py-2.5: taller relative to its own (short, 2-4
+            // character) text content reads closer to a rounded circle
+            // like the dial beside it, instead of a flatter stretched-out
+            // capsule — same background/shadow/blur, still rounded-full,
+            // just given more vertical room to actually round out into.
+            className="rounded-full bg-[#15161c]/95 px-3 py-2.5 text-xs font-semibold text-white shadow-2xl backdrop-blur-md whitespace-nowrap"
           >
             {liveAngle}°
           </div>
@@ -4828,7 +4939,21 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             touchAction: isEditing ? "manipulation" : "none",
             userSelect: isEditing ? "text" : "none",
             WebkitUserSelect: isEditing ? "text" : "none",
-            WebkitTouchCallout: isEditing ? "default" : "none",
+            // Always "none", including while editing — this is the mobile
+            // half of the exact same race already fixed for mouse just
+            // above (editableNode's own handlePointerDown comment): "default"
+            // here enables iOS's native long-press callout (its own
+            // selection handles + magnifier), a second, completely separate
+            // touch-selection mechanism running at the same time as this
+            // component's own manual pointermove Range reconstruction
+            // (built specifically because a plain touch-drag can't select
+            // text natively without that long-press first). Both trying to
+            // own the same drag gesture is what made mobile highlighting
+            // feel unreliable — keeping this "none" leaves the manual
+            // reconstruction as the only thing driving touch selection,
+            // same "stop refereeing the race, remove one side of it"
+            // approach as the mouse fix.
+            WebkitTouchCallout: "none",
             cursor: !canInteract ? "default" : locked ? "pointer" : isEditing ? "text" : "grab",
             caretColor: t.color || "currentColor",
             display: "block",
@@ -4952,8 +5077,18 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             />
             {/* See the matching block's comment in DraggableShapeLayer for
                 why this hides (not just visually deprioritizes) for the
-                duration of a move/rotate drag. */}
-            {!(isMoving || isRotating) ? (
+                duration of a move/rotate drag. Also hidden for the
+                duration of active text editing (isEditing) — this pill row
+                (and the resize/rotate handles below) sits directly above
+                the box's own top edge, close enough at this app's default
+                low fit-to-container zoom to overlap a short text layer's
+                actual content, intercepting clicks meant to place a caret
+                near its edge instead of reaching the text underneath.
+                Standard behavior in most editors (Canva, Figma, Slides):
+                transform controls disappear the moment you're actually
+                typing, and come back once you click away to just select
+                the box again. */}
+            {!(isMoving || isRotating || isEditing) ? (
               <div
                 style={{
                   position: "absolute",
@@ -4984,7 +5119,11 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
               </div>
             ) : null}
 
-            {!locked ? (
+            {/* Same reasoning as LayerToolbar just above — resize handles
+                and the rotate/move row both sit right at/around the box's
+                own edges, so they're hidden for the same "actively typing"
+                window. */}
+            {!locked && !isEditing ? (
               <>
                 {!(isMoving || isRotating)
                   ? TEXT_HANDLE_POSITIONS.filter((h) => activeHandle === null || activeHandle === h.id).map((h) => (

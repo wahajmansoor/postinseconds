@@ -28,6 +28,22 @@ alter table public.profiles add column if not exists stripe_subscription_id text
 alter table public.profiles add column if not exists subscription_status text default 'inactive';
 alter table public.profiles add column if not exists subscription_period_end timestamp with time zone;
 
+-- Length caps (security-review hardening, 2026-09-12): both columns were
+-- plain unbounded `text`, and both are writable by any user for their own
+-- row (the "Users can update own profile" policy below has no column-level
+-- restriction on these two). avatar_url is deliberately generous —
+-- AvatarCropDialog.tsx stores a base64 data URL directly here (a 256x256
+-- JPEG at quality 0.85 typically lands well under 40KB as base64), so
+-- 100,000 chars leaves comfortable headroom for that — while still
+-- bounding how much any single row (and therefore every "list all users"
+-- admin query pulling every row) can be bloated by. `alter table ... add
+-- constraint` has no native IF NOT EXISTS in Postgres, so drop-then-add is
+-- what keeps this file safely re-runnable like everything else in it.
+alter table public.profiles drop constraint if exists profiles_full_name_length;
+alter table public.profiles add constraint profiles_full_name_length check (char_length(full_name) <= 200);
+alter table public.profiles drop constraint if exists profiles_avatar_url_length;
+alter table public.profiles add constraint profiles_avatar_url_length check (char_length(avatar_url) <= 100000);
+
 alter table public.profiles enable row level security;
 
 -- Helper: is the calling user an admin? SECURITY DEFINER + owned by the table
@@ -329,10 +345,20 @@ create policy "Users can view own custom fonts."
   on public.custom_font_variants for select
   using ( auth.uid() = user_id );
 
+-- SECURITY FIX (2026-09-12): custom font uploads are a paid (is_pro) feature
+-- in the app's UI (CustomFontsDialog.tsx checks isPro before showing the
+-- upload form), but that was the ONLY place it was enforced — this policy
+-- used to allow any signed-in user to insert a row here regardless of plan.
+-- Since the actual write goes straight from the browser to Supabase (no
+-- server function in between to add a check to), the enforcement has to
+-- live here, in the policy itself — a client-side-only gate is not a gate
+-- at all against anyone willing to open devtools. public.is_pro() already
+-- existed (used elsewhere for read-gating); this is its first write-gating
+-- use.
 drop policy if exists "Users can insert own custom fonts." on public.custom_font_variants;
 create policy "Users can insert own custom fonts."
   on public.custom_font_variants for insert
-  with check ( auth.uid() = user_id );
+  with check ( auth.uid() = user_id and public.is_pro() );
 
 drop policy if exists "Users can update own custom fonts." on public.custom_font_variants;
 create policy "Users can update own custom fonts."
@@ -359,6 +385,28 @@ create policy "Users can delete own custom fonts."
 insert into storage.buckets (id, name, public)
 values ('custom-fonts', 'custom-fonts', true)
 on conflict (id) do nothing;
+
+-- SECURITY FIX (2026-09-12): this bucket previously had no size or content-
+-- type limit at all — uploadCustomFontVariant() in src/lib/customFonts.ts
+-- accepts any File object and only the browser's <input accept> attribute
+-- (a UI hint, trivially bypassed) suggested it should be a font. Since this
+-- bucket is public-read by design, that meant any signed-in user could
+-- upload an arbitrary file of any size and get a permanent public URL for
+-- it on this project's own domain — free file hosting/bandwidth abuse, and
+-- (if served with a browser-executable content-type) a potential vector
+-- for hosting something worse than an oversized file. Supabase enforces
+-- `allowed_mime_types` against the content-type the UPLOAD REQUEST
+-- declares, not by sniffing the file's actual bytes, so this is a real but
+-- not absolute backstop — the point is it forces every stored object to be
+-- served back with a font content-type (never text/html or
+-- application/javascript), which is what actually matters for what a
+-- browser will do with a URL into this bucket, on top of the size cap
+-- bounding storage/bandwidth cost. `update` (not just the insert above) so
+-- this applies even though the bucket already exists in a live database.
+update storage.buckets
+set file_size_limit = 5242880, -- 5 MB — generous for a single TTF/OTF weight, nowhere near a real font family's actual size
+    allowed_mime_types = array['font/ttf', 'font/otf']
+where id = 'custom-fonts';
 
 drop policy if exists "Custom font files are publicly readable." on storage.objects;
 create policy "Custom font files are publicly readable."
@@ -416,3 +464,29 @@ create or replace trigger on_auth_user_created
 -- ==============================================================================
 -- select set_config('app.bypass_profile_guard', 'on', true);
 -- update public.profiles set role = 'admin' where email = 'REPLACE_WITH_THE_ONE_ADMIN_EMAIL';
+
+-- ==============================================================================
+-- ONE-TIME: remove the bundled default starter templates (2026-09-12, at the
+-- user's request). The matching STARTER_TEMPLATES array in
+-- src/components/editor/types.ts was emptied at the same time — this just
+-- removes the actual rows those defaults were seeded into, in the live
+-- database, so signed-in users (whose RLS lets them see every row, not just
+-- published ones) stop seeing them too. Deliberately scoped to just these
+-- four ids so it never touches anything an admin created afterward through
+-- the Admin Dashboard (e.g. a real "premium-*" template).
+-- ==============================================================================
+-- delete from public.templates where id in ('linkedin', 'minimal', 'neon', 'editorial', 'bold', 'sunset');
+
+-- ==============================================================================
+-- ONE-TIME: full "fresh product launch" reset (2026-09-12, at the user's
+-- explicit request — confirmed this wipes real saved designs for every
+-- account, not just seeded defaults). Deletes every row in
+-- user_saved_quotes, for every user, not just the admin's own — the app's
+-- own delete UI can't do this in bulk since it's scoped per-signed-in-user
+-- by RLS (auth.uid() = user_id) by design. Templates are handled by the
+-- delete statement just above this one; this is the other half ("no save").
+-- Does NOT touch user_active_draft (each user's current in-progress canvas)
+-- or profiles/custom_font_variants — only the named "Saved" library the
+-- Saved tab shows, which is what was actually asked for.
+-- ==============================================================================
+-- delete from public.user_saved_quotes;

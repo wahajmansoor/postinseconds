@@ -73,13 +73,42 @@ export async function fetchAllTemplates(): Promise<Template[]> {
   const local = getLocalTemplates();
   if (isSupabaseConfigured) {
     try {
+      // PERFORMANCE: unbounded — fine at today's scale (a handful of
+      // templates), but this fetches on every editor load, so a defensive
+      // cap is worth having now rather than only after it's actually slow.
+      // 1000 is comfortably above any realistic template-library size for
+      // this app; real pagination (with UI to page through results) would
+      // be the right fix if that ever changes, not a bigger magic number.
       const { data, error } = await supabase
         .from("templates")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(1000);
 
-      if (!error && data && data.length > 0) {
-        const remoteTemplates: Template[] = data.map((d: any) => ({
+      // Two bugs used to live here together, and either one alone was
+      // enough to resurrect a deleted template:
+      //
+      // 1. `data.length > 0` gated this whole branch — a genuinely empty
+      //    remote table (every template deleted) fell through to `local`
+      //    below exactly like a real fetch FAILURE would. `!error && data`
+      //    (data is `[]`, not null/undefined, on a clean empty result) is
+      //    what actually distinguishes "fetch succeeded, remote says zero"
+      //    from "fetch failed" — only the latter should ever consult the
+      //    local cache.
+      // 2. Even with that fixed, the merge that used to follow (folding in
+      //    any `local` entry whose id wasn't in this fetch's remoteIds)
+      //    could not tell "created while offline, never synced" apart from
+      //    "deleted from remote a moment ago, this browser's cache just
+      //    hasn't caught up" — both look identical (id absent from the
+      //    current remote result). Concretely: deleting rows directly via
+      //    SQL (bypassing deleteTemplate(), which does keep localStorage in
+      //    sync) leaves every other browser's cache stale, and that merge
+      //    would blindly re-add each stale id right back in. Once remote
+      //    has successfully responded at all, remote must be the complete,
+      //    authoritative list — no merge — matching the rest of this app's
+      //    "Supabase is the source of truth for templates" model.
+      if (!error && data) {
+        return data.map((d: any) => ({
           id: d.id,
           label: d.label,
           category: d.category || (d.is_premium ? "premium" : "starter"),
@@ -88,11 +117,6 @@ export async function fetchAllTemplates(): Promise<Template[]> {
           thumbnailUrl: d.thumbnail_url || d.state?.thumbnailUrl || d.thumbnailUrl || undefined,
           state: d.state,
         }));
-
-        // Merge remote templates with any local additions
-        const remoteIds = new Set(remoteTemplates.map((t) => t.id));
-        const customLocal = local.filter((t) => !remoteIds.has(t.id));
-        return [...remoteTemplates, ...customLocal];
       }
     } catch (e) {
       console.warn("Supabase fetch failed, using local templates", e);
@@ -170,10 +194,20 @@ export async function upsertTemplate(
         console.warn("Client-side template upsert encountered issue, attempting server-side fallback:", error);
         try {
           const { savePlatformTemplateServerFn } = await import("@/lib/stripe");
+          // savePlatformTemplateServerFn now requires the caller to
+          // verify as an admin via this access token — it used to have no
+          // authorization check at all, so this "seamless fallback" was
+          // actually a wide-open bypass of the RLS check that had just
+          // (correctly) rejected the write above. See its own comment in
+          // stripe.ts.
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
           const res = await savePlatformTemplateServerFn({
             data: {
               template: templateWithThumb,
               isPremium,
+              accessToken: session?.access_token,
               userEmail,
             },
           });
@@ -189,10 +223,14 @@ export async function upsertTemplate(
       console.warn("Supabase upsertTemplate error, attempting server fallback:", err);
       try {
         const { savePlatformTemplateServerFn } = await import("@/lib/stripe");
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         const res = await savePlatformTemplateServerFn({
           data: {
             template: templateWithThumb,
             isPremium,
+            accessToken: session?.access_token,
             userEmail,
           },
         });
@@ -221,15 +259,26 @@ export async function deleteTemplate(id: string): Promise<boolean> {
       // very next fresh fetch — a re-login, another device — resurrects it.
       const { error, data } = await supabase.from("templates").delete().eq("id", id).select();
       if (error || !data || data.length === 0) {
+        // deletePlatformTemplateServerFn now requires the caller to verify
+        // as an admin via this access token — see savePlatformTemplateServerFn's
+        // matching comment above (upsertTemplate) for why this fallback was
+        // previously a full bypass of the RLS check that just rejected the
+        // delete.
         const { deletePlatformTemplateServerFn } = await import("@/lib/stripe");
-        const res = await deletePlatformTemplateServerFn({ data: { id } });
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const res = await deletePlatformTemplateServerFn({ data: { id, accessToken: session?.access_token } });
         return Boolean(res?.success);
       }
       return true;
     } catch {
       try {
         const { deletePlatformTemplateServerFn } = await import("@/lib/stripe");
-        const res = await deletePlatformTemplateServerFn({ data: { id } });
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const res = await deletePlatformTemplateServerFn({ data: { id, accessToken: session?.access_token } });
         return Boolean(res?.success);
       } catch {
         return false;
@@ -241,10 +290,15 @@ export async function deleteTemplate(id: string): Promise<boolean> {
 
 export async function fetchProfiles(): Promise<DbProfile[]> {
   try {
+    // PERFORMANCE: same reasoning as fetchAllTemplates' cap just above —
+    // this is the Admin Dashboard's user list, unbounded today at a
+    // handful of accounts. A real user base would need actual pagination
+    // in the admin UI itself, not just a bigger limit here.
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(1000);
     if (!error && data) return data;
   } catch (e) {
     console.error("Error fetching Supabase profiles:", e);
@@ -319,9 +373,17 @@ export async function updateOwnProfile(
     // 3. Fallback / sync to server function
     try {
       const { updateProfileServerFn } = await import("@/lib/stripe");
+      // updateProfileServerFn now verifies the caller server-side from this
+      // access token instead of trusting the client-supplied userId — see
+      // its own comment in stripe.ts. It always acts on the verified
+      // caller's own row, which this function ("own" profile) already only
+      // ever calls with the signed-in user's own id anyway.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       await updateProfileServerFn({
         data: {
-          userId,
+          accessToken: session?.access_token,
           userEmail,
           updates,
         },

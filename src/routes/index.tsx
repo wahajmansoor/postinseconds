@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  supabase,
   fetchAllTemplates,
   upsertTemplate,
   updateSavedQuoteDesign,
@@ -720,14 +721,23 @@ function Index() {
       // Immediately unlock UI state locally so creator doesn't wait
       updateLocalUser({ isPro: true, plan: planId || "lifetime" });
 
-      verifyStripeSession({
-        data: {
-          sessionId,
-          userId: user?.id || undefined,
-          userEmail: user?.email || undefined,
-          planId: planId || "lifetime",
-        },
-      })
+      // verifyStripeSession now verifies the caller server-side from this
+      // access token rather than trusting the client-supplied userId (and
+      // no longer honors "mock_" session ids unless Stripe is genuinely
+      // unconfigured on the server) — see its own comment in stripe.ts.
+      (async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        return verifyStripeSession({
+          data: {
+            sessionId,
+            accessToken: session?.access_token,
+            userEmail: user?.email || undefined,
+            planId: planId || "lifetime",
+          },
+        });
+      })()
         .then(async (res) => {
           if (res?.success) {
             const activePlan = res.plan || planId || "lifetime";
@@ -1294,8 +1304,11 @@ function Index() {
 
   const loadTemplates = useCallback(async () => {
     try {
+      // Same fix as LeftPanel.tsx's own loadSavedQuotes: `.length > 0`
+      // discarded a legitimately empty result (every template deleted),
+      // leaving stale templates on screen instead of reflecting reality.
       const list = await fetchAllTemplates();
-      if (list && list.length > 0) {
+      if (list) {
         setPlatformTemplates(list);
       }
     } catch {}

@@ -416,3 +416,24 @@ s, strike, del {
   animation-play-state: paused;
 }
 
+/* Google's "Continue with Google" button (SignupPage.tsx, rendered via
+   google.accounts.id.renderButton into .google-gsi-button). Two earlier
+   attempts here assumed the whole thing was cross-origin iframe content and
+   got reverted — but inspecting the actual focused element in DevTools
+   found a plain `<div class="nsm7Bb-HzV7m-LgbsSe-MJoBVe">`, one of Google's
+   own internal utility classes (LgbsSe = their generic "material button
+   surface", the standard focus/ripple surface across many Google UIs).
+   That's only inspectable at all because it's genuinely same-origin DOM —
+   Google's GSI script draws the button chrome directly into this page
+   (only the actual account-picker/consent step is truly walled off in a
+   separate context) — so unlike the outer iframe wrapper, THIS element's
+   focus style really is ours to override. `[class*="LgbsSe"]` as a second,
+   looser selector is a hedge against Google renaming/reshuffling this
+   minified class in a future GIS release; harmless if it never fires. */
+.google-gsi-button .nsm7Bb-HzV7m-LgbsSe-MJoBVe:focus,
+.google-gsi-button [class*="LgbsSe"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 50%, transparent);
+  border-radius: 9999px;
+}
+
