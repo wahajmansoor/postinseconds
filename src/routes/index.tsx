@@ -22,6 +22,7 @@ import { Share } from "@capacitor/share";
 import { toast } from "@/components/ui/sonner";
 import {
   Add01Icon,
+  Alert02Icon,
   Bookmark01Icon,
   CenterFocusIcon,
   CheckmarkCircle02Icon,
@@ -843,7 +844,7 @@ function Index() {
   // dialog rather than reusing the post-card one).
   const [profilePreviewOpen, setProfilePreviewOpen] = useState(false);
   const [profilePreviewUrl, setProfilePreviewUrl] = useState<string | null>(null);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   // Desktop Export dropdown's own open state — replaced the old persistent
   // right-hand panel (rightPanelCollapsed) entirely; mobile still uses the
@@ -1003,12 +1004,65 @@ function Index() {
           if (updatedAt && updatedAt > lastKnownDraftUpdatedAtRef.current) {
             lastKnownDraftUpdatedAtRef.current = updatedAt;
           }
+          // A null return means the cloud push failed (bad/expired session,
+          // flaky network, RLS, missing migration — upsertCloudActiveDraft
+          // logs the specific reason to the console). This is the exact gap
+          // that made "changes on one device don't show on the other" look
+          // random: the local (per-device) save above always succeeds, so
+          // this used to unconditionally claim "Saved" even when the write
+          // that other devices actually depend on never left this one.
+          // Surfacing it as "error" instead means a real sync failure (e.g.
+          // a mobile browser dropping the request while backgrounded for a
+          // camera/file picker, or a stale session) is now visible instead
+          // of silently swallowed.
+          setAutoSaveStatus(updatedAt ? "saved" : "error");
         });
+      } else {
+        setAutoSaveStatus("saved");
       }
-      setAutoSaveStatus("saved");
     }, 600);
     return () => clearTimeout(timer);
   }, [s, user?.id]);
+
+  // Flush-on-background — the debounced push above waits 600ms, but on the
+  // native app (Capacitor WebView) that window is exactly where edits go
+  // missing: uploading an image or picking a photo hands control to a
+  // separate native picker/camera Activity, backgrounding this WebView
+  // immediately after the edit that triggered it. Android in particular can
+  // reclaim a backgrounded WebView's process under memory pressure, which
+  // silently drops any pending (not-yet-fired) setTimeout along with it —
+  // so the edit never reaches Supabase, even though it looked fine on this
+  // device right up until it was backgrounded. `visibilitychange`/`pagehide`
+  // fire reliably at that exact moment (before any such teardown), so use
+  // them to push immediately instead of waiting out the debounce. Reads `s`/
+  // `user` via refs (not effect deps) so this listener is registered once,
+  // not re-subscribed on every keystroke.
+  const sRef = useRef(s);
+  sRef.current = s;
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
+  useEffect(() => {
+    const flush = () => {
+      saveActiveDraft(sRef.current);
+      const userId = userIdRef.current;
+      if (userId) {
+        void upsertCloudActiveDraft(userId, sRef.current).then((updatedAt) => {
+          if (updatedAt && updatedAt > lastKnownDraftUpdatedAtRef.current) {
+            lastKnownDraftUpdatedAtRef.current = updatedAt;
+          }
+        });
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, []);
 
   // Load-on-sign-in: once we know who's signed in, pull their cloud draft
   // (if any — a brand new account, or one that's never used this device's
@@ -5210,6 +5264,13 @@ function Index() {
                         <CheckmarkCircle02Icon size={13} className="text-emerald-500" />
                         Saved
                       </span>
+                    ) : autoSaveStatus === "error" ? (
+                      <AppTooltip content="Saved on this device, but couldn't reach your account — this change won't show up on your other devices until it does. Check your connection.">
+                        <span className="flex h-7 items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 text-xs font-semibold text-destructive shadow-sm">
+                          <Alert02Icon size={13} className="text-destructive" />
+                          Sync failed
+                        </span>
+                      </AppTooltip>
                     ) : (
                       <span className="flex h-7 items-center gap-1.5 rounded-full border border-border/80 bg-secondary/60 px-2.5 text-xs font-medium text-muted-foreground shadow-sm">
                         <CloudIcon size={13} className="text-muted-foreground/80" />
