@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { updateOwnProfile } from "@/lib/supabase";
-import { compressImageFile } from "@/lib/imageCompression";
-import { CheckmarkCircle02Icon, ImageUploadIcon, UserCircleIcon } from "hugeicons-react";
+import { AvatarCropDialog } from "@/components/auth/AvatarCropDialog";
+import { CheckmarkCircle02Icon, ImageUploadIcon, UserCircleIcon, CropIcon } from "hugeicons-react";
+import { toast } from "@/components/ui/sonner";
 
 interface EditProfileDialogProps {
   open: boolean;
@@ -11,12 +12,16 @@ interface EditProfileDialogProps {
 }
 
 export function EditProfileDialog({ open, onClose }: EditProfileDialogProps) {
-  const { user, updateLocalUser } = useAuth();
+  const { user, updateLocalUser, refreshUser } = useAuth();
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Avatar crop modal state
+  const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
+  const [cropDialogOpen, setCropDialogOpen] = useState(false);
 
   // Reset the form to the current profile every time the dialog opens
   useEffect(() => {
@@ -32,12 +37,22 @@ export function EditProfileDialog({ open, onClose }: EditProfileDialogProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // A profile avatar never needs to be more than a few hundred px on
-    // screen — capping much smaller than the general upload paths
-    // (imageCompression.ts's own 1920px default) keeps a full-resolution
-    // phone photo from bloating every profiles row that ever loads it.
-    compressImageFile(file, { maxDimension: 512 }).then(setAvatar);
+
+    // Read raw selected image file and open crop selector
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setRawImageSrc(reader.result);
+        setCropDialogOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
     e.target.value = "";
+  };
+
+  const handleCropComplete = (croppedDataUrl: string) => {
+    setAvatar(croppedDataUrl);
+    toast.success("Photo adjusted! Click 'Save changes' to save.");
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -45,18 +60,25 @@ export function EditProfileDialog({ open, onClose }: EditProfileDialogProps) {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const ok = await updateOwnProfile(user.id, {
-        full_name: name.trim(),
-        avatar_url: avatar,
-      });
-      if (ok) {
-        updateLocalUser({ name: name.trim(), avatar });
-        setSuccess(true);
-        setTimeout(() => {
-          setSuccess(false);
-          onClose();
-        }, 1200);
-      }
+      updateLocalUser({ name: name.trim(), avatar });
+      await updateOwnProfile(
+        user.id,
+        {
+          full_name: name.trim(),
+          avatar_url: avatar,
+        },
+        user.email,
+      );
+      await refreshUser();
+      setSuccess(true);
+      toast.success("Profile saved successfully!");
+      setTimeout(() => {
+        setSuccess(false);
+        onClose();
+      }, 1000);
+    } catch (err: any) {
+      console.error("Save profile error:", err);
+      toast.error(err.message || "Failed to update profile.");
     } finally {
       setSaving(false);
     }
@@ -159,6 +181,13 @@ export function EditProfileDialog({ open, onClose }: EditProfileDialogProps) {
           </form>
         )}
       </DialogContent>
+
+      <AvatarCropDialog
+        open={cropDialogOpen}
+        imageSrc={rawImageSrc}
+        onClose={() => setCropDialogOpen(false)}
+        onCropComplete={handleCropComplete}
+      />
     </Dialog>
   );
 }

@@ -1,11 +1,5 @@
-// Upload + manage the current user's custom (TTF/OTF) fonts. Several files
-// that are really weight/style variants of the same typeface (Regular,
-// SemiBold, Bold, Black, ...) get grouped under one family — either
-// automatically (same family name detected/typed) or by explicitly using
-// "+ Add variant" on an existing family — so the rest of the editor's font
-// pickers offer them as a single font with a normal weight dropdown, the
-// same as any Google Font.
-import { useRef, useState } from "react";
+// Upload + manage the current user's custom (TTF/OTF) fonts.
+import React, { useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,7 +28,10 @@ import {
   Add01Icon,
   Loading03Icon,
   AlertCircleIcon,
+  Crown03Icon,
+  CheckmarkCircle02Icon,
 } from "hugeicons-react";
+import { toast } from "@/components/ui/sonner";
 
 interface CustomFontsDialogProps {
   open: boolean;
@@ -49,7 +46,7 @@ type PendingUpload = {
 };
 
 export function CustomFontsDialog({ open, onClose }: CustomFontsDialogProps) {
-  const { user } = useAuth();
+  const { user, isPro, openUpgradeModal } = useAuth();
   const { families, isLoading, refresh } = useCustomFonts();
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [editingFamilyId, setEditingFamilyId] = useState<string | null>(null);
@@ -60,21 +57,6 @@ export function CustomFontsDialog({ open, onClose }: CustomFontsDialogProps) {
   const addVariantTargetRef = useRef<{ id: string; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Clicking the hidden file input opens the browser's native OS file
-  // picker, which steals the whole window's focus for as long as it's
-  // open. Radix Dialog's dismiss-on-outside-interaction logic reads that
-  // focus loss (and its return once the picker closes, whether a file was
-  // picked or the picker was cancelled) as "the user clicked/focused
-  // something outside the dialog" and closes it — a well-documented Radix
-  // Dialog + <input type="file"> interaction, confirmed here by the fact
-  // it can't even be reproduced in headless/CDP-driven testing (Playwright
-  // intercepts the file-chooser request before a real native dialog, and
-  // thus a real window-focus loss, ever happens). Guarded by suppressing
-  // any outside-dismissal for as long as a file-picker interaction is in
-  // flight: the flag goes up the instant the input is pressed, and comes
-  // down either when the window regains focus (the reliable signal a
-  // native OS dialog just closed) or after a safety-net timeout in case
-  // that event doesn't fire for some reason.
   const suppressDismissRef = useRef(false);
   const armDismissSuppression = () => {
     suppressDismissRef.current = true;
@@ -89,6 +71,14 @@ export function CustomFontsDialog({ open, onClose }: CustomFontsDialogProps) {
   if (!user) return null;
 
   const handleFiles = async (fileList: FileList | null) => {
+    if (!isPro) {
+      onClose();
+      openUpgradeModal();
+      toast.info("Custom Fonts is a PRO Feature", {
+        description: "Upgrade to PRO to upload and manage custom TTF/OTF brand typography.",
+      });
+      return;
+    }
     if (!fileList || fileList.length === 0) return;
     const files = Array.from(fileList).filter((f) => /\.(ttf|otf)$/i.test(f.name));
     if (files.length === 0) return;
@@ -196,54 +186,74 @@ export function CustomFontsDialog({ open, onClose }: CustomFontsDialogProps) {
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Upload zone */}
-          <label
-            className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/80 bg-secondary/30 px-4 py-6 text-center transition-colors hover:border-primary/60 hover:bg-secondary/50"
-            onPointerDown={armDismissSuppression}
-            onDragOver={(e) => {
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "copy";
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              addVariantTargetRef.current = null;
-              void handleFiles(e.dataTransfer.files);
-            }}
-          >
-            <Upload01Icon size={22} className="text-primary" />
-            <span className="text-xs font-semibold text-foreground">
-              Click to upload, or drag and drop .ttf / .otf files
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              You can select several files at once — matching family names are grouped
-              automatically.
-            </span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".ttf,.otf,font/ttf,font/otf"
-              multiple
-              // `sr-only` (clipped to 1px, not `display:none`) rather than
-              // the usual `hidden` class here — this is the real fix for
-              // the dialog closing itself the instant this upload zone is
-              // clicked. A `display:none` element can never become
-              // document.activeElement; when the label tries to hand focus
-              // off to it on click, focus has nowhere valid to land inside
-              // the dialog, and Radix's Dialog reads that as focus escaping
-              // outside the modal and closes it — immediately, before any
-              // native file picker even opens, which is why the earlier
-              // "suppress dismissal while a native picker might be open"
-              // guard alone didn't fix this. Keeping the input focusable
-              // (just visually clipped to nothing) means focus lands on a
-              // real element still inside the dialog's DOM, so Radix never
-              // sees an outside-focus event to react to in the first place.
-              className="sr-only"
-              onChange={(e) => {
-                void handleFiles(e.target.files);
-                e.target.value = "";
+          {!isPro ? (
+            <div className="rounded-3xl border border-amber-500/30 bg-gradient-to-b from-amber-500/15 via-orange-500/5 to-transparent p-6 text-center space-y-4 shadow-lg">
+              <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-400 text-amber-950 shadow-md shadow-amber-500/25 ring-4 ring-amber-500/20">
+                <Crown03Icon size={28} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-foreground">
+                  Custom Brand Fonts is a{" "}
+                  <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">
+                    PRO Feature
+                  </span>
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground max-w-md mx-auto">
+                  Upgrade to PRO to upload and manage custom TTF/OTF brand typography, unlock 50+
+                  creator templates, and export in 4K resolution.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    openUpgradeModal();
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-2.5 text-xs font-extrabold text-amber-950 shadow-md shadow-amber-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer w-full sm:w-auto"
+                >
+                  <Crown03Icon size={16} />
+                  <span>Get Lifetime Pro for $59</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Upload zone */
+            <label
+              className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/80 bg-secondary/30 px-4 py-6 text-center transition-colors hover:border-primary/60 hover:bg-secondary/50"
+              onPointerDown={armDismissSuppression}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "copy";
               }}
-            />
-          </label>
+              onDrop={(e) => {
+                e.preventDefault();
+                addVariantTargetRef.current = null;
+                void handleFiles(e.dataTransfer.files);
+              }}
+            >
+              <Upload01Icon size={22} className="text-primary" />
+              <span className="text-xs font-semibold text-foreground">
+                Click to upload, or drag and drop .ttf / .otf files
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                You can select several files at once — matching family names are grouped
+                automatically.
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".ttf,.otf,font/ttf,font/otf"
+                multiple
+                className="sr-only"
+                onChange={(e) => {
+                  void handleFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          )}
 
           {pending.length > 0 && (
             <div className="space-y-1.5 rounded-xl border border-border/60 bg-card/60 p-2.5">

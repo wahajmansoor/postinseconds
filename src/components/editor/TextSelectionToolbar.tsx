@@ -21,12 +21,14 @@ import {
   TextUnderlineIcon,
   Tick02Icon,
   Upload01Icon,
+  Crown03Icon,
 } from "hugeicons-react";
 import { CaseUpper, Check } from "lucide-react";
 import type React from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCustomFonts } from "@/hooks/useCustomFonts";
@@ -166,6 +168,7 @@ export function TextSelectionToolbar({
   // effect below, placed after fontStripOpen exists), not on mount, so
   // pages that never touch the font picker never pay for the chunk.
   const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  const { isPro, openUpgradeModal } = useAuth();
   const { options: customFontOptions } = useCustomFonts();
   const [customFontsDialogOpen, setCustomFontsDialogOpen] = useState(false);
   // Root for FontRow's IntersectionObserver below — without an explicit
@@ -643,16 +646,22 @@ export function TextSelectionToolbar({
           <button
             type="button"
             onClick={() => {
+              if (!isPro) {
+                setFontOpen(false);
+                openUpgradeModal();
+                return;
+              }
               if (onOpenCustomFonts) {
                 onOpenCustomFonts();
               } else {
                 setCustomFontsDialogOpen(true);
               }
             }}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 cursor-pointer"
           >
             <Upload01Icon size={12} />
-            Upload / manage your fonts
+            <span>Upload / manage your fonts</span>
+            {!isPro && <Crown03Icon size={11} className="text-amber-500 ml-0.5 shrink-0" />}
           </button>
           <div
             ref={fontListScrollRef}
@@ -1237,6 +1246,7 @@ export function TextSelectionToolbar({
           <CaseUpper size={15} />
         </Chip>
       </AppTooltip>
+
 
       <div className="mx-1 h-5 w-px shrink-0 bg-border/80" />
 

@@ -11,25 +11,50 @@ import { supabase } from "@/lib/supabase";
 // in Supabase's Authentication > Providers > Google settings, reused here.
 const GOOGLE_WEB_CLIENT_ID = import.meta.env["VITE_GOOGLE_WEB_CLIENT_ID"] as string;
 
+export const DEFAULT_ADMIN_EMAILS = [
+  "buildinseconds@gmail.com",
+];
+
+export function isEmailAdmin(email?: string | null): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  if (DEFAULT_ADMIN_EMAILS.some((adm) => adm.toLowerCase() === normalized)) return true;
+  
+  const envAdmins = (typeof import.meta !== "undefined" && (import.meta as any).env?.["VITE_ADMIN_EMAILS"]) || "";
+  if (envAdmins) {
+    const list = envAdmins.split(",").map((e: string) => e.trim().toLowerCase());
+    if (list.includes(normalized)) return true;
+  }
+  return false;
+}
+
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
   avatar: string;
   role: "user" | "admin";
+  isPro: boolean;
+  plan?: string;
+  subscriptionStatus?: string;
 }
 
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  isPro: boolean;
   isLoading: boolean;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   isLoginModalOpen: boolean;
   openLoginModal: () => void;
   closeLoginModal: () => void;
-  updateLocalUser: (partial: Partial<Pick<AuthUser, "name" | "avatar">>) => void;
+  isUpgradeModalOpen: boolean;
+  openUpgradeModal: () => void;
+  closeUpgradeModal: () => void;
+  refreshUser: () => Promise<void>;
+  updateLocalUser: (partial: Partial<Pick<AuthUser, "name" | "avatar" | "isPro" | "plan">>) => void;
   // Web-only: attach to a container element to have Google's own real
   // "Sign in with Google" button rendered into it (see the big comment on
   // the GIS effect below for why it has to be Google's actual button, not
@@ -93,7 +118,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return null;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : null;
+      if (!stored) return null;
+      const parsed = JSON.parse(stored);
+      if (parsed?.email && isEmailAdmin(parsed.email)) {
+        parsed.role = "admin";
+        parsed.isPro = true;
+      }
+      return parsed;
     } catch {
       return null;
     }
@@ -105,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // still guarantees this resolves even if the network hangs.
   const [isLoading, setIsLoading] = useState(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
 
   // Sync Supabase Auth session on mount and state changes
   useEffect(() => {
@@ -228,9 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!gisReadyRef.current || !container || container.childElementCount > 0) return;
     try {
       const isMobile = typeof window !== "undefined" && window.innerWidth < 400;
-      const targetWidth = isMobile
-        ? Math.max(240, Math.min(300, window.innerWidth - 60))
-        : 320;
+      const targetWidth = isMobile ? Math.max(240, Math.min(300, window.innerWidth - 60)) : 320;
 
       (window as any).google.accounts.id.renderButton(container, {
         type: "standard",
@@ -315,14 +345,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Helper to fetch user profile and role from Supabase
   const syncUserFromSession = async (sbUser: any) => {
     let role: "user" | "admin" = "user";
-    let profile: { role?: string; full_name?: string | null; avatar_url?: string | null } | null =
-      null;
+    let isPro = false;
+    let plan = "free";
+    let subscriptionStatus = "inactive";
+    let profile: {
+      role?: string;
+      full_name?: string | null;
+      avatar_url?: string | null;
+      is_pro?: boolean;
+      plan?: string;
+      subscription_status?: string;
+    } | null = null;
+
+    // Check stored user state in localStorage as base
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.id === sbUser.id && parsed?.isPro) {
+          isPro = true;
+          plan = parsed.plan || "lifetime";
+        }
+      }
+    } catch {}
+
+    const meta = sbUser?.user_metadata || {};
+    const appMeta = sbUser?.app_metadata || {};
+
+    if (meta.is_pro || meta.plan === "lifetime" || appMeta.is_pro || appMeta.plan === "lifetime") {
+      isPro = true;
+      plan = meta.plan || appMeta.plan || "lifetime";
+    }
+
     try {
       const profilePromise = supabase
         .from("profiles")
-        .select("role, full_name, avatar_url")
+        .select("role, full_name, avatar_url, is_pro, plan, subscription_status")
         .eq("id", sbUser.id)
-        .single();
+        .maybeSingle();
 
       const timeoutPromise = new Promise<{ data: null }>((resolve) =>
         setTimeout(() => resolve({ data: null }), 2000),
@@ -330,19 +390,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const res = (await Promise.race([profilePromise, timeoutPromise])) as any;
       profile = res?.data;
-      if (profile?.role === "admin" || profile?.role === "user") {
+
+      if (isEmailAdmin(sbUser.email)) {
+        role = "admin";
+        isPro = true;
+      } else if (profile?.role === "admin" || profile?.role === "user") {
         role = profile.role;
       }
-    } catch {}
 
-    const meta = sbUser.user_metadata || {};
+      if (profile?.is_pro || role === "admin" || isEmailAdmin(sbUser.email)) {
+        isPro = true;
+      }
+      if (profile?.plan) {
+        plan = profile.plan;
+      } else if (isPro) {
+        plan = "lifetime";
+      }
+      if (profile?.subscription_status) {
+        subscriptionStatus = profile.subscription_status;
+      }
+    } catch {
+      if (isEmailAdmin(sbUser.email)) {
+        role = "admin";
+        isPro = true;
+        plan = "lifetime";
+      }
+    }
+
+    // 4. Server-Side & Stripe Ledger Verification Fallback
+    // If not yet marked pro locally or in client profile, verify with server/Stripe records
+    if (!isPro && sbUser.email) {
+      try {
+        const { checkUserProStatusServerFn } = await import("@/lib/stripe");
+        const srvCheck = await checkUserProStatusServerFn({
+          data: {
+            userId: sbUser.id,
+            email: sbUser.email,
+          },
+        });
+        if (srvCheck?.isPro) {
+          isPro = true;
+          plan = srvCheck.plan || "lifetime";
+          if (srvCheck.role === "admin") role = "admin";
+        }
+      } catch (srvErr) {
+        console.warn("Server PRO check error:", srvErr);
+      }
+    }
+
     const authUser: AuthUser = {
       id: sbUser.id,
       name:
         profile?.full_name || meta.full_name || meta.name || sbUser.email?.split("@")[0] || "User",
       email: sbUser.email || "",
       avatar: profile?.avatar_url || meta.avatar_url || meta.picture || "/default-img.png",
-      role,
+      role: isEmailAdmin(sbUser.email) ? "admin" : role,
+      isPro: isEmailAdmin(sbUser.email) || isPro,
+      plan,
+      subscriptionStatus,
     };
 
     setUser(authUser);
@@ -350,17 +455,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       localStorage.setItem(
         "postinseconds_last_account",
-        JSON.stringify({ name: authUser.name, email: authUser.email, avatar: authUser.avatar })
+        JSON.stringify({ name: authUser.name, email: authUser.email, avatar: authUser.avatar }),
       );
     } catch {}
   };
 
-  const updateLocalUser = (partial: Partial<Pick<AuthUser, "name" | "avatar">>) => {
+  const refreshUser = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.user) {
+        await syncUserFromSession(data.session.user);
+      }
+    } catch (e) {
+      console.error("Failed to refresh user:", e);
+    }
+  };
+
+  const updateLocalUser = (
+    partial: Partial<Pick<AuthUser, "name" | "avatar" | "isPro" | "plan">>,
+  ) => {
     setUser((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, ...partial };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      return next;
+      if (!prev) return null;
+      const updated = { ...prev, ...partial };
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch {}
+      return updated;
     });
   };
 
@@ -427,6 +547,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);
     setIsLoginModalOpen(false);
+    setIsUpgradeModalOpen(false);
     try {
       if (Capacitor.isNativePlatform()) {
         try {
@@ -444,18 +565,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const openLoginModal = () => setIsLoginModalOpen(true);
   const closeLoginModal = () => setIsLoginModalOpen(false);
 
+  const openUpgradeModal = () => setIsUpgradeModalOpen(true);
+  const closeUpgradeModal = () => setIsUpgradeModalOpen(false);
+
+  const isAdmin = user?.role === "admin" || isEmailAdmin(user?.email) || false;
+  const isPro = user?.isPro || isAdmin || false;
+
   return (
     <AuthContext.Provider
       value={{
         user,
         isAuthenticated: !!user,
-        isAdmin: user?.role === "admin",
+        isAdmin,
+        isPro,
         isLoading,
         loginWithGoogle,
         logout,
         isLoginModalOpen,
         openLoginModal,
         closeLoginModal,
+        isUpgradeModalOpen,
+        openUpgradeModal,
+        closeUpgradeModal,
+        refreshUser,
         updateLocalUser,
         googleButtonContainerRef,
         isGoogleButtonReady,

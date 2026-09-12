@@ -1,7 +1,10 @@
-import { Download01Icon } from "hugeicons-react";
+import { Download01Icon, Crown03Icon } from "hugeicons-react";
 import { isLinkedInCoverPhotoSize, isLinkedInFeedSize, type EditorState } from "./types";
 import { Chip, Field } from "./ui";
 import { LinkedInGroupIcon } from "./SocialPlatformIcons";
+import { useAuth } from "@/lib/auth";
+import { toast } from "@/components/ui/sonner";
+import { cn } from "@/lib/utils";
 
 type Props = {
   s: EditorState;
@@ -37,6 +40,7 @@ export function ExportControls({
   busy,
   showLinkedInPreview = true,
 }: Props) {
+  const { isPro, openUpgradeModal } = useAuth();
   return (
     <div className="space-y-4">
       <Field label="Format">
@@ -63,16 +67,34 @@ export function ExportControls({
           </span>
         </div>
         <div className="grid grid-cols-5 gap-1.5">
-          {[0.5, 1, 1.5, 2, 3].map((x) => (
-            <Chip
-              key={x}
-              active={s.exportScale === x}
-              onClick={() => set("exportScale", x)}
-              className="text-[11px]"
-            >
-              {x}x
-            </Chip>
-          ))}
+          {[0.5, 1, 1.5, 2, 3].map((x) => {
+            const isRestricted = !isPro && x > 1;
+            return (
+              <Chip
+                key={x}
+                active={s.exportScale === x}
+                onClick={() => {
+                  if (isRestricted) {
+                    openUpgradeModal();
+                    toast.info("High-Res Export is a PRO Feature", {
+                      description: "Upgrade to PRO to unlock 1.5x, 2x, and 3x (4K) high-resolution exports.",
+                    });
+                    return;
+                  }
+                  set("exportScale", x);
+                }}
+                className={cn(
+                  "text-[11px] flex items-center justify-center gap-0.5",
+                  isRestricted && "opacity-80 hover:opacity-100 hover:border-amber-500/50"
+                )}
+              >
+                <span>{x}x</span>
+                {isRestricted && (
+                  <Crown03Icon size={10} className="text-amber-500 shrink-0" />
+                )}
+              </Chip>
+            );
+          })}
         </div>
       </div>
       {/* A cover photo (Personal/Business) is framed on your profile page,

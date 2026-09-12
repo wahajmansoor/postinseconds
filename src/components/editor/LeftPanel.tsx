@@ -28,9 +28,11 @@ import {
   Search01Icon,
   Cancel01Icon,
   ReloadIcon,
+  Crown03Icon,
+  SparklesIcon,
 } from "hugeicons-react";
 import { CaseUpper } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import {
   Dialog,
   DialogContent,
@@ -40,13 +42,26 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth";
 import { loadGoogleFont } from "@/lib/fontLoader";
-import { fetchSavedQuotes, deleteSavedQuote, updateSavedQuoteDesign, fetchAllTemplates, type DbSavedQuote } from "@/lib/supabase";
+import {
+  fetchSavedQuotes,
+  deleteSavedQuote,
+  updateSavedQuoteDesign,
+  fetchAllTemplates,
+  type DbSavedQuote,
+} from "@/lib/supabase";
 import { useCustomFonts } from "@/hooks/useCustomFonts";
 import { CustomFontsDialog } from "./CustomFontsDialog";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ImageCropDialog } from "./ImageCropDialog";
 import { TextEffectsPanel } from "./TextEffectsPanel";
 import { VERIFIED_PICKER_ICONS } from "./VerifiedBadges";
+import {
+  getSavedUserUploads,
+  saveUserUploads,
+  deleteUserUpload,
+  subscribeUserUploads,
+  type UserUploadItem,
+} from "@/lib/userUploads";
 import {
   getAvailableFontWeights,
   getCanvasFontsInUse,
@@ -122,6 +137,41 @@ import {
   useHoldRepeat,
 } from "./ui";
 import { cn } from "@/lib/utils";
+
+function setCrispDragImage(e: React.DragEvent, label: string) {
+  if (!e.dataTransfer || typeof document === "undefined") return;
+  const ghost = document.createElement("div");
+  ghost.style.position = "fixed";
+  ghost.style.top = "-9999px";
+  ghost.style.left = "-9999px";
+  ghost.style.display = "inline-flex";
+  ghost.style.alignItems = "center";
+  ghost.style.justifyContent = "center";
+  ghost.style.padding = "6px 14px";
+  ghost.style.borderRadius = "8px";
+  ghost.style.backgroundColor = "#18181b";
+  ghost.style.color = "#ffffff";
+  ghost.style.fontSize = "12px";
+  ghost.style.fontWeight = "600";
+  ghost.style.border = "1px solid rgba(255,255,255,0.2)";
+  ghost.style.boxShadow = "0 4px 12px rgba(0,0,0,0.25)";
+  ghost.style.pointerEvents = "none";
+  ghost.style.zIndex = "9999999";
+  ghost.style.whiteSpace = "nowrap";
+  ghost.textContent = label;
+
+  document.body.appendChild(ghost);
+  const w = ghost.offsetWidth || 100;
+  const h = ghost.offsetHeight || 30;
+  try {
+    e.dataTransfer.setDragImage(ghost, w / 2, h / 2);
+  } catch {}
+  setTimeout(() => {
+    if (document.body.contains(ghost)) {
+      document.body.removeChild(ghost);
+    }
+  }, 0);
+}
 
 type Props = {
   s: EditorState;
@@ -412,7 +462,10 @@ function ShapeGradientControl({
 // then getting silently swapped for whatever's actually published.
 function TemplateCardSkeleton() {
   return (
-    <div className="shrink-0 overflow-hidden rounded-2xl border border-border bg-card" style={{ width: 158 }}>
+    <div
+      className="shrink-0 overflow-hidden rounded-2xl border border-border bg-card"
+      style={{ width: 158 }}
+    >
       <div className="animate-pulse bg-secondary/70" style={{ width: 158, height: 198 }} />
       <div className="space-y-1.5 px-2.5 py-2">
         <div className="h-2.5 w-3/4 animate-pulse rounded-full bg-secondary/70" />
@@ -439,8 +492,29 @@ export function LeftPanel({
   onCloseSavedQuoteEdit,
   canvasRef,
 }: Props) {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isPro, openUpgradeModal } = useAuth();
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+
+  const handleSelectTemplate = (t: Template) => {
+    const isPrem =
+      t.is_premium === true ||
+      (t as any).category === "premium" ||
+      t.id.includes("founder") ||
+      t.id.includes("hormozi") ||
+      t.id.includes("jasmin") ||
+      t.id.includes("viral") ||
+      t.id.includes("cyber") ||
+      t.id.includes("creator") ||
+      t.id.includes("luxury");
+
+    if (isPrem && !isPro && !isAdmin) {
+      openUpgradeModal();
+      return;
+    }
+
+    applyTemplate({ ...t.state, postName: t.label });
+    onItemSelect?.();
+  };
   // Always-current mirror of the `s` prop, for the async color-refine below
   // — that runs after an `await`, by which point the `s` this render closed
   // over is stale (new layers/edits may have landed since), so it needs a
@@ -463,6 +537,11 @@ export function LeftPanel({
   const [templatesLoading, setTemplatesLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [updatedId, setUpdatedId] = useState<string | null>(null);
+  const [savedUploads, setSavedUploads] = useState<UserUploadItem[]>(getSavedUserUploads);
+
+  useEffect(() => {
+    return subscribeUserUploads(setSavedUploads);
+  }, []);
 
   const loadSavedQuotes = async () => {
     const [quotes, allTemplates] = await Promise.all([
@@ -476,47 +555,48 @@ export function LeftPanel({
     setTemplatesLoading(false);
   };
 
-  const starterTemplates = useMemo(() => {
-    return platformTemplates.filter(
-      (t) =>
-        (t as any).category === "starter" ||
-        (!t.id.includes("founder") &&
-          !t.id.includes("hormozi") &&
-          !t.id.includes("jasmin") &&
-          !t.id.includes("viral") &&
-          !t.id.includes("cyber") &&
-          !t.id.includes("creator") &&
-          !t.id.includes("luxury")),
+  const isTemplatePremium = (t: Template) => {
+    if (t.category === "premium" || t.is_premium === true) return true;
+    if (t.category === "starter" || t.is_premium === false) return false;
+    return (
+      t.id.startsWith("premium-") ||
+      t.id.includes("founder") ||
+      t.id.includes("hormozi") ||
+      t.id.includes("jasmin") ||
+      t.id.includes("viral") ||
+      t.id.includes("cyber") ||
+      t.id.includes("creator") ||
+      t.id.includes("luxury")
     );
+  };
+
+  const starterTemplates = useMemo(() => {
+    return platformTemplates.filter((t) => !isTemplatePremium(t));
   }, [platformTemplates]);
 
   const premiumTemplates = useMemo(() => {
-    return platformTemplates.filter(
-      (t) =>
-        (t as any).category === "premium" ||
-        t.id.includes("founder") ||
-        t.id.includes("hormozi") ||
-        t.id.includes("jasmin") ||
-        t.id.includes("viral") ||
-        t.id.includes("cyber") ||
-        t.id.includes("creator") ||
-        t.id.includes("luxury"),
-    );
+    return platformTemplates.filter((t) => isTemplatePremium(t));
   }, [platformTemplates]);
 
   const [starterSearch, setStarterSearch] = useState("");
   const [premiumSearch, setPremiumSearch] = useState("");
   const [savedSearch, setSavedSearch] = useState("");
 
-  const matchesTemplateQuery = (item: { label?: string; description?: string; state?: any }, query: string) => {
+  const matchesTemplateQuery = (
+    item: { label?: string; description?: string; state?: any },
+    query: string,
+  ) => {
     if (!query.trim()) return true;
     const q = query.toLowerCase().trim();
     if (item.label && item.label.toLowerCase().includes(q)) return true;
     if (item.description && item.description.toLowerCase().includes(q)) return true;
     if (item.state) {
-      if (typeof item.state.quote === "string" && item.state.quote.toLowerCase().includes(q)) return true;
-      if (typeof item.state.name === "string" && item.state.name.toLowerCase().includes(q)) return true;
-      if (typeof item.state.tagline === "string" && item.state.tagline.toLowerCase().includes(q)) return true;
+      if (typeof item.state.quote === "string" && item.state.quote.toLowerCase().includes(q))
+        return true;
+      if (typeof item.state.name === "string" && item.state.name.toLowerCase().includes(q))
+        return true;
+      if (typeof item.state.tagline === "string" && item.state.tagline.toLowerCase().includes(q))
+        return true;
       if (Array.isArray(item.state.texts)) {
         if (
           item.state.texts.some(
@@ -543,7 +623,11 @@ export function LeftPanel({
   const filteredSavedQuotes = useMemo(() => {
     return userSavedQuotes.filter((q) =>
       matchesTemplateQuery(
-        { label: q.title, description: `Saved ${new Date(q.created_at).toLocaleDateString()}`, state: q.state },
+        {
+          label: q.title,
+          description: `Saved ${new Date(q.created_at).toLocaleDateString()}`,
+          state: q.state,
+        },
         savedSearch,
       ),
     );
@@ -560,16 +644,23 @@ export function LeftPanel({
       loadSavedQuotes();
       const cat = e?.detail?.category;
       if (cat === "my_saved" || !cat) {
-        setActiveCategory("saved");
+        onTemplateCategoryChange?.("saved" as any);
       } else if (cat === "premium") {
-        setActiveCategory("premium");
+        onTemplateCategoryChange?.("premium");
       } else if (cat === "starter") {
-        setActiveCategory("starter");
+        onTemplateCategoryChange?.("starter");
       }
     };
+    const handleOpenPremium = () => {
+      onTemplateCategoryChange?.("premium");
+    };
     window.addEventListener("postinseconds:template-saved", handleTemplateSaved);
-    return () => window.removeEventListener("postinseconds:template-saved", handleTemplateSaved);
-  }, []);
+    window.addEventListener("postinseconds:open-premium-templates", handleOpenPremium);
+    return () => {
+      window.removeEventListener("postinseconds:template-saved", handleTemplateSaved);
+      window.removeEventListener("postinseconds:open-premium-templates", handleOpenPremium);
+    };
+  }, [onTemplateCategoryChange]);
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isDeletingSaved, setIsDeletingSaved] = useState(false);
@@ -611,7 +702,20 @@ export function LeftPanel({
   // display label always matches what the rest of the app calls it.
   const canvasFontsInUse = useMemo(
     () => getCanvasFontsInUse(s, getFontPool(fontCatalog, customFontOptions)),
-    [s.quote, s.quoteFont, s.name, s.authorFont, s.tagline, s.taglineFont, s.showTopButton, s.topButtonText, s.topButtonFont, s.texts, fontCatalog, customFontOptions],
+    [
+      s.quote,
+      s.quoteFont,
+      s.name,
+      s.authorFont,
+      s.tagline,
+      s.taglineFont,
+      s.showTopButton,
+      s.topButtonText,
+      s.topButtonFont,
+      s.texts,
+      fontCatalog,
+      customFontOptions,
+    ],
   );
   useEffect(() => {
     if (tab !== "text" || fontCatalog) return;
@@ -751,7 +855,7 @@ export function LeftPanel({
     const textLayersList = getTextLayers(s);
     const selectedTextSel = selection?.find((sel) => sel.kind === "text");
     return selectedTextSel
-      ? textLayersList.find((t) => t.id === selectedTextSel.id) ?? null
+      ? (textLayersList.find((t) => t.id === selectedTextSel.id) ?? null)
       : textLayersList.length > 0
         ? textLayersList[0]
         : null;
@@ -806,7 +910,9 @@ export function LeftPanel({
   // the whole gesture, independent of dragOverIndex (which jumps in whole-
   // row increments; this is continuous).
   const [dragDeltaY, setDragDeltaY] = useState(0);
-  const dragStateRef = useRef<{ startIndex: number; startY: number; rowPitch: number } | null>(null);
+  const dragStateRef = useRef<{ startIndex: number; startY: number; rowPitch: number } | null>(
+    null,
+  );
   const [multiSelectMode, setMultiSelectMode] = useState(false);
 
   if (tab === "templates") {
@@ -893,7 +999,9 @@ export function LeftPanel({
             </div>
 
             <div className="mb-2.5 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Select any starter template to edit</span>
+              <span className="text-xs text-muted-foreground">
+                Select any starter template to edit
+              </span>
               {templatesLoading ? (
                 <span className="h-4 w-16 animate-pulse rounded-full bg-secondary" />
               ) : (
@@ -931,10 +1039,7 @@ export function LeftPanel({
                       <TemplatePreview
                         template={t}
                         width={158}
-                        onClick={() => {
-                          applyTemplate({ ...t.state, postName: t.label });
-                          onItemSelect?.();
-                        }}
+                        onClick={() => handleSelectTemplate(t)}
                       />
                     </div>
                   ))}
@@ -946,6 +1051,42 @@ export function LeftPanel({
         {/* TAB 2: PREMIUM PRO TEMPLATES */}
         {activeCategory === "premium" ? (
           <Panel title="Premium Templates">
+            {/* PRO Status or Upgrade CTA Banner */}
+            {isPro || isAdmin ? (
+              <div className="mb-3 flex items-center justify-between rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-500 shadow-xs">
+                <div className="flex items-center gap-1.5">
+                  <Crown03Icon size={15} className="text-amber-500 shrink-0" />
+                  <span className="font-bold">PRO Member Unlocked</span>
+                </div>
+                <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                  Full Access
+                </span>
+              </div>
+            ) : (
+              <div className="mb-3 overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-transparent p-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-500 dark:text-amber-400">
+                    <Crown03Icon size={16} />
+                    <span>PRO Creator Templates</span>
+                  </div>
+                  <span className="rounded-full bg-amber-500/20 px-2 py-0.2 text-[9px] font-black uppercase text-amber-500">
+                    Paid Only
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                  Upgrade & apply, customize, and export all premium templates.
+                </p>
+                <button
+                  type="button"
+                  onClick={openUpgradeModal}
+                  className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 py-2 text-xs font-bold text-amber-950 shadow-sm transition-all hover:scale-[1.01] active:scale-[0.98] cursor-pointer"
+                >
+                  <Crown03Icon size={14} />
+                  <span>Unlock All Premium Templates</span>
+                </button>
+              </div>
+            )}
+
             {/* Search Bar for Premium Templates */}
             <div className="relative mb-3">
               <div className="relative flex items-center">
@@ -973,7 +1114,9 @@ export function LeftPanel({
             </div>
 
             <div className="mb-2.5 flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">Curated high-converting viral layouts</span>
+              <span className="text-xs text-muted-foreground">
+                Curated high-converting viral layouts
+              </span>
               <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-500">
                 {filteredPremiumTemplates.length} templates
               </span>
@@ -1007,10 +1150,7 @@ export function LeftPanel({
                     <TemplatePreview
                       template={t}
                       width={158}
-                      onClick={() => {
-                        applyTemplate({ ...t.state, postName: t.label });
-                        onItemSelect?.();
-                      }}
+                      onClick={() => handleSelectTemplate(t)}
                     />
                   </div>
                 ))}
@@ -1078,7 +1218,12 @@ export function LeftPanel({
                     type="button"
                     onClick={async () => {
                       setUpdatingId(activeSavedQuote.id);
-                      await updateSavedQuoteDesign(activeSavedQuote.id, activeSavedQuote.title, s, user?.id);
+                      await updateSavedQuoteDesign(
+                        activeSavedQuote.id,
+                        activeSavedQuote.title,
+                        s,
+                        user?.id,
+                      );
                       await loadSavedQuotes();
                       setUpdatingId(null);
                       setUpdatedId(activeSavedQuote.id);
@@ -1088,7 +1233,13 @@ export function LeftPanel({
                     className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-3 py-2 text-xs font-bold text-amber-950 shadow-md transition-all hover:bg-amber-400 active:scale-95 disabled:opacity-50"
                   >
                     <Bookmark01Icon size={14} />
-                    <span>{updatedId === activeSavedQuote.id ? "✓ Saved!" : updatingId === activeSavedQuote.id ? "Saving..." : "Save Update"}</span>
+                    <span>
+                      {updatedId === activeSavedQuote.id
+                        ? "✓ Saved!"
+                        : updatingId === activeSavedQuote.id
+                          ? "Saving..."
+                          : "Save Update"}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -1115,13 +1266,16 @@ export function LeftPanel({
                 <Folder01Icon size={28} className="mx-auto text-muted-foreground/40" />
                 <p className="mt-2 text-xs font-semibold text-foreground">No saved designs yet</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Design your quote and click "+ Save Canvas as New Template" above to reuse it anytime!
+                  Design your quote and click "+ Save Canvas as New Template" above to reuse it
+                  anytime!
                 </p>
               </div>
             ) : filteredSavedQuotes.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-10 text-center">
                 <Search01Icon size={24} className="text-muted-foreground/40" />
-                <p className="mt-2 text-xs font-semibold text-foreground">No saved templates found</p>
+                <p className="mt-2 text-xs font-semibold text-foreground">
+                  No saved templates found
+                </p>
                 <p className="mt-1 px-4 text-[11px] text-muted-foreground">
                   No saved templates match "{savedSearch}".
                 </p>
@@ -1136,7 +1290,10 @@ export function LeftPanel({
             ) : (
               <div className="columns-2 gap-3 [column-fill:_balance]">
                 {filteredSavedQuotes.map((q) => (
-                  <div key={q.id} className="group relative mb-3 inline-block w-full break-inside-avoid">
+                  <div
+                    key={q.id}
+                    className="group relative mb-3 inline-block w-full break-inside-avoid"
+                  >
                     <TemplatePreview
                       template={{
                         id: q.id,
@@ -1182,7 +1339,10 @@ export function LeftPanel({
         />
 
         {/* Delete Saved Template Confirmation Dialog */}
-        <Dialog open={Boolean(deleteConfirmId)} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
+        <Dialog
+          open={Boolean(deleteConfirmId)}
+          onOpenChange={(open) => !open && setDeleteConfirmId(null)}
+        >
           <DialogContent className="sm:max-w-[420px] rounded-2xl border border-border bg-background p-6 shadow-2xl backdrop-blur-xl">
             <DialogHeader>
               <div className="flex items-center gap-3">
@@ -1250,13 +1410,18 @@ export function LeftPanel({
     const textLayersList = getTextLayers(s);
     const selectedTextSel = selection?.find((sel) => sel.kind === "text");
     const activeTextLayer = selectedTextSel
-      ? textLayersList.find((t) => t.id === selectedTextSel.id) ?? null
+      ? (textLayersList.find((t) => t.id === selectedTextSel.id) ?? null)
       : textLayersList.length > 0
         ? textLayersList[0]
         : null;
 
     const DEFAULT_TEXT_COLORS = ["#ffffff", "#0d0d12"];
-    const refineTextColorFromCanvas = async (textId: string, x: number, y: number, guessedColor: string) => {
+    const refineTextColorFromCanvas = async (
+      textId: string,
+      x: number,
+      y: number,
+      guessedColor: string,
+    ) => {
       const node = canvasRef?.current;
       if (!node) return;
       try {
@@ -1284,7 +1449,8 @@ export function LeftPanel({
         let count = 0;
         for (let i = 0; i < data.length; i += 4) {
           if (data[i + 3] === 0) continue;
-          total += ((data[i] ?? 0) * 299 + (data[i + 1] ?? 0) * 587 + (data[i + 2] ?? 0) * 114) / 1000;
+          total +=
+            ((data[i] ?? 0) * 299 + (data[i + 1] ?? 0) * 587 + (data[i + 2] ?? 0) * 114) / 1000;
           count++;
         }
         if (count === 0) return;
@@ -1297,8 +1463,7 @@ export function LeftPanel({
         if (stillDefault) {
           set("texts", withTextUpdated(latest, textId, { color: nextColor }));
         }
-      } catch {
-      }
+      } catch { }
     };
 
     // Waits for the exact font/weight/size a new preset text is about to
@@ -1316,11 +1481,14 @@ export function LeftPanel({
           document.fonts.load(`${weight} ${size}px ${fontFamily}`),
           new Promise((resolve) => setTimeout(resolve, 800)),
         ]);
-      } catch {
-      }
+      } catch { }
     };
 
-    const measureSingleLineWidth = (text: string, weight: number, size: number): number | undefined => {
+    const measureSingleLineWidth = (
+      text: string,
+      weight: number,
+      size: number,
+    ): number | undefined => {
       if (typeof document === "undefined") return undefined;
       try {
         const canvas = document.createElement("canvas");
@@ -1385,7 +1553,8 @@ export function LeftPanel({
       if (res.newId) {
         onSelectLayer?.({ kind: "text", id: res.newId });
         const added = res.list.find((t) => t.id === res.newId);
-        if (added && preset.kind !== "heading") void refineTextColorFromCanvas(added.id, added.x, added.y, added.color);
+        if (added && preset.kind !== "heading")
+          void refineTextColorFromCanvas(added.id, added.x, added.y, added.color);
         // Auto start editing, highlight entire text and open virtual keyboard / desktop focus
         const triggerStartEditing = () => {
           const handles = (window as any).__PIX_TEXT_HANDLES__;
@@ -1453,7 +1622,11 @@ export function LeftPanel({
 
         {textSubTab === "effects" ? (
           <Panel title="Text Effects & Shape">
-            <TextEffectsPanel layer={activeTextLayer ?? null} onChange={updateActiveLayer} />
+            <TextEffectsPanel
+              layer={activeTextLayer ?? null}
+              onChange={updateActiveLayer}
+              canvasBg={s.background}
+            />
           </Panel>
         ) : (
           <Panel title="Text Studio">
@@ -1465,10 +1638,30 @@ export function LeftPanel({
                   {/* Heading */}
                   <button
                     type="button"
+                    draggable={true}
+                    onDragStart={(e) => {
+                      setCrispDragImage(e, "Add a heading");
+                      e.dataTransfer.setData(
+                        "application/json",
+                        JSON.stringify({
+                          type: "text",
+                          text: "Add a heading",
+                          size: 84,
+                          weight: 700,
+                        }),
+                      );
+                      e.dataTransfer.effectAllowed = "copy";
+                    }}
                     onClick={() =>
-                      addPresetText({ text: "Add a heading", size: 84, weight: 700, kind: "heading" })
+                      addPresetText({
+                        text: "Add a heading",
+                        size: 84,
+                        weight: 700,
+                        kind: "heading",
+                      })
                     }
-                    className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-3 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
+                    className="group flex w-full cursor-grab active:cursor-grabbing items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-3 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
+                    title="Click or drag to canvas"
                   >
                     <span className="text-base font-bold tracking-tight text-foreground group-hover:text-primary">
                       Add a heading
@@ -1481,10 +1674,30 @@ export function LeftPanel({
                   {/* Subheading */}
                   <button
                     type="button"
+                    draggable={true}
+                    onDragStart={(e) => {
+                      setCrispDragImage(e, "Add a subheading");
+                      e.dataTransfer.setData(
+                        "application/json",
+                        JSON.stringify({
+                          type: "text",
+                          text: "Add a subheading",
+                          size: 52,
+                          weight: 600,
+                        }),
+                      );
+                      e.dataTransfer.effectAllowed = "copy";
+                    }}
                     onClick={() =>
-                      addPresetText({ text: "Add a subheading", size: 52, weight: 600, kind: "subheading" })
+                      addPresetText({
+                        text: "Add a subheading",
+                        size: 52,
+                        weight: 600,
+                        kind: "subheading",
+                      })
                     }
-                    className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-2.5 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
+                    className="group flex w-full cursor-grab active:cursor-grabbing items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-2.5 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
+                    title="Click or drag to canvas"
                   >
                     <span className="text-xs font-semibold text-foreground group-hover:text-primary">
                       Add a subheading
@@ -1497,6 +1710,20 @@ export function LeftPanel({
                   {/* Body Text */}
                   <button
                     type="button"
+                    draggable={true}
+                    onDragStart={(e) => {
+                      setCrispDragImage(e, "Add body text");
+                      e.dataTransfer.setData(
+                        "application/json",
+                        JSON.stringify({
+                          type: "text",
+                          text: "Add a little bit of body text",
+                          size: 32,
+                          weight: 400,
+                        }),
+                      );
+                      e.dataTransfer.effectAllowed = "copy";
+                    }}
                     onClick={() =>
                       addPresetText({
                         text: "Add a little bit of body text",
@@ -1505,7 +1732,8 @@ export function LeftPanel({
                         kind: "body",
                       })
                     }
-                    className="group flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-2 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
+                    className="group flex w-full cursor-grab active:cursor-grabbing items-center justify-between rounded-xl border border-border/80 bg-secondary/40 px-3.5 py-2 text-left transition-all hover:border-primary hover:bg-secondary hover:shadow-sm"
+                    title="Click or drag to canvas"
                   >
                     <span className="text-[11px] font-normal text-muted-foreground group-hover:text-foreground">
                       Add body text
@@ -1549,9 +1777,7 @@ export function LeftPanel({
               {activeTextLayer ? (
                 <div className="rounded-2xl border border-border/80 bg-card p-3.5 shadow-sm">
                   <div className="mb-3 flex items-center justify-between">
-                    <p className="text-xs font-bold text-foreground">
-                      Selected Text Style
-                    </p>
+                    <p className="text-xs font-bold text-foreground">Selected Text Style</p>
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
@@ -1626,14 +1852,23 @@ export function LeftPanel({
                             type="number"
                             value={activeTextLayer.size}
                             onChange={(e) => {
-                              const newSize = Math.max(10, Math.min(300, Number(e.target.value) || 32));
+                              const newSize = Math.max(
+                                10,
+                                Math.min(300, Number(e.target.value) || 32),
+                              );
                               const ratio = newSize / (activeTextLayer.size || 32);
-                              const nextWidth = activeTextLayer.width ? Math.round(Math.max(40, activeTextLayer.width * ratio)) : undefined;
-                              const nextMinHeight = activeTextLayer.minHeight ? Math.round(activeTextLayer.minHeight * ratio) : undefined;
+                              const nextWidth = activeTextLayer.width
+                                ? Math.round(Math.max(40, activeTextLayer.width * ratio))
+                                : undefined;
+                              const nextMinHeight = activeTextLayer.minHeight
+                                ? Math.round(activeTextLayer.minHeight * ratio)
+                                : undefined;
                               updateActiveLayer({
                                 size: newSize,
                                 ...(nextWidth !== undefined ? { width: nextWidth } : {}),
-                                ...(nextMinHeight !== undefined ? { minHeight: nextMinHeight } : {}),
+                                ...(nextMinHeight !== undefined
+                                  ? { minHeight: nextMinHeight }
+                                  : {}),
                               });
                             }}
                             className="h-8 text-center text-xs"
@@ -1652,7 +1887,11 @@ export function LeftPanel({
                         <Select
                           value={String(activeTextLayer.weight)}
                           onChange={(v) => updateActiveLayer({ weight: Number(v) })}
-                          options={getAvailableFontWeights(activeTextLayer.fontFamily, fontCatalog, customFontOptions).map((w) => ({
+                          options={getAvailableFontWeights(
+                            activeTextLayer.fontFamily,
+                            fontCatalog,
+                            customFontOptions,
+                          ).map((w) => ({
                             label: w.label,
                             value: String(w.value),
                           }))}
@@ -1735,9 +1974,7 @@ export function LeftPanel({
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              updateActiveLayer({ italic: !activeTextLayer.italic })
-                            }
+                            onClick={() => updateActiveLayer({ italic: !activeTextLayer.italic })}
                             className={cn(
                               "flex flex-1 items-center justify-center rounded-md py-1 text-xs transition-colors",
                               activeTextLayer.italic
@@ -1810,7 +2047,6 @@ export function LeftPanel({
                         onChange={(v) => updateActiveLayer({ letterSpacing: v })}
                       />
                     </div>
-
                   </div>
                 </div>
               ) : null}
@@ -1825,11 +2061,12 @@ export function LeftPanel({
     return (
       <>
         <Panel title="Uploads">
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             <UploadButton
               label="Upload images"
               multiple
               onFiles={(files) => {
+                saveUserUploads(files.map((src) => ({ src })));
                 const res = withImagesAdded(s, files);
                 set("images", res.list);
                 set("layerOrder", res.layerOrder);
@@ -1841,11 +2078,63 @@ export function LeftPanel({
               }}
             />
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Select multiple photos at once from the file picker, then drag each one straight on
-              the canvas to move it, or drag a corner handle to resize it.
+              Upload photos or drag any image file from your computer directly onto the canvas. Click or drag saved images below to place them.
             </p>
+
+            {/* User Uploads Library Gallery */}
+            {savedUploads.length > 0 && (
+              <div className="flex flex-col gap-2 pt-1 border-t border-border/70">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground">Upload Library</span>
+                  <span className="text-[10px] text-muted-foreground">{savedUploads.length} images</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {savedUploads.map((item) => (
+                    <div
+                      key={item.id}
+                      draggable={true}
+                      onDragStart={(e) => {
+                        setCrispDragImage(e, "Image");
+                        e.dataTransfer.setData(
+                          "application/json",
+                          JSON.stringify({ type: "image", src: item.src }),
+                        );
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
+                      onClick={() => {
+                        const res = withImagesAdded(s, [item.src]);
+                        set("images", res.list);
+                        set("layerOrder", res.layerOrder);
+                        if (res.newIds[0]) {
+                          onSelectLayer?.({ kind: "image", id: res.newIds[0] });
+                        }
+                        onItemSelect?.();
+                      }}
+                      className="group relative aspect-square overflow-hidden rounded-xl border border-border/80 bg-secondary/40 cursor-grab active:cursor-grabbing hover:border-primary hover:shadow-md transition-all"
+                      title="Click to add or drag directly onto canvas"
+                    >
+                      <img src={item.src} alt="" className="h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteUserUpload(item.id);
+                        }}
+                        className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-md bg-black/70 text-white opacity-0 transition-opacity hover:bg-destructive group-hover:opacity-100"
+                        title="Delete from upload library"
+                      >
+                        <Delete02Icon size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Currently on Canvas */}
             {getImageLayers(s).length > 0 ? (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2 pt-2 border-t border-border/70">
+                <span className="text-xs font-bold text-foreground">Active Canvas Images</span>
                 {getImageLayers(s).map((img, i) => (
                   <div
                     key={img.id}
@@ -1857,9 +2146,7 @@ export function LeftPanel({
                       className="h-12 w-12 shrink-0 rounded-lg object-cover"
                     />
                     <div className="flex flex-1 items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground">
-                        Image {i + 1}
-                      </span>
+                      <span className="text-xs font-semibold text-foreground">Image {i + 1}</span>
                       <div className="flex items-center gap-1.5">
                         <Chip
                           onClick={() => setCroppingImage(img)}
@@ -1937,7 +2224,9 @@ export function LeftPanel({
     const startLayerDrag = (e: React.PointerEvent, id: string, panelIdx: number) => {
       e.stopPropagation();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      const rowEl = (e.currentTarget as HTMLElement).closest("[data-layer-row]") as HTMLElement | null;
+      const rowEl = (e.currentTarget as HTMLElement).closest(
+        "[data-layer-row]",
+      ) as HTMLElement | null;
       // +6 accounts for the list's own space-y-1.5 gap between rows, so a
       // drag crosses into the next row exactly when it visually would.
       const rowPitch = rowEl ? rowEl.getBoundingClientRect().height + 6 : 44;
@@ -1969,7 +2258,9 @@ export function LeftPanel({
     // translateY, independent of dragOverIndex (which only moves in whole-
     // row increments) — see moveLayerDrag above.
     const dragRowStyle = (id: string): React.CSSProperties | undefined =>
-      dragLayerId === id ? { transform: `translateY(${dragDeltaY}px)`, position: "relative", zIndex: 50 } : undefined;
+      dragLayerId === id
+        ? { transform: `translateY(${dragDeltaY}px)`, position: "relative", zIndex: 50 }
+        : undefined;
 
     const allSelected =
       totalCount > 0 &&
@@ -2009,7 +2300,10 @@ export function LeftPanel({
                           set("layerOrder", result.layerOrder);
                           if (result.newSelection.length > 0) {
                             onSelectLayer?.(
-                              { kind: result.newSelection[0]!.kind, id: result.newSelection[0]!.id },
+                              {
+                                kind: result.newSelection[0]!.kind,
+                                id: result.newSelection[0]!.id,
+                              },
                               { selectAll: false, toggle: false },
                             );
                           }
@@ -2028,7 +2322,10 @@ export function LeftPanel({
                           set("images", result.images);
                           set("shapes", result.shapes);
                           set("layerOrder", result.layerOrder);
-                          onSelectLayer?.({ kind: "text", id: "" }, { selectAll: false, toggle: false });
+                          onSelectLayer?.(
+                            { kind: "text", id: "" },
+                            { selectAll: false, toggle: false },
+                          );
                         }}
                         className="flex items-center gap-1 rounded-lg bg-destructive/15 px-2 py-1 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/25"
                         title="Delete all selected layers"
@@ -2106,7 +2403,10 @@ export function LeftPanel({
                         key={t.id}
                         data-layer-row=""
                         onClick={(e) =>
-                          onSelectLayer?.({ kind: "text", id: t.id }, { toggle: multiSelectMode || e.shiftKey })
+                          onSelectLayer?.(
+                            { kind: "text", id: t.id },
+                            { toggle: multiSelectMode || e.shiftKey },
+                          )
                         }
                         style={dragRowStyle(t.id)}
                         className={cn(
@@ -2147,12 +2447,19 @@ export function LeftPanel({
                           <span
                             className={cn(
                               "flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-bold",
-                              selected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary",
+                              selected
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-primary/10 text-primary",
                             )}
                           >
                             T
                           </span>
-                          <span className={cn("truncate font-medium text-foreground", t.hidden && "line-through text-muted-foreground")}>
+                          <span
+                            className={cn(
+                              "truncate font-medium text-foreground",
+                              t.hidden && "line-through text-muted-foreground",
+                            )}
+                          >
                             {t.text || "Text Layer"}
                           </span>
                         </div>
@@ -2175,11 +2482,15 @@ export function LeftPanel({
                           <button
                             type="button"
                             onClick={() =>
-                              set("texts", (_, prevS) => withTextUpdated(prevS, t.id, { hidden: !t.hidden }))
+                              set("texts", (_, prevS) =>
+                                withTextUpdated(prevS, t.id, { hidden: !t.hidden }),
+                              )
                             }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                              t.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
+                              t.hidden
+                                ? "text-amber-500 font-bold"
+                                : "text-muted-foreground hover:text-foreground",
                             )}
                             title={t.hidden ? "Show layer" : "Hide layer"}
                           >
@@ -2188,15 +2499,23 @@ export function LeftPanel({
                           <button
                             type="button"
                             onClick={() =>
-                              set("texts", (_, prevS) => withTextUpdated(prevS, t.id, { locked: !t.locked }))
+                              set("texts", (_, prevS) =>
+                                withTextUpdated(prevS, t.id, { locked: !t.locked }),
+                              )
                             }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                              t.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
+                              t.locked
+                                ? "text-amber-400"
+                                : "text-muted-foreground hover:text-foreground",
                             )}
                             title={t.locked ? "Unlock layer" : "Lock layer"}
                           >
-                            {t.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
+                            {t.locked ? (
+                              <SquareLock02Icon size={13} />
+                            ) : (
+                              <SquareUnlock02Icon size={13} />
+                            )}
                           </button>
                           <button
                             type="button"
@@ -2219,7 +2538,10 @@ export function LeftPanel({
                         key={img.id}
                         data-layer-row=""
                         onClick={(e) =>
-                          onSelectLayer?.({ kind: "image", id: img.id }, { toggle: multiSelectMode || e.shiftKey })
+                          onSelectLayer?.(
+                            { kind: "image", id: img.id },
+                            { toggle: multiSelectMode || e.shiftKey },
+                          )
                         }
                         style={dragRowStyle(img.id)}
                         className={cn(
@@ -2262,7 +2584,12 @@ export function LeftPanel({
                             alt=""
                             className="h-6 w-6 shrink-0 rounded object-cover"
                           />
-                          <span className={cn("truncate font-medium text-foreground", img.hidden && "line-through text-muted-foreground")}>
+                          <span
+                            className={cn(
+                              "truncate font-medium text-foreground",
+                              img.hidden && "line-through text-muted-foreground",
+                            )}
+                          >
                             Image
                           </span>
                         </div>
@@ -2285,11 +2612,15 @@ export function LeftPanel({
                           <button
                             type="button"
                             onClick={() =>
-                              set("images", (_, prevS) => withImageUpdated(prevS, img.id, { hidden: !img.hidden }))
+                              set("images", (_, prevS) =>
+                                withImageUpdated(prevS, img.id, { hidden: !img.hidden }),
+                              )
                             }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                              img.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
+                              img.hidden
+                                ? "text-amber-500 font-bold"
+                                : "text-muted-foreground hover:text-foreground",
                             )}
                             title={img.hidden ? "Show layer" : "Hide layer"}
                           >
@@ -2298,19 +2629,29 @@ export function LeftPanel({
                           <button
                             type="button"
                             onClick={() =>
-                              set("images", (_, prevS) => withImageUpdated(prevS, img.id, { locked: !img.locked }))
+                              set("images", (_, prevS) =>
+                                withImageUpdated(prevS, img.id, { locked: !img.locked }),
+                              )
                             }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                              img.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
+                              img.locked
+                                ? "text-amber-400"
+                                : "text-muted-foreground hover:text-foreground",
                             )}
                             title={img.locked ? "Unlock layer" : "Lock layer"}
                           >
-                            {img.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
+                            {img.locked ? (
+                              <SquareLock02Icon size={13} />
+                            ) : (
+                              <SquareUnlock02Icon size={13} />
+                            )}
                           </button>
                           <button
                             type="button"
-                            onClick={() => set("images", (_, prevS) => withImageRemoved(prevS, img.id))}
+                            onClick={() =>
+                              set("images", (_, prevS) => withImageRemoved(prevS, img.id))
+                            }
                             className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                             title="Delete image layer"
                           >
@@ -2330,7 +2671,10 @@ export function LeftPanel({
                         key={sh.id}
                         data-layer-row=""
                         onClick={(e) =>
-                          onSelectLayer?.({ kind: "shape", id: sh.id }, { toggle: multiSelectMode || e.shiftKey })
+                          onSelectLayer?.(
+                            { kind: "shape", id: sh.id },
+                            { toggle: multiSelectMode || e.shiftKey },
+                          )
                         }
                         style={dragRowStyle(sh.id)}
                         className={cn(
@@ -2373,7 +2717,8 @@ export function LeftPanel({
                             style={{
                               background:
                                 sh.style === "gradient"
-                                  ? sh.gradient ?? "linear-gradient(135deg, #ffffff 0%, #ede9fe 100%)"
+                                  ? (sh.gradient ??
+                                    "linear-gradient(135deg, #ffffff 0%, #ede9fe 100%)")
                                   : sh.style === "outline"
                                     ? "transparent"
                                     : sh.color,
@@ -2381,7 +2726,12 @@ export function LeftPanel({
                               ...shapeCss(sh.kind, sh.radius >= 80 ? 999 : Math.min(sh.radius, 8)),
                             }}
                           />
-                          <span className={cn("truncate font-medium capitalize text-foreground", sh.hidden && "line-through text-muted-foreground")}>
+                          <span
+                            className={cn(
+                              "truncate font-medium capitalize text-foreground",
+                              sh.hidden && "line-through text-muted-foreground",
+                            )}
+                          >
                             {label}
                           </span>
                         </div>
@@ -2404,11 +2754,15 @@ export function LeftPanel({
                           <button
                             type="button"
                             onClick={() =>
-                              set("shapes", (_, prevS) => withShapeUpdated(prevS, sh.id, { hidden: !sh.hidden }))
+                              set("shapes", (_, prevS) =>
+                                withShapeUpdated(prevS, sh.id, { hidden: !sh.hidden }),
+                              )
                             }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                              sh.hidden ? "text-amber-500 font-bold" : "text-muted-foreground hover:text-foreground",
+                              sh.hidden
+                                ? "text-amber-500 font-bold"
+                                : "text-muted-foreground hover:text-foreground",
                             )}
                             title={sh.hidden ? "Show layer" : "Hide layer"}
                           >
@@ -2417,15 +2771,23 @@ export function LeftPanel({
                           <button
                             type="button"
                             onClick={() =>
-                              set("shapes", (_, prevS) => withShapeUpdated(prevS, sh.id, { locked: !sh.locked }))
+                              set("shapes", (_, prevS) =>
+                                withShapeUpdated(prevS, sh.id, { locked: !sh.locked }),
+                              )
                             }
                             className={cn(
                               "flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-secondary",
-                              sh.locked ? "text-amber-400" : "text-muted-foreground hover:text-foreground",
+                              sh.locked
+                                ? "text-amber-400"
+                                : "text-muted-foreground hover:text-foreground",
                             )}
                             title={sh.locked ? "Unlock layer" : "Lock layer"}
                           >
-                            {sh.locked ? <SquareLock02Icon size={13} /> : <SquareUnlock02Icon size={13} />}
+                            {sh.locked ? (
+                              <SquareLock02Icon size={13} />
+                            ) : (
+                              <SquareUnlock02Icon size={13} />
+                            )}
                           </button>
                           <button
                             type="button"
@@ -2455,9 +2817,9 @@ export function LeftPanel({
       <>
         <Panel title="Typography">
           <p className="text-[11px] leading-snug text-muted-foreground">
-            Font, size, weight, color and alignment now live on each individual text layer's
-            own card -- click any text directly on the canvas to select it, or manage every
-            text layer from the Elements tab.
+            Font, size, weight, color and alignment now live on each individual text layer's own
+            card -- click any text directly on the canvas to select it, or manage every text layer
+            from the Elements tab.
           </p>
         </Panel>
       </>
@@ -2467,7 +2829,7 @@ export function LeftPanel({
   if (tab === "elements") {
     const selectedShapeSel = selection?.find((sel) => sel.kind === "shape");
     const activeShapeLayer = selectedShapeSel
-      ? getShapeLayers(s).find((sh) => sh.id === selectedShapeSel.id) ?? null
+      ? (getShapeLayers(s).find((sh) => sh.id === selectedShapeSel.id) ?? null)
       : null;
 
     const displayedShadows = SHADOW_OVERLAY_PRESETS.filter(
@@ -2487,7 +2849,9 @@ export function LeftPanel({
               >
                 <span className="text-xs font-semibold text-foreground">Frames</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground">{FRAME_PRESETS.length} frames</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {FRAME_PRESETS.length} frames
+                  </span>
                   <ArrowDown01Icon
                     size={14}
                     className={cn(
@@ -2500,7 +2864,8 @@ export function LeftPanel({
               {elementsFramesOpen ? (
                 <>
                   <p className="text-[11px] leading-snug text-muted-foreground">
-                    Mask photos into custom shapes. Click to add a frame, then upload or replace with your own photo.
+                    Mask photos into custom shapes. Click to add a frame, then upload or replace
+                    with your own photo.
                   </p>
                   <div className="grid grid-cols-4 gap-2 pt-1">
                     {FRAME_PRESETS.map((preset) => {
@@ -2509,6 +2874,18 @@ export function LeftPanel({
                         <button
                           key={preset.id}
                           type="button"
+                          draggable={true}
+                          onDragStart={(e) => {
+                            setCrispDragImage(e, preset.label || "Frame");
+                            e.dataTransfer.setData(
+                              "application/json",
+                              JSON.stringify({
+                                type: "frame",
+                                frameKind: preset.kind,
+                              }),
+                            );
+                            e.dataTransfer.effectAllowed = "copy";
+                          }}
                           onClick={() => {
                             const res = withFrameAdded(s, preset.kind);
                             set("images", res.list);
@@ -2519,7 +2896,7 @@ export function LeftPanel({
                             onItemSelect?.();
                           }}
                           title={preset.label}
-                          className="group relative flex aspect-square items-center justify-center rounded-xl border border-border/80 bg-card/60 p-1.5 shadow-sm transition-all hover:scale-105 hover:border-primary hover:bg-secondary active:scale-95"
+                          className="group relative flex aspect-square cursor-grab active:cursor-grabbing items-center justify-center rounded-xl border border-border/80 bg-card/60 p-1.5 shadow-sm transition-all hover:scale-105 hover:border-primary hover:bg-secondary"
                         >
                           <div
                             className="h-full w-full overflow-hidden"
@@ -2551,7 +2928,9 @@ export function LeftPanel({
               >
                 <span className="text-xs font-semibold text-foreground">Lines</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground">{LINE_PRESETS.length} styles</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {LINE_PRESETS.length} styles
+                  </span>
                   <ArrowDown01Icon
                     size={14}
                     className={cn(
@@ -2571,6 +2950,19 @@ export function LeftPanel({
                       <button
                         key={preset.id}
                         type="button"
+                        draggable={true}
+                        onDragStart={(e) => {
+                          setCrispDragImage(e, preset.label || "Line");
+                          e.dataTransfer.setData(
+                            "application/json",
+                            JSON.stringify({
+                              type: "shape",
+                              kind: preset.kind,
+                              radius: 0,
+                            }),
+                          );
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
                         onClick={() => {
                           const res = withShapeAdded(s, preset.kind, 0);
                           set("shapes", res.list);
@@ -2581,7 +2973,7 @@ export function LeftPanel({
                           onItemSelect?.();
                         }}
                         title={preset.label}
-                        className="flex h-11 items-center justify-center rounded-xl border border-border/80 bg-card/90 px-3 text-foreground shadow-sm transition-all hover:scale-105 hover:border-primary/60 hover:bg-secondary hover:text-primary active:scale-95"
+                        className="flex h-11 cursor-grab active:cursor-grabbing items-center justify-center rounded-xl border border-border/80 bg-card/90 px-3 text-foreground shadow-sm transition-all hover:scale-105 hover:border-primary/60 hover:bg-secondary hover:text-primary"
                       >
                         <LineShapeSvg kind={preset.kind} strokeWidth={2.5} preserveAspect={true} />
                       </button>
@@ -2600,7 +2992,9 @@ export function LeftPanel({
               >
                 <span className="text-xs font-semibold text-foreground">Shapes</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground">{SHAPE_PRESETS.length} shapes</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {SHAPE_PRESETS.length} shapes
+                  </span>
                   <ArrowDown01Icon
                     size={14}
                     className={cn(
@@ -2622,6 +3016,19 @@ export function LeftPanel({
                         <button
                           key={preset.id}
                           type="button"
+                          draggable={true}
+                          onDragStart={(e) => {
+                            setCrispDragImage(e, preset.label || "Shape");
+                            e.dataTransfer.setData(
+                              "application/json",
+                              JSON.stringify({
+                                type: "shape",
+                                kind: preset.kind,
+                                radius: preset.radius,
+                              }),
+                            );
+                            e.dataTransfer.effectAllowed = "copy";
+                          }}
                           onClick={() => {
                             const res = withShapeAdded(s, preset.kind, preset.radius);
                             set("shapes", res.list);
@@ -2632,11 +3039,14 @@ export function LeftPanel({
                             onItemSelect?.();
                           }}
                           title={preset.label}
-                          className="flex aspect-square items-center justify-center rounded-lg border border-border bg-secondary/60 p-2 text-muted-foreground transition-all hover:scale-105 hover:border-primary hover:bg-secondary hover:text-foreground"
+                          className="flex aspect-square cursor-grab active:cursor-grabbing items-center justify-center rounded-lg border border-border bg-secondary/60 p-2 text-muted-foreground transition-all hover:scale-105 hover:border-primary hover:bg-secondary hover:text-foreground"
                         >
                           <span
                             className="block h-full w-full"
-                            style={{ background: "currentColor", ...shapeCss(preset.kind, previewRadius) }}
+                            style={{
+                              background: "currentColor",
+                              ...shapeCss(preset.kind, previewRadius),
+                            }}
                           />
                         </button>
                       );
@@ -2655,7 +3065,9 @@ export function LeftPanel({
               >
                 <span className="text-xs font-semibold text-foreground">Shadows & Highlights</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground">{displayedShadows.length} presets</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {displayedShadows.length} presets
+                  </span>
                   <ArrowDown01Icon
                     size={14}
                     className={cn(
@@ -2667,232 +3079,242 @@ export function LeftPanel({
               </button>
               {elementsShadowsOpen ? (
                 <>
-              <p className="text-[11px] leading-snug text-muted-foreground">
-                Gradient overlays, dark vignettes, and ground drop shadows to enhance readability and contrast.
-              </p>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Gradient overlays, dark vignettes, and ground drop shadows to enhance
+                    readability and contrast.
+                  </p>
 
-              {/* Black & White Filter Tabs */}
-              <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/80 bg-background/60 p-1">
-                <button
-                  type="button"
-                  onClick={() => setShadowThemeFilter("black")}
-                  className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all",
-                    shadowThemeFilter === "black"
-                      ? "bg-zinc-950 text-white shadow-sm ring-1 ring-zinc-700"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <span className="h-2 w-2 rounded-full bg-black ring-1 ring-white/40" />
-                  <span>Black Shadows</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShadowThemeFilter("white")}
-                  className={cn(
-                    "flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all",
-                    shadowThemeFilter === "white"
-                      ? "bg-white text-zinc-950 shadow-sm ring-1 ring-zinc-300"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <span className="h-2 w-2 rounded-full bg-white ring-1 ring-black/30" />
-                  <span>White Highlights</span>
-                </button>
-              </div>
-
-              {/* Active Shadow Inspector (if a gradient shape is active) */}
-              {activeShapeLayer && activeShapeLayer.style === "gradient" ? (
-                <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-sm">
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-primary">Active Shadow Controls</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const { list, newId } = withShapeDuplicated(s, activeShapeLayer.id);
-                          set("shapes", list);
-                          onSelectLayer?.({ kind: "shape", id: newId });
-                        }}
-                        title="Duplicate shadow"
-                        className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      >
-                        <Copy01Icon size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => set("shapes", withShapeRemoved(s, activeShapeLayer.id))}
-                        title="Delete shadow"
-                        className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Delete02Icon size={13} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-muted-foreground">Opacity</span>
-                      <span className="font-mono text-foreground">{activeShapeLayer.opacity}%</span>
-                    </div>
-                    <Range
-                      min={5}
-                      max={100}
-                      value={activeShapeLayer.opacity}
-                      onChange={(v) =>
-                        set("shapes", (_, prevS) => withShapeUpdated(prevS, activeShapeLayer.id, { opacity: v }))
-                      }
-                    />
-
-                    <div className="grid grid-cols-3 gap-1.5 pt-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          set(
-                            "layerOrder",
-                            (_, prevS) => withUnifiedLayerReordered(prevS, activeShapeLayer.id, "up").layerOrder,
-                          )
-                        }
-                        className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
-                        title="Bring Forward"
-                      >
-                        Forward ↑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          set(
-                            "layerOrder",
-                            withUnifiedLayerReordered(s, activeShapeLayer.id, "down").layerOrder,
-                          )
-                        }
-                        className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
-                        title="Send Backward"
-                      >
-                        Backward ↓
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          set(
-                            "shapes",
-                            withShapeUpdated(s, activeShapeLayer.id, {
-                              flipV: !activeShapeLayer.flipV,
-                            }),
-                          )
-                        }
-                        className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
-                      >
-                        Flip ⇅
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-1 pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          set(
-                            "shapes",
-                            withShapeUpdated(s, activeShapeLayer.id, {
-                              x: 50,
-                              y: 80,
-                              size: s.width,
-                              height: Math.round(s.height * 0.45),
-                            }),
-                          )
-                        }
-                        className="rounded border border-border bg-secondary/50 py-1 text-[10px] font-semibold hover:bg-secondary"
-                      >
-                        Snap Bottom
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          set(
-                            "shapes",
-                            withShapeUpdated(s, activeShapeLayer.id, {
-                              x: 50,
-                              y: 20,
-                              size: s.width,
-                              height: Math.round(s.height * 0.45),
-                            }),
-                          )
-                        }
-                        className="rounded border border-border bg-secondary/50 py-1 text-[10px] font-semibold hover:bg-secondary"
-                      >
-                        Snap Top
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          set(
-                            "shapes",
-                            withShapeUpdated(s, activeShapeLayer.id, {
-                              x: 50,
-                              y: 50,
-                              size: s.width,
-                              height: s.height,
-                            }),
-                          )
-                        }
-                        className="rounded border border-border bg-secondary/50 py-1 text-[10px] font-semibold hover:bg-secondary"
-                      >
-                        Full Canvas
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* High-Contrast Shadows Grid */}
-              <div className="grid grid-cols-3 gap-2.5 pt-1">
-                {displayedShadows.map((preset) => {
-                  const isWhite = preset.theme === "white";
-                  return (
+                  {/* Black & White Filter Tabs */}
+                  <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/80 bg-background/60 p-1">
                     <button
-                      key={preset.id}
                       type="button"
-                      onClick={() => {
-                        const { list, newId } = withShadowAdded(s, preset);
-                        set("shapes", list);
-                        onSelectLayer?.({ kind: "shape", id: newId });
-                        onItemSelect?.();
-                      }}
-                      title={preset.description || preset.label}
+                      onClick={() => setShadowThemeFilter("black")}
                       className={cn(
-                        "group relative flex aspect-square w-full flex-col justify-end overflow-hidden rounded-xl border shadow-xs transition-all hover:scale-105 hover:border-primary hover:shadow-lg active:scale-95",
-                        isWhite
-                          ? "border-zinc-800 bg-[#0c0d12] hover:bg-[#181a20]"
-                          : "border-zinc-300/80 bg-[#ffffff] hover:bg-zinc-50 dark:border-zinc-700/80 dark:bg-zinc-100",
+                        "flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all",
+                        shadowThemeFilter === "black"
+                          ? "bg-zinc-950 text-white shadow-sm ring-1 ring-zinc-700"
+                          : "text-muted-foreground hover:text-foreground",
                       )}
                     >
-                      {/* Shadow / Glow Overlay */}
-                      <div
-                        className="pointer-events-none absolute inset-0 transition-transform duration-200 group-hover:scale-105"
-                        style={{
-                          background: preset.gradient,
-                          opacity: (preset.opacity ?? 90) / 100,
-                        }}
-                      />
+                      <span className="h-2 w-2 rounded-full bg-black ring-1 ring-white/40" />
+                      <span>Black Shadows</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShadowThemeFilter("white")}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all",
+                        shadowThemeFilter === "white"
+                          ? "bg-white text-zinc-950 shadow-sm ring-1 ring-zinc-300"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <span className="h-2 w-2 rounded-full bg-white ring-1 ring-black/30" />
+                      <span>White Highlights</span>
+                    </button>
+                  </div>
 
-                      {/* Subtle Inner Glow Ring */}
-                      <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/5" />
-
-                      {/* Label on bottom */}
-                      <div className="relative z-10 w-full bg-gradient-to-t from-black/80 via-black/40 to-transparent p-1.5 pt-3 text-left">
-                        <span className="block truncate text-[9px] font-semibold text-white drop-shadow-xs">
-                          {preset.label}
+                  {/* Active Shadow Inspector (if a gradient shape is active) */}
+                  {activeShapeLayer && activeShapeLayer.style === "gradient" ? (
+                    <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-sm">
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-primary">
+                          Active Shadow Controls
                         </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const { list, newId } = withShapeDuplicated(s, activeShapeLayer.id);
+                              set("shapes", list);
+                              onSelectLayer?.({ kind: "shape", id: newId });
+                            }}
+                            title="Duplicate shadow"
+                            className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+                          >
+                            <Copy01Icon size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => set("shapes", withShapeRemoved(s, activeShapeLayer.id))}
+                            title="Delete shadow"
+                            className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <Delete02Icon size={13} />
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Pixel-perfect Centered Hover Plus Icon */}
-                      <span className="absolute right-1.5 top-1.5 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-                        <Add01Icon size={10} className="shrink-0" />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-semibold text-muted-foreground">Opacity</span>
+                          <span className="font-mono text-foreground">
+                            {activeShapeLayer.opacity}%
+                          </span>
+                        </div>
+                        <Range
+                          min={5}
+                          max={100}
+                          value={activeShapeLayer.opacity}
+                          onChange={(v) =>
+                            set("shapes", (_, prevS) =>
+                              withShapeUpdated(prevS, activeShapeLayer.id, { opacity: v }),
+                            )
+                          }
+                        />
+
+                        <div className="grid grid-cols-3 gap-1.5 pt-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set(
+                                "layerOrder",
+                                (_, prevS) =>
+                                  withUnifiedLayerReordered(prevS, activeShapeLayer.id, "up")
+                                    .layerOrder,
+                              )
+                            }
+                            className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
+                            title="Bring Forward"
+                          >
+                            Forward ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set(
+                                "layerOrder",
+                                withUnifiedLayerReordered(s, activeShapeLayer.id, "down")
+                                  .layerOrder,
+                              )
+                            }
+                            className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
+                            title="Send Backward"
+                          >
+                            Backward ↓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set(
+                                "shapes",
+                                withShapeUpdated(s, activeShapeLayer.id, {
+                                  flipV: !activeShapeLayer.flipV,
+                                }),
+                              )
+                            }
+                            className="flex items-center justify-center rounded-lg border border-border bg-card px-2 py-1.5 text-[11px] font-semibold text-foreground hover:border-primary"
+                          >
+                            Flip ⇅
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set(
+                                "shapes",
+                                withShapeUpdated(s, activeShapeLayer.id, {
+                                  x: 50,
+                                  y: 80,
+                                  size: s.width,
+                                  height: Math.round(s.height * 0.45),
+                                }),
+                              )
+                            }
+                            className="rounded border border-border bg-secondary/50 py-1 text-[10px] font-semibold hover:bg-secondary"
+                          >
+                            Snap Bottom
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set(
+                                "shapes",
+                                withShapeUpdated(s, activeShapeLayer.id, {
+                                  x: 50,
+                                  y: 20,
+                                  size: s.width,
+                                  height: Math.round(s.height * 0.45),
+                                }),
+                              )
+                            }
+                            className="rounded border border-border bg-secondary/50 py-1 text-[10px] font-semibold hover:bg-secondary"
+                          >
+                            Snap Top
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              set(
+                                "shapes",
+                                withShapeUpdated(s, activeShapeLayer.id, {
+                                  x: 50,
+                                  y: 50,
+                                  size: s.width,
+                                  height: s.height,
+                                }),
+                              )
+                            }
+                            className="rounded border border-border bg-secondary/50 py-1 text-[10px] font-semibold hover:bg-secondary"
+                          >
+                            Full Canvas
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* High-Contrast Shadows Grid */}
+                  <div className="grid grid-cols-3 gap-2.5 pt-1">
+                    {displayedShadows.map((preset) => {
+                      const isWhite = preset.theme === "white";
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            const { list, newId } = withShadowAdded(s, preset);
+                            set("shapes", list);
+                            onSelectLayer?.({ kind: "shape", id: newId });
+                            onItemSelect?.();
+                          }}
+                          title={preset.description || preset.label}
+                          className={cn(
+                            "group relative flex aspect-square w-full flex-col justify-end overflow-hidden rounded-xl border shadow-xs transition-all hover:scale-105 hover:border-primary hover:shadow-lg active:scale-95",
+                            isWhite
+                              ? "border-zinc-800 bg-[#0c0d12] hover:bg-[#181a20]"
+                              : "border-zinc-300/80 bg-[#ffffff] hover:bg-zinc-50 dark:border-zinc-700/80 dark:bg-zinc-100",
+                          )}
+                        >
+                          {/* Shadow / Glow Overlay */}
+                          <div
+                            className="pointer-events-none absolute inset-0 transition-transform duration-200 group-hover:scale-105"
+                            style={{
+                              background: preset.gradient,
+                              opacity: (preset.opacity ?? 90) / 100,
+                            }}
+                          />
+
+                          {/* Subtle Inner Glow Ring */}
+                          <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/5" />
+
+                          {/* Label on bottom */}
+                          <div className="relative z-10 w-full bg-gradient-to-t from-black/80 via-black/40 to-transparent p-1.5 pt-3 text-left">
+                            <span className="block truncate text-[9px] font-semibold text-white drop-shadow-xs">
+                              {preset.label}
+                            </span>
+                          </div>
+
+                          {/* Pixel-perfect Centered Hover Plus Icon */}
+                          <span className="absolute right-1.5 top-1.5 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                            <Add01Icon size={10} className="shrink-0" />
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </>
               ) : null}
             </div>
@@ -2962,19 +3384,21 @@ export function LeftPanel({
               <div className="space-y-3 rounded-2xl border border-border bg-card/60 p-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-foreground">Position & Zoom</span>
-                  {((s.bgImageZoom ?? 100) !== 100 || (s.bgImagePosX ?? 50) !== 50 || (s.bgImagePosY ?? 50) !== 50) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        set("bgImageZoom", 100);
-                        set("bgImagePosX", 50);
-                        set("bgImagePosY", 50);
-                      }}
-                      className="text-[10px] font-medium text-primary hover:underline"
-                    >
-                      Reset adjustments
-                    </button>
-                  )}
+                  {((s.bgImageZoom ?? 100) !== 100 ||
+                    (s.bgImagePosX ?? 50) !== 50 ||
+                    (s.bgImagePosY ?? 50) !== 50) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          set("bgImageZoom", 100);
+                          set("bgImagePosX", 50);
+                          set("bgImagePosY", 50);
+                        }}
+                        className="text-[10px] font-medium text-primary hover:underline"
+                      >
+                        Reset adjustments
+                      </button>
+                    )}
                 </div>
 
                 <Field label={`Zoom — ${s.bgImageZoom ?? 100}%`}>
@@ -3009,7 +3433,9 @@ export function LeftPanel({
                 </Field>
 
                 <div className="flex items-center gap-1.5 pt-1">
-                  <span className="text-[10px] font-medium text-muted-foreground">Quick align:</span>
+                  <span className="text-[10px] font-medium text-muted-foreground">
+                    Quick align:
+                  </span>
                   <Chip
                     onClick={() => {
                       set("bgImagePosX", 50);
@@ -3119,11 +3545,7 @@ export function LeftPanel({
             </Field>
           </div>
 
-          <Toggle
-            checked={useMid}
-            onChange={setUseMid}
-            label="Add 3rd accent color stop"
-          />
+          <Toggle checked={useMid} onChange={setUseMid} label="Add 3rd accent color stop" />
           {useMid ? (
             <Field label="Middle color stop">
               <ColorInput value={gradMid} onChange={setGradMid} />

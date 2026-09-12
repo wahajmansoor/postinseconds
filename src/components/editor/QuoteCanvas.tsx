@@ -91,6 +91,8 @@ export type TextLayerHandle = {
   getActiveFormat: () => LiveTextFormat;
   subscribeActiveFormat: (cb: (format: LiveTextFormat) => void) => () => void;
   startEditing?: () => void;
+  selectAll?: () => void;
+  selectWord?: () => void;
 };
 
 type Props = {
@@ -3076,31 +3078,51 @@ function resolveCaretPosition(
     caretRangeFromPoint?: (x: number, y: number) => Range | null;
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
   };
+
+  const rect = container.getBoundingClientRect();
+  const clampedX = Math.max(rect.left + 1, Math.min(rect.right - 1, x));
+  const clampedY = Math.max(rect.top + 1, Math.min(rect.bottom - 1, y));
+
   let node: Node | null = null;
   let offset = 0;
+
+  // Try exact point first, then clamped point inside container
   if (typeof doc.caretRangeFromPoint === "function") {
-    const r = doc.caretRangeFromPoint(x, y);
+    let r = doc.caretRangeFromPoint(x, y);
+    if (!r || !container.contains(r.startContainer)) {
+      r = doc.caretRangeFromPoint(clampedX, clampedY);
+    }
     if (r) {
       node = r.startContainer;
       offset = r.startOffset;
     }
   } else if (typeof doc.caretPositionFromPoint === "function") {
-    const pos = doc.caretPositionFromPoint(x, y);
+    let pos = doc.caretPositionFromPoint(x, y);
+    if (!pos || !container.contains(pos.offsetNode)) {
+      pos = doc.caretPositionFromPoint(clampedX, clampedY);
+    }
     if (pos) {
       node = pos.offsetNode;
       offset = pos.offset;
     }
   }
+
   if (!node || !container.contains(node)) {
-    // If exact point lookup lands slightly outside bounds due to scaling/padding,
-    // fallback to the closest text node inside container
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-    const lastNode = walker.lastChild();
-    if (lastNode) {
-      return { node: lastNode, offset: lastNode.textContent?.length ?? 0 };
+    if (y < rect.top || (y <= rect.bottom && x <= rect.left)) {
+      const firstNode = walker.firstChild();
+      if (firstNode) {
+        return { node: firstNode, offset: 0 };
+      }
+    } else {
+      const lastNode = walker.lastChild();
+      if (lastNode) {
+        return { node: lastNode, offset: lastNode.textContent?.length ?? 0 };
+      }
     }
     return null;
   }
+
   // If the returned node is an element node (such as container div itself or child block),
   // map it to the actual text node inside it at that offset
   if (node.nodeType !== Node.TEXT_NODE) {
@@ -3109,23 +3131,26 @@ function resolveCaretPosition(
       const child = node.childNodes[childIndex];
       if (child) {
         if (child.nodeType === Node.TEXT_NODE) {
-          return { node: child, offset: Math.min(offset, child.textContent?.length ?? 0) };
+          const tLen = child.textContent?.length ?? 0;
+          return { node: child, offset: Math.min(offset, tLen) };
         }
         const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT, null);
-        const textChild = walker.lastChild() || walker.firstChild();
+        const textChild = x <= rect.left + rect.width / 2 ? (walker.firstChild() || walker.lastChild()) : (walker.lastChild() || walker.firstChild());
         if (textChild) {
-          return { node: textChild, offset: textChild.textContent?.length ?? 0 };
+          return { node: textChild, offset: x <= rect.left + rect.width / 2 ? 0 : (textChild.textContent?.length ?? 0) };
         }
       }
     } else {
       const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
-      const textNode = walker.lastChild() || walker.firstChild();
+      const textNode = x <= rect.left + rect.width / 2 ? (walker.firstChild() || walker.lastChild()) : (walker.lastChild() || walker.firstChild());
       if (textNode) {
-        return { node: textNode, offset: textNode.textContent?.length ?? 0 };
+        return { node: textNode, offset: x <= rect.left + rect.width / 2 ? 0 : (textNode.textContent?.length ?? 0) };
       }
     }
   }
-  return { node, offset };
+
+  const textLen = node.textContent?.length ?? 0;
+  return { node, offset: Math.max(0, Math.min(textLen, offset)) };
 }
 
 // A plain collapsed caret at a viewport point — what a single click on an
@@ -3262,6 +3287,7 @@ function CurvedTextSvg({
   onDoubleClick,
   canInteract,
   locked,
+  canvasBg,
 }: {
   t: TextLayer;
   content: string;
@@ -3272,6 +3298,7 @@ function CurvedTextSvg({
   onDoubleClick?: ((e: React.MouseEvent) => void) | undefined;
   canInteract: boolean;
   locked?: boolean | undefined;
+  canvasBg?: string | undefined;
 }) {
   const plainText = useMemo(() => {
     if (typeof document === "undefined") return content.replace(/<[^>]*>/g, "");
@@ -3342,7 +3369,7 @@ function CurvedTextSvg({
           fontWeight={t.weight}
           fontStyle={t.italic ? "italic" : "normal"}
           textAnchor="middle"
-          style={{ ...getTextEffectStyle(t) }}
+          style={{ ...getTextEffectStyle(t, canvasBg) }}
         >
           <textPath href={`#${pathId}`} startOffset="50%">
             {plainText}
@@ -4058,7 +4085,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     // update it directly so dragging sliders or picking multiple colors doesn't nest spans.
     if (activeStyledSpanRef.current && el.contains(activeStyledSpanRef.current)) {
       Object.assign(activeStyledSpanRef.current.style, cssProps);
-      syncFromLiveDom(el);
+      syncFromLiveDom(el, true);
+      notifyActiveFormat();
       return;
     }
 
@@ -4152,17 +4180,16 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       range.insertNode(wrapper);
       activeStyledSpanRef.current = wrapper;
 
+      const newRange = document.createRange();
+      newRange.selectNodeContents(wrapper);
       if (isLive) {
         const sel = window.getSelection();
-        const newRange = document.createRange();
-        newRange.selectNodeContents(wrapper);
         sel?.removeAllRanges();
         sel?.addRange(newRange);
-      } else {
-        const offsets = getSelectionCharacterOffsets(el, range);
-        if (offsets) {
-          selectionSnapshotRef.current = { range: range.cloneRange(), charOffsets: offsets };
-        }
+      }
+      const offsets = getSelectionCharacterOffsets(el, newRange);
+      if (offsets) {
+        selectionSnapshotRef.current = { range: newRange.cloneRange(), charOffsets: offsets };
       }
     } catch (err) {
       console.error("Style apply error:", err);
@@ -4173,17 +4200,6 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     notifyActiveFormat();
   };
 
-  // Font size and font family deliberately always apply to the WHOLE layer
-  // now, ignoring any highlighted range — they used to try to apply just to
-  // a highlighted sub-range via applyStyleSmart (DOM Range surgery), but a
-  // real device's native text-selection (long-press handles, OS-level
-  // selection UI) doesn't reliably survive long enough to reach the click
-  // handler no matter how early it's snapshotted, so that path frequently
-  // resulted in nothing visibly changing at all. A plain whole-layer
-  // `update()` is simple, synchronous, and always visibly does something —
-  // color still gets the highlighted-range treatment via applyStyleSmart
-  // below since partial-color-on-a-miss is far less confusing than
-  // partial-size/font on a miss.
   const stripInlineStyleProps = (html: string, props: string[]): string => {
     if (!html || typeof window === "undefined") return html;
     try {
@@ -4201,21 +4217,23 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
 
   const setFontFamily = (v: string) => {
     loadGoogleFont(v);
+    const el = editableRef.current;
+    const hasActiveSpan = !!(activeStyledSpanRef.current && el && el.contains(activeStyledSpanRef.current));
     const sel = typeof window !== "undefined" ? window.getSelection() : null;
-    const isLive = hasLiveSelection() && sel && !sel.isCollapsed;
-    const isSubRange =
-      isLive &&
+    const isLive = hasLiveSelection() && !!sel && !sel.isCollapsed;
+    const hasSnapshot = !!(
       selectionSnapshotRef.current?.charOffsets &&
+      selectionSnapshotRef.current.charOffsets.start < selectionSnapshotRef.current.charOffsets.end &&
       !(
         selectionSnapshotRef.current.charOffsets.start === 0 &&
         selectionSnapshotRef.current.charOffsets.end >= (t.text?.length || 0)
-      );
+      )
+    );
 
-    if (isSubRange) {
+    if (hasActiveSpan || isLive || hasSnapshot) {
       applyStyleSmart({ fontFamily: v }, { fontFamily: v });
     } else {
       const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["font-family"]) : undefined;
-      const el = editableRef.current;
       if (el) {
         el.querySelectorAll<HTMLElement>("[style]").forEach((child) => {
           child.style.removeProperty("font-family");
@@ -4252,21 +4270,23 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     });
   };
   const setColor = (v: string) => {
+    const el = editableRef.current;
+    const hasActiveSpan = !!(activeStyledSpanRef.current && el && el.contains(activeStyledSpanRef.current));
     const sel = typeof window !== "undefined" ? window.getSelection() : null;
-    const isLive = hasLiveSelection() && sel && !sel.isCollapsed;
-    const isSubRange =
-      isLive &&
+    const isLive = hasLiveSelection() && !!sel && !sel.isCollapsed;
+    const hasSnapshot = !!(
       selectionSnapshotRef.current?.charOffsets &&
+      selectionSnapshotRef.current.charOffsets.start < selectionSnapshotRef.current.charOffsets.end &&
       !(
         selectionSnapshotRef.current.charOffsets.start === 0 &&
         selectionSnapshotRef.current.charOffsets.end >= (t.text?.length || 0)
-      );
+      )
+    );
 
-    if (isSubRange) {
+    if (hasActiveSpan || isLive || hasSnapshot) {
       applyStyleSmart({ color: v }, { color: v });
     } else {
       const cleanHtml = t.html ? stripInlineStyleProps(t.html, ["color"]) : undefined;
-      const el = editableRef.current;
       if (el) {
         el.querySelectorAll<HTMLElement>("[style]").forEach((child) => {
           child.style.removeProperty("color");
@@ -4317,15 +4337,72 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     setTimeout(selectAllAndFocus, 50);
   }, []);
 
+  const selectAll = useCallback(() => {
+    startEditing();
+  }, [startEditing]);
+
+  const selectWord = useCallback(() => {
+    setIsEditing(true);
+    const doSelectWord = () => {
+      const el = editableRef.current;
+      if (el) {
+        el.focus();
+        const sel = window.getSelection();
+        let targetNode: Node | null = null;
+        let offset = 0;
+        if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer)) {
+          targetNode = sel.getRangeAt(0).startContainer;
+          offset = sel.getRangeAt(0).startOffset;
+        } else {
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+          targetNode = walker.firstChild();
+          offset = 0;
+        }
+        if (targetNode && targetNode.nodeType === Node.TEXT_NODE) {
+          const text = targetNode.textContent ?? "";
+          const isWordChar = (ch: string | undefined) => !!ch && /[^\s.,!?;:"'()[\]{}]/.test(ch);
+          let start = Math.min(offset, text.length);
+          while (start > 0 && isWordChar(text[start - 1])) start--;
+          let end = Math.min(offset, text.length);
+          while (end < text.length && isWordChar(text[end])) end++;
+          if (start < end) {
+            const range = document.createRange();
+            range.setStart(targetNode, start);
+            range.setEnd(targetNode, end);
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            snapshotSelection();
+            notifyActiveFormat();
+          }
+        }
+      }
+    };
+    requestAnimationFrame(doSelectWord);
+    setTimeout(doSelectWord, 50);
+  }, [snapshotSelection, notifyActiveFormat]);
+
   const setWeight = useCallback(
     (weight: number) => {
-      if (hasLiveSelection()) {
+      const el = editableRef.current;
+      const hasActiveSpan = !!(activeStyledSpanRef.current && el && el.contains(activeStyledSpanRef.current));
+      const sel = typeof window !== "undefined" ? window.getSelection() : null;
+      const isLive = hasLiveSelection() && !!sel && !sel.isCollapsed;
+      const hasSnapshot = !!(
+        selectionSnapshotRef.current?.charOffsets &&
+        selectionSnapshotRef.current.charOffsets.start < selectionSnapshotRef.current.charOffsets.end &&
+        !(
+          selectionSnapshotRef.current.charOffsets.start === 0 &&
+          selectionSnapshotRef.current.charOffsets.end >= (t.text?.length || 0)
+        )
+      );
+
+      if (hasActiveSpan || isLive || hasSnapshot) {
         applyStyleSmart({ fontWeight: String(weight) }, { weight });
       } else {
         update({ weight });
       }
     },
-    [hasLiveSelection, applyStyleSmart, update],
+    [hasLiveSelection, applyStyleSmart, update, t.text],
   );
 
   const handleRef = useRef<TextLayerHandle>({
@@ -4343,6 +4420,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
     getActiveFormat,
     subscribeActiveFormat,
     startEditing,
+    selectAll,
+    selectWord,
   });
   handleRef.current.applyFormat = applyFormatSmart;
   handleRef.current.setFontFamily = setFontFamily;
@@ -4358,6 +4437,8 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
   handleRef.current.getActiveFormat = getActiveFormat;
   handleRef.current.subscribeActiveFormat = subscribeActiveFormat;
   handleRef.current.startEditing = startEditing;
+  handleRef.current.selectAll = selectAll;
+  handleRef.current.selectWord = selectWord;
 
   useEffect(() => {
     registerHandle?.(t.id, handleRef.current);
@@ -4382,6 +4463,89 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
         : isEditing
           ? (e: React.PointerEvent) => {
             e.stopPropagation();
+            // Native contentEditable drag-to-select already handles mouse
+            // dragging in both directions (left-to-right and right-to-left)
+            // correctly and smoothly on its own — it's a solved browser
+            // feature, nothing to reconstruct. The manual Range rebuild
+            // below exists ONLY for touch/pen, where there's no reliable
+            // native drag-select gesture inside contentEditable without a
+            // long-press first. Running it unconditionally for mouse too
+            // (as this used to) makes it fight the browser's own native
+            // selection update on every single pointermove — both sides
+            // call removeAllRanges()/extend on the same drag, and whichever
+            // one wins a given frame is pure event-ordering luck. That
+            // race, not any real asymmetry between the two drag directions,
+            // is what made highlighting feel unreliable/direction-dependent.
+            if (e.pointerType === "mouse") return;
+            const el = editableRef.current;
+            if (!el) return;
+
+            const startX = e.clientX;
+            const startY = e.clientY;
+            let hasDragged = false;
+            const startPos = resolveCaretPosition(startX, startY, el);
+
+            const onPointerMove = (moveEv: PointerEvent) => {
+              if (!hasDragged && Math.hypot(moveEv.clientX - startX, moveEv.clientY - startY) > 3) {
+                hasDragged = true;
+              }
+              if (!hasDragged || !startPos) return;
+              // Take over from native once a real drag is confirmed, so
+              // touch's own partial selection/scroll gesture can't also
+              // fight this manual range application.
+              moveEv.preventDefault();
+
+              const currPos = resolveCaretPosition(moveEv.clientX, moveEv.clientY, el);
+              if (!currPos) return;
+
+              try {
+                const range = document.createRange();
+                const comp = startPos.node.compareDocumentPosition(currPos.node);
+
+                if (startPos.node === currPos.node) {
+                  const sOff = Math.min(startPos.offset, startPos.node.textContent?.length ?? 0);
+                  const cOff = Math.min(currPos.offset, currPos.node.textContent?.length ?? 0);
+                  if (sOff <= cOff) {
+                    range.setStart(startPos.node, sOff);
+                    range.setEnd(currPos.node, cOff);
+                  } else {
+                    range.setStart(currPos.node, cOff);
+                    range.setEnd(startPos.node, sOff);
+                  }
+                } else if (comp & Node.DOCUMENT_POSITION_FOLLOWING) {
+                  const sOff = Math.min(startPos.offset, startPos.node.textContent?.length ?? 0);
+                  const cOff = Math.min(currPos.offset, currPos.node.textContent?.length ?? 0);
+                  range.setStart(startPos.node, sOff);
+                  range.setEnd(currPos.node, cOff);
+                } else {
+                  const sOff = Math.min(startPos.offset, startPos.node.textContent?.length ?? 0);
+                  const cOff = Math.min(currPos.offset, currPos.node.textContent?.length ?? 0);
+                  range.setStart(currPos.node, cOff);
+                  range.setEnd(startPos.node, sOff);
+                }
+
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+                notifyActiveFormat();
+              } catch (err) {
+                console.warn("Touch drag selection error:", err);
+              }
+            };
+
+            const onPointerUp = () => {
+              window.removeEventListener("pointermove", onPointerMove);
+              window.removeEventListener("pointerup", onPointerUp);
+              window.removeEventListener("pointercancel", onPointerUp);
+              if (hasDragged) {
+                snapshotSelection();
+                notifyActiveFormat();
+              }
+            };
+
+            window.addEventListener("pointermove", onPointerMove, { passive: false });
+            window.addEventListener("pointerup", onPointerUp);
+            window.addEventListener("pointercancel", onPointerUp);
           }
           : (e: React.PointerEvent) => {
             // A second touch is also down — this is a pinch, not a drag
@@ -4583,6 +4747,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             onDoubleClick={handleDoubleClick}
             canInteract={canInteract}
             locked={locked}
+            canvasBg={s.background}
           />
         );
       }
@@ -4660,13 +4825,15 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
             overflowWrap: "break-word",
             minHeight: t.minHeight,
             outline: "none",
-            touchAction: isEditing ? "auto" : "none",
+            touchAction: isEditing ? "manipulation" : "none",
             userSelect: isEditing ? "text" : "none",
+            WebkitUserSelect: isEditing ? "text" : "none",
+            WebkitTouchCallout: isEditing ? "default" : "none",
             cursor: !canInteract ? "default" : locked ? "pointer" : isEditing ? "text" : "grab",
             caretColor: t.color || "currentColor",
             display: "block",
             width: "100%",
-            ...getTextEffectStyle(t),
+            ...getTextEffectStyle(t, s.background),
           }}
           dangerouslySetInnerHTML={{ __html: content }}
         />
@@ -4678,6 +4845,7 @@ const DraggableTextLayer = memo(function DraggableTextLayer({
       isEditing,
       selected,
       selectedCount,
+      s.background,
       t.id,
       t.x,
       t.y,

@@ -25,12 +25,38 @@ import DOMPurify from "dompurify";
 // applying to just a highlighted range (via applyStyleSmart in
 // QuoteCanvas.tsx) instead of the whole layer.
 const RICH_TEXT_ALLOWED_TAGS = [
-  "b", "strong", "i", "em", "u", "strike", "s", "del", "span", "font", "br", "div", "p", "ul", "ol", "li",
+  "b",
+  "strong",
+  "i",
+  "em",
+  "u",
+  "strike",
+  "s",
+  "del",
+  "span",
+  "font",
+  "br",
+  "div",
+  "p",
+  "ul",
+  "ol",
+  "li",
 ];
 const RICH_TEXT_ALLOWED_ATTR = ["style", "color"];
 const RICH_TEXT_ALLOWED_STYLE_PROPS = new Set([
-  "color", "font-weight", "font-style", "text-decoration", "list-style-type", "padding-left", "margin",
-  "font-family", "font-size", "letter-spacing", "line-height", "display", "text-transform",
+  "color",
+  "font-weight",
+  "font-style",
+  "text-decoration",
+  "list-style-type",
+  "padding-left",
+  "margin",
+  "font-family",
+  "font-size",
+  "letter-spacing",
+  "line-height",
+  "display",
+  "text-transform",
 ]);
 let richTextHooksReady = false;
 
@@ -74,7 +100,13 @@ export function hexToRgba(hex: string, alpha: number): string {
     return hex.replace(/rgb\(([^)]+)\)/, `rgba($1, ${alpha})`);
   }
   const h = hex.replace("#", "");
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const full =
+    h.length === 3
+      ? h
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : h;
   const n = parseInt(full, 16);
   if (Number.isNaN(n)) return hex;
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
@@ -83,7 +115,13 @@ export function hexToRgba(hex: string, alpha: number): string {
 export function getHexLuminance(hex: string): number {
   if (!hex || typeof hex !== "string") return 255;
   const h = hex.replace("#", "").trim();
-  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const full =
+    h.length === 3
+      ? h
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : h;
   const n = parseInt(full, 16);
   if (Number.isNaN(n)) return 255;
   const r = (n >> 16) & 255;
@@ -209,7 +247,9 @@ export function groupHasExactPreset(groupKey: string, width: number, height: num
 export function isLinkedInCoverPhotoSize(width: number, height: number): boolean {
   const linkedin = CANVAS_PRESET_GROUPS.find((g) => g.key === "linkedin");
   if (!linkedin) return false;
-  return linkedin.presets.some((p) => p.label.startsWith("Cover Photo") && p.w === width && p.h === height);
+  return linkedin.presets.some(
+    (p) => p.label.startsWith("Cover Photo") && p.w === width && p.h === height,
+  );
 }
 
 // Whether the current canvas size matches LinkedIn's own Feed preset
@@ -236,11 +276,26 @@ const CURATED_GRADIENTS = [
   { label: "Cyberpunk", value: "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)" },
   { label: "Velvet Rose", value: "linear-gradient(145deg, #2b091f 0%, #831843 50%, #f43f5e 100%)" },
   { label: "Emerald", value: "linear-gradient(155deg, #052e16 0%, #065f46 55%, #10b981 100%)" },
-  { label: "Cosmic Aurora", value: "linear-gradient(140deg, #030712 0%, #1e1b4b 45%, #0284c7 100%)" },
-  { label: "Royal Sapphire", value: "linear-gradient(150deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)" },
-  { label: "Sunset Flare", value: "linear-gradient(135deg, #31102f 0%, #9f1239 50%, #fb923c 100%)" },
-  { label: "Golden Luxury", value: "linear-gradient(145deg, #1c1917 0%, #78350f 50%, #f59e0b 100%)" },
-  { label: "Clean Minimal", value: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%)" },
+  {
+    label: "Cosmic Aurora",
+    value: "linear-gradient(140deg, #030712 0%, #1e1b4b 45%, #0284c7 100%)",
+  },
+  {
+    label: "Royal Sapphire",
+    value: "linear-gradient(150deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)",
+  },
+  {
+    label: "Sunset Flare",
+    value: "linear-gradient(135deg, #31102f 0%, #9f1239 50%, #fb923c 100%)",
+  },
+  {
+    label: "Golden Luxury",
+    value: "linear-gradient(145deg, #1c1917 0%, #78350f 50%, #f59e0b 100%)",
+  },
+  {
+    label: "Clean Minimal",
+    value: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%)",
+  },
 ];
 
 // The full 180-gradient set from github.com/itmeo/webgradients (MIT
@@ -256,186 +311,1530 @@ function webGradientCss(deg: number, stops: [string, number][]): string {
   return `linear-gradient(${deg}deg, ${stops.map(([color, pos]) => `${color} ${pos}%`).join(", ")})`;
 }
 const WEBGRADIENTS: { name: string; deg: number; stops: [string, number][] }[] = [
-  { name: "Warm Flame", deg: 45, stops: [["#ff9a9e", 0], ["#fad0c4", 99], ["#fad0c4", 100]] },
-  { name: "Night Fade", deg: 0, stops: [["#a18cd1", 0], ["#fbc2eb", 100]] },
-  { name: "Spring Warmth", deg: 0, stops: [["#fad0c4", 0], ["#fad0c4", 1], ["#ffd1ff", 100]] },
-  { name: "Juicy Peach", deg: 90, stops: [["#ffecd2", 0], ["#fcb69f", 100]] },
-  { name: "Young Passion", deg: 90, stops: [["#ff8177", 0], ["#ff867a", 0], ["#ff8c7f", 21], ["#f99185", 52], ["#cf556c", 78], ["#b12a5b", 100]] },
-  { name: "Lady Lips", deg: 0, stops: [["#ff9a9e", 0], ["#fecfef", 99], ["#fecfef", 100]] },
-  { name: "Sunny Morning", deg: 120, stops: [["#f6d365", 0], ["#fda085", 100]] },
-  { name: "Rainy Ashville", deg: 0, stops: [["#fbc2eb", 0], ["#a6c1ee", 100]] },
-  { name: "Frozen Dreams", deg: 0, stops: [["#fdcbf1", 0], ["#fdcbf1", 1], ["#e6dee9", 100]] },
-  { name: "Winter Neva", deg: 120, stops: [["#a1c4fd", 0], ["#c2e9fb", 100]] },
-  { name: "Dusty Grass", deg: 120, stops: [["#d4fc79", 0], ["#96e6a1", 100]] },
-  { name: "Tempting Azure", deg: 120, stops: [["#84fab0", 0], ["#8fd3f4", 100]] },
-  { name: "Heavy Rain", deg: 0, stops: [["#cfd9df", 0], ["#e2ebf0", 100]] },
-  { name: "Amy Crisp", deg: 120, stops: [["#a6c0fe", 0], ["#f68084", 100]] },
-  { name: "Mean Fruit", deg: 120, stops: [["#fccb90", 0], ["#d57eeb", 100]] },
-  { name: "Lilac Sky", deg: 120, stops: [["#e0c3fc", 0], ["#8ec5fc", 100]] },
-  { name: "Ripe Malinka", deg: 120, stops: [["#f093fb", 0], ["#f5576c", 100]] },
-  { name: "Cloudy Knoxville", deg: 120, stops: [["#fdfbfb", 0], ["#ebedee", 100]] },
-  { name: "Malibu Beach", deg: 0, stops: [["#4facfe", 0], ["#00f2fe", 100]] },
-  { name: "New Life", deg: 0, stops: [["#43e97b", 0], ["#38f9d7", 100]] },
-  { name: "True Sunset", deg: 0, stops: [["#fa709a", 0], ["#fee140", 100]] },
-  { name: "Morpheus Den", deg: 0, stops: [["#30cfd0", 0], ["#330867", 100]] },
-  { name: "Rare Wind", deg: 0, stops: [["#a8edea", 0], ["#fed6e3", 100]] },
-  { name: "Near Moon", deg: 0, stops: [["#5ee7df", 0], ["#b490ca", 100]] },
-  { name: "Wild Apple", deg: 0, stops: [["#d299c2", 0], ["#fef9d7", 100]] },
-  { name: "Saint Petersburg", deg: 135, stops: [["#f5f7fa", 0], ["#c3cfe2", 100]] },
-  { name: "Arielle's Smile", deg: 0, stops: [["#16d9e3", 0], ["#30c7ec", 47], ["#46aef7", 100]] },
-  { name: "Plum Plate", deg: 135, stops: [["#667eea", 0], ["#764ba2", 100]] },
-  { name: "Everlasting Sky", deg: 135, stops: [["#fdfcfb", 0], ["#e2d1c3", 100]] },
-  { name: "Happy Fisher", deg: 120, stops: [["#89f7fe", 0], ["#66a6ff", 100]] },
-  { name: "Blessing", deg: 0, stops: [["#fddb92", 0], ["#d1fdff", 100]] },
-  { name: "Sharpeye Eagle", deg: 0, stops: [["#9890e3", 0], ["#b1f4cf", 100]] },
-  { name: "Ladoga Bottom", deg: 0, stops: [["#ebc0fd", 0], ["#d9ded8", 100]] },
-  { name: "Lemon Gate", deg: 0, stops: [["#96fbc4", 0], ["#f9f586", 100]] },
-  { name: "Itmeo Branding", deg: 180, stops: [["#2af598", 0], ["#009efd", 100]] },
-  { name: "Zeus Miracle", deg: 0, stops: [["#cd9cf2", 0], ["#f6f3ff", 100]] },
-  { name: "Old Hat", deg: 0, stops: [["#e4afcb", 0], ["#b8cbb8", 0], ["#b8cbb8", 0], ["#e2c58b", 30], ["#c2ce9c", 64], ["#7edbdc", 100]] },
-  { name: "Star Wine", deg: 0, stops: [["#b8cbb8", 0], ["#b8cbb8", 0], ["#b465da", 0], ["#cf6cc9", 33], ["#ee609c", 66], ["#ee609c", 100]] },
-  { name: "Deep Blue", deg: 120, stops: [["#e0c3fc", 0], ["#8ec5fc", 100]] },
-  { name: "Coup de Grace", deg: 0, stops: [["#DCD9D4", 0], ["#DCD9D4", 100]] },
-  { name: "Happy Acid", deg: 0, stops: [["#37ecba", 0], ["#72afd3", 100]] },
-  { name: "Awesome Pine", deg: 0, stops: [["#ebbba7", 0], ["#cfc7f8", 100]] },
-  { name: "New York", deg: 0, stops: [["#fff1eb", 0], ["#ace0f9", 100]] },
-  { name: "Shy Rainbow", deg: 0, stops: [["#eea2a2", 0], ["#bbc1bf", 19], ["#57c6e1", 42]] },
-  { name: "Loon Crest", deg: 0, stops: [["#989898", 0], ["#989898", 100]] },
-  { name: "Mixed Hopes", deg: 0, stops: [["#c471f5", 0], ["#fa71cd", 100]] },
-  { name: "Fly High", deg: 0, stops: [["#48c6ef", 0], ["#6f86d6", 100]] },
-  { name: "Strong Bliss", deg: 0, stops: [["#f78ca0", 0], ["#f9748f", 19], ["#fd868c", 60]] },
-  { name: "Fresh Milk", deg: 0, stops: [["#feada6", 0], ["#f5efef", 100]] },
-  { name: "Snow Again", deg: 0, stops: [["#e6e9f0", 0], ["#eef1f5", 100]] },
-  { name: "February Ink", deg: 0, stops: [["#accbee", 0], ["#e7f0fd", 100]] },
-  { name: "Kind Steel", deg: -20, stops: [["#e9defa", 0], ["#fbfcdb", 100]] },
-  { name: "Soft Grass", deg: 0, stops: [["#c1dfc4", 0], ["#deecdd", 100]] },
-  { name: "Grown Early", deg: 0, stops: [["#0ba360", 0], ["#3cba92", 100]] },
-  { name: "Sharp Blues", deg: 0, stops: [["#00c6fb", 0], ["#005bea", 100]] },
-  { name: "Shady Water", deg: 0, stops: [["#74ebd5", 0], ["#9face6", 100]] },
-  { name: "Dirty Beauty", deg: 0, stops: [["#6a85b6", 0], ["#bac8e0", 100]] },
-  { name: "Great Whale", deg: 0, stops: [["#a3bded", 0], ["#6991c7", 100]] },
-  { name: "Teen Notebook", deg: 0, stops: [["#9795f0", 0], ["#fbc8d4", 100]] },
-  { name: "Polite Rumors", deg: 0, stops: [["#a7a6cb", 0], ["#8989ba", 52], ["#8989ba", 100]] },
-  { name: "Sweet Period", deg: 0, stops: [["#3f51b1", 0], ["#5a55ae", 13], ["#7b5fac", 25], ["#8f6aae", 38], ["#a86aa4", 50], ["#cc6b8e", 62], ["#f18271", 75], ["#f3a469", 87], ["#f7c978", 100]] },
-  { name: "Wide Matrix", deg: 0, stops: [["#fcc5e4", 0], ["#fda34b", 15], ["#ff7882", 35], ["#c8699e", 52], ["#7046aa", 71], ["#0c1db8", 87], ["#020f75", 100]] },
-  { name: "Soft Cherish", deg: 0, stops: [["#dbdcd7", 0], ["#dddcd7", 24], ["#e2c9cc", 30], ["#e7627d", 46], ["#b8235a", 59], ["#801357", 71], ["#3d1635", 84], ["#1c1a27", 100]] },
-  { name: "Red Salvation", deg: 0, stops: [["#f43b47", 0], ["#453a94", 100]] },
-  { name: "Burning Spring", deg: 0, stops: [["#4fb576", 0], ["#44c489", 30], ["#28a9ae", 46], ["#28a2b7", 59], ["#4c7788", 71], ["#6c4f63", 80], ["#432c39", 100]] },
-  { name: "Night Party", deg: 0, stops: [["#0250c5", 0], ["#d43f8d", 100]] },
-  { name: "Sky Glider", deg: 0, stops: [["#88d3ce", 0], ["#6e45e2", 100]] },
-  { name: "Heaven Peach", deg: 0, stops: [["#d9afd9", 0], ["#97d9e1", 100]] },
-  { name: "Purple Division", deg: 0, stops: [["#7028e4", 0], ["#e5b2ca", 100]] },
-  { name: "Aqua Splash", deg: 15, stops: [["#13547a", 0], ["#80d0c7", 100]] },
-  { name: "Above Clouds", deg: 0, stops: [["#BDBBBE", 0], ["#9D9EA3", 100]] },
-  { name: "Spiky Naga", deg: 0, stops: [["#505285", 0], ["#585e92", 12], ["#65689f", 25]] },
-  { name: "Love Kiss", deg: 0, stops: [["#ff0844", 0], ["#ffb199", 100]] },
-  { name: "Sharp Glass", deg: 0, stops: [["#C9CCD3", 0], ["#C9CCD3", 100]] },
-  { name: "Clean Mirror", deg: 45, stops: [["#93a5cf", 0], ["#e4efe9", 100]] },
-  { name: "Premium Dark", deg: 0, stops: [["#434343", 0], ["#000000", 100]] },
-  { name: "Cold Evening", deg: 0, stops: [["#0c3483", 0], ["#a2b6df", 100], ["#6b8cce", 100]] },
-  { name: "Cochiti Lake", deg: 45, stops: [["#93a5cf", 0], ["#e4efe9", 100]] },
-  { name: "Summer Games", deg: 0, stops: [["#92fe9d", 0], ["#00c9ff", 100]] },
-  { name: "Passionate Bed", deg: 0, stops: [["#ff758c", 0], ["#ff7eb3", 100]] },
-  { name: "Mountain Rock", deg: 0, stops: [["#868f96", 0], ["#596164", 100]] },
-  { name: "Desert Hump", deg: 0, stops: [["#c79081", 0], ["#dfa579", 100]] },
-  { name: "Jungle Day", deg: 45, stops: [["#8baaaa", 0], ["#ae8b9c", 100]] },
-  { name: "Phoenix Start", deg: 0, stops: [["#f83600", 0], ["#f9d423", 100]] },
-  { name: "October Silence", deg: -20, stops: [["#b721ff", 0], ["#21d4fd", 100]] },
-  { name: "Faraway River", deg: -20, stops: [["#6e45e2", 0], ["#88d3ce", 100]] },
-  { name: "Alchemist Lab", deg: -20, stops: [["#d558c8", 0], ["#24d292", 100]] },
-  { name: "Over Sun", deg: 60, stops: [["#abecd6", 0], ["#fbed96", 100]] },
-  { name: "Premium White", deg: 0, stops: [["#d5d4d0", 0], ["#d5d4d0", 1], ["#eeeeec", 31]] },
-  { name: "Mars Party", deg: 0, stops: [["#5f72bd", 0], ["#9b23ea", 100]] },
-  { name: "Eternal Constance", deg: 0, stops: [["#09203f", 0], ["#537895", 100]] },
-  { name: "Japan Blush", deg: -20, stops: [["#ddd6f3", 0], ["#faaca8", 100], ["#faaca8", 100]] },
-  { name: "Smiling Rain", deg: -20, stops: [["#dcb0ed", 0], ["#99c99c", 100]] },
-  { name: "Cloudy Apple", deg: 0, stops: [["#f3e7e9", 0], ["#e3eeff", 99], ["#e3eeff", 100]] },
-  { name: "Big Mango", deg: 0, stops: [["#c71d6f", 0], ["#d09693", 100]] },
-  { name: "Healthy Water", deg: 60, stops: [["#96deda", 0], ["#50c9c3", 100]] },
-  { name: "Amour Amour", deg: 0, stops: [["#f77062", 0], ["#fe5196", 100]] },
-  { name: "Risky Concrete", deg: 0, stops: [["#c4c5c7", 0], ["#dcdddf", 52], ["#ebebeb", 100]] },
-  { name: "Strong Stick", deg: 0, stops: [["#a8caba", 0], ["#5d4157", 100]] },
-  { name: "Vicious Stance", deg: 60, stops: [["#29323c", 0], ["#485563", 100]] },
-  { name: "Palo Alto", deg: -60, stops: [["#16a085", 0], ["#f4d03f", 100]] },
-  { name: "Happy Memories", deg: -60, stops: [["#ff5858", 0], ["#f09819", 100]] },
-  { name: "Midnight Bloom", deg: -20, stops: [["#2b5876", 0], ["#4e4376", 100]] },
-  { name: "Crystalline", deg: -20, stops: [["#00cdac", 0], ["#8ddad5", 100]] },
-  { name: "Raccoon Back", deg: -180, stops: [["#BCC5CE", 0], ["#929EAD", 98]] },
-  { name: "Party Bliss", deg: 0, stops: [["#4481eb", 0], ["#04befe", 100]] },
-  { name: "Confident Cloud", deg: 0, stops: [["#dad4ec", 0], ["#dad4ec", 1], ["#f3e7e9", 100]] },
-  { name: "Le Cocktail", deg: 45, stops: [["#874da2", 0], ["#c43a30", 100]] },
-  { name: "River City", deg: 0, stops: [["#4481eb", 0], ["#04befe", 100]] },
-  { name: "Frozen Berry", deg: 0, stops: [["#e8198b", 0], ["#c7eafd", 100]] },
-  { name: "Elegance", deg: 0, stops: [["#EADFDF", 59], ["#ECE2DF", 100]] },
-  { name: "Child Care", deg: -20, stops: [["#f794a4", 0], ["#fdd6bd", 100]] },
-  { name: "Flying Lemon", deg: 60, stops: [["#64b3f4", 0], ["#c2e59c", 100]] },
-  { name: "New Retrowave", deg: 0, stops: [["#3b41c5", 0], ["#a981bb", 49], ["#ffc8a9", 100]] },
-  { name: "Hidden Jaguar", deg: 0, stops: [["#0fd850", 0], ["#f9f047", 100]] },
-  { name: "Above The Sky", deg: 0, stops: [["#d3d3d3", 0], ["#d3d3d3", 1], ["#e0e0e0", 26]] },
-  { name: "Nega", deg: 45, stops: [["#ee9ca7", 0], ["#ffdde1", 100]] },
-  { name: "Dense Water", deg: 0, stops: [["#3ab5b0", 0], ["#3d99be", 31], ["#56317a", 100]] },
-  { name: "Chemic Aqua", deg: 0, stops: [["#CDDCDC", 0], ["#CDDCDC", 100]] },
-  { name: "Seashore", deg: 0, stops: [["#209cff", 0], ["#68e0cf", 100]] },
-  { name: "Marble Wall", deg: 0, stops: [["#bdc2e8", 0], ["#bdc2e8", 1], ["#e6dee9", 100]] },
-  { name: "Cheerful Caramel", deg: 0, stops: [["#e6b980", 0], ["#eacda3", 100]] },
-  { name: "Night Sky", deg: 0, stops: [["#1e3c72", 0], ["#1e3c72", 1], ["#2a5298", 100]] },
-  { name: "Magic Lake", deg: 0, stops: [["#d5dee7", 0], ["#ffafbd", 0], ["#c9ffbf", 100]] },
-  { name: "Young Grass", deg: 0, stops: [["#9be15d", 0], ["#00e3ae", 100]] },
-  { name: "Colorful Peach", deg: 0, stops: [["#ed6ea0", 0], ["#ec8c69", 100]] },
-  { name: "Gentle Care", deg: 0, stops: [["#ffc3a0", 0], ["#ffafbd", 100]] },
-  { name: "Plum Bath", deg: 0, stops: [["#cc208e", 0], ["#6713d2", 100]] },
-  { name: "Happy Unicorn", deg: 0, stops: [["#b3ffab", 0], ["#12fff7", 100]] },
-  { name: "Full Metal", deg: 0, stops: [["#D5DEE7", 0], ["#E8EBF2", 50], ["#E2E7ED", 100]] },
-  { name: "African Field", deg: 0, stops: [["#65bd60", 0], ["#5ac1a8", 25], ["#3ec6ed", 50]] },
-  { name: "Solid Stone", deg: 0, stops: [["#243949", 0], ["#517fa4", 100]] },
-  { name: "Orange Juice", deg: -20, stops: [["#fc6076", 0], ["#ff9a44", 100]] },
-  { name: "Glass Water", deg: 0, stops: [["#dfe9f3", 0], ["#ffffff", 100]] },
-  { name: "Slick Carbon", deg: 180, stops: [["#323232", 0], ["#3F3F3F", 40], ["#1C1C1C", 150]] },
-  { name: "North Miracle", deg: 0, stops: [["#00dbde", 0], ["#fc00ff", 100]] },
-  { name: "Fruit Blend", deg: 0, stops: [["#f9d423", 0], ["#ff4e50", 100]] },
-  { name: "Millennium Pine", deg: 0, stops: [["#50cc7f", 0], ["#f5d100", 100]] },
-  { name: "High Flight", deg: 0, stops: [["#0acffe", 0], ["#495aff", 100]] },
-  { name: "Mole Hall", deg: -20, stops: [["#616161", 0], ["#9bc5c3", 100]] },
-  { name: "Earl Gray", deg: 0, stops: [["#E4E4E1", 0], ["#E4E4E1", 100]] },
-  { name: "Space Shift", deg: 60, stops: [["#3d3393", 0], ["#2b76b9", 37], ["#2cacd1", 65], ["#35eb93", 100]] },
-  { name: "Forest Inei", deg: 0, stops: [["#df89b5", 0], ["#bfd9fe", 100]] },
-  { name: "Royal Garden", deg: 0, stops: [["#ed6ea0", 0], ["#ec8c69", 100]] },
-  { name: "Rich Metal", deg: 0, stops: [["#d7d2cc", 0], ["#304352", 100]] },
-  { name: "Juicy Cake", deg: 0, stops: [["#e14fad", 0], ["#f9d423", 100]] },
-  { name: "Smart Indigo", deg: 0, stops: [["#b224ef", 0], ["#7579ff", 100]] },
-  { name: "Sand Strike", deg: 0, stops: [["#c1c161", 0], ["#c1c161", 0], ["#d4d4b1", 100]] },
-  { name: "Norse Beauty", deg: 0, stops: [["#ec77ab", 0], ["#7873f5", 100]] },
-  { name: "Aqua Guidance", deg: 0, stops: [["#007adf", 0], ["#00ecbc", 100]] },
-  { name: "Sun Veggie", deg: -225, stops: [["#20E2D7", 0], ["#F9FEA5", 100]] },
-  { name: "Sea Lord", deg: -225, stops: [["#2CD8D5", 0], ["#C5C1FF", 56], ["#FFBAC3", 100]] },
-  { name: "Black Sea", deg: -225, stops: [["#2CD8D5", 0], ["#6B8DD6", 48], ["#8E37D7", 100]] },
-  { name: "Grass Shampoo", deg: -225, stops: [["#DFFFCD", 0], ["#90F9C4", 48], ["#39F3BB", 100]] },
-  { name: "Landing Aircraft", deg: -225, stops: [["#5D9FFF", 0], ["#B8DCFF", 48], ["#6BBBFF", 100]] },
-  { name: "Witch Dance", deg: -225, stops: [["#A8BFFF", 0], ["#884D80", 100]] },
-  { name: "Sleepless Night", deg: -225, stops: [["#5271C4", 0], ["#B19FFF", 48], ["#ECA1FE", 100]] },
-  { name: "Angel Care", deg: -225, stops: [["#FFE29F", 0], ["#FFA99F", 48], ["#FF719A", 100]] },
-  { name: "Crystal River", deg: -225, stops: [["#22E1FF", 0], ["#1D8FE1", 48], ["#625EB1", 100]] },
-  { name: "Soft Lipstick", deg: -225, stops: [["#B6CEE8", 0], ["#F578DC", 100]] },
-  { name: "Salt Mountain", deg: -225, stops: [["#FFFEFF", 0], ["#D7FFFE", 100]] },
-  { name: "Perfect White", deg: -225, stops: [["#E3FDF5", 0], ["#FFE6FA", 100]] },
-  { name: "Fresh Oasis", deg: -225, stops: [["#7DE2FC", 0], ["#B9B6E5", 100]] },
-  { name: "Strict November", deg: -225, stops: [["#CBBACC", 0], ["#2580B3", 100]] },
-  { name: "Morning Salad", deg: -225, stops: [["#B7F8DB", 0], ["#50A7C2", 100]] },
-  { name: "Deep Relief", deg: -225, stops: [["#7085B6", 0], ["#87A7D9", 50], ["#DEF3F8", 100]] },
-  { name: "Sea Strike", deg: -225, stops: [["#77FFD2", 0], ["#6297DB", 48], ["#1EECFF", 100]] },
-  { name: "Night Call", deg: -225, stops: [["#AC32E4", 0], ["#7918F2", 48], ["#4801FF", 100]] },
-  { name: "Supreme Sky", deg: -225, stops: [["#D4FFEC", 0], ["#57F2CC", 48], ["#4596FB", 100]] },
-  { name: "Light Blue", deg: -225, stops: [["#9EFBD3", 0], ["#57E9F2", 48], ["#45D4FB", 100]] },
-  { name: "Mind Crawl", deg: -225, stops: [["#473B7B", 0], ["#3584A7", 51], ["#30D2BE", 100]] },
-  { name: "Lily Meadow", deg: -225, stops: [["#65379B", 0], ["#886AEA", 53], ["#6457C6", 100]] },
-  { name: "Sugar Lollipop", deg: -225, stops: [["#A445B2", 0], ["#D41872", 52], ["#FF0066", 100]] },
-  { name: "Sweet Dessert", deg: -225, stops: [["#7742B2", 0], ["#F180FF", 52], ["#FD8BD9", 100]] },
-  { name: "Magic Ray", deg: -225, stops: [["#FF3CAC", 0], ["#562B7C", 52], ["#2B86C5", 100]] },
-  { name: "Teen Party", deg: -225, stops: [["#FF057C", 0], ["#8D0B93", 50], ["#321575", 100]] },
-  { name: "Frozen Heat", deg: -225, stops: [["#FF057C", 0], ["#7C64D5", 48], ["#4CC3FF", 100]] },
-  { name: "Gagarin View", deg: -225, stops: [["#69EACB", 0], ["#EACCF8", 48], ["#6654F1", 100]] },
-  { name: "Fabled Sunset", deg: -225, stops: [["#231557", 0], ["#44107A", 29], ["#FF1361", 67]] },
-  { name: "Perfect Blue", deg: -225, stops: [["#3D4E81", 0], ["#5753C9", 48], ["#6E7FF3", 100]] },
+  {
+    name: "Warm Flame",
+    deg: 45,
+    stops: [
+      ["#ff9a9e", 0],
+      ["#fad0c4", 99],
+      ["#fad0c4", 100],
+    ],
+  },
+  {
+    name: "Night Fade",
+    deg: 0,
+    stops: [
+      ["#a18cd1", 0],
+      ["#fbc2eb", 100],
+    ],
+  },
+  {
+    name: "Spring Warmth",
+    deg: 0,
+    stops: [
+      ["#fad0c4", 0],
+      ["#fad0c4", 1],
+      ["#ffd1ff", 100],
+    ],
+  },
+  {
+    name: "Juicy Peach",
+    deg: 90,
+    stops: [
+      ["#ffecd2", 0],
+      ["#fcb69f", 100],
+    ],
+  },
+  {
+    name: "Young Passion",
+    deg: 90,
+    stops: [
+      ["#ff8177", 0],
+      ["#ff867a", 0],
+      ["#ff8c7f", 21],
+      ["#f99185", 52],
+      ["#cf556c", 78],
+      ["#b12a5b", 100],
+    ],
+  },
+  {
+    name: "Lady Lips",
+    deg: 0,
+    stops: [
+      ["#ff9a9e", 0],
+      ["#fecfef", 99],
+      ["#fecfef", 100],
+    ],
+  },
+  {
+    name: "Sunny Morning",
+    deg: 120,
+    stops: [
+      ["#f6d365", 0],
+      ["#fda085", 100],
+    ],
+  },
+  {
+    name: "Rainy Ashville",
+    deg: 0,
+    stops: [
+      ["#fbc2eb", 0],
+      ["#a6c1ee", 100],
+    ],
+  },
+  {
+    name: "Frozen Dreams",
+    deg: 0,
+    stops: [
+      ["#fdcbf1", 0],
+      ["#fdcbf1", 1],
+      ["#e6dee9", 100],
+    ],
+  },
+  {
+    name: "Winter Neva",
+    deg: 120,
+    stops: [
+      ["#a1c4fd", 0],
+      ["#c2e9fb", 100],
+    ],
+  },
+  {
+    name: "Dusty Grass",
+    deg: 120,
+    stops: [
+      ["#d4fc79", 0],
+      ["#96e6a1", 100],
+    ],
+  },
+  {
+    name: "Tempting Azure",
+    deg: 120,
+    stops: [
+      ["#84fab0", 0],
+      ["#8fd3f4", 100],
+    ],
+  },
+  {
+    name: "Heavy Rain",
+    deg: 0,
+    stops: [
+      ["#cfd9df", 0],
+      ["#e2ebf0", 100],
+    ],
+  },
+  {
+    name: "Amy Crisp",
+    deg: 120,
+    stops: [
+      ["#a6c0fe", 0],
+      ["#f68084", 100],
+    ],
+  },
+  {
+    name: "Mean Fruit",
+    deg: 120,
+    stops: [
+      ["#fccb90", 0],
+      ["#d57eeb", 100],
+    ],
+  },
+  {
+    name: "Lilac Sky",
+    deg: 120,
+    stops: [
+      ["#e0c3fc", 0],
+      ["#8ec5fc", 100],
+    ],
+  },
+  {
+    name: "Ripe Malinka",
+    deg: 120,
+    stops: [
+      ["#f093fb", 0],
+      ["#f5576c", 100],
+    ],
+  },
+  {
+    name: "Cloudy Knoxville",
+    deg: 120,
+    stops: [
+      ["#fdfbfb", 0],
+      ["#ebedee", 100],
+    ],
+  },
+  {
+    name: "Malibu Beach",
+    deg: 0,
+    stops: [
+      ["#4facfe", 0],
+      ["#00f2fe", 100],
+    ],
+  },
+  {
+    name: "New Life",
+    deg: 0,
+    stops: [
+      ["#43e97b", 0],
+      ["#38f9d7", 100],
+    ],
+  },
+  {
+    name: "True Sunset",
+    deg: 0,
+    stops: [
+      ["#fa709a", 0],
+      ["#fee140", 100],
+    ],
+  },
+  {
+    name: "Morpheus Den",
+    deg: 0,
+    stops: [
+      ["#30cfd0", 0],
+      ["#330867", 100],
+    ],
+  },
+  {
+    name: "Rare Wind",
+    deg: 0,
+    stops: [
+      ["#a8edea", 0],
+      ["#fed6e3", 100],
+    ],
+  },
+  {
+    name: "Near Moon",
+    deg: 0,
+    stops: [
+      ["#5ee7df", 0],
+      ["#b490ca", 100],
+    ],
+  },
+  {
+    name: "Wild Apple",
+    deg: 0,
+    stops: [
+      ["#d299c2", 0],
+      ["#fef9d7", 100],
+    ],
+  },
+  {
+    name: "Saint Petersburg",
+    deg: 135,
+    stops: [
+      ["#f5f7fa", 0],
+      ["#c3cfe2", 100],
+    ],
+  },
+  {
+    name: "Arielle's Smile",
+    deg: 0,
+    stops: [
+      ["#16d9e3", 0],
+      ["#30c7ec", 47],
+      ["#46aef7", 100],
+    ],
+  },
+  {
+    name: "Plum Plate",
+    deg: 135,
+    stops: [
+      ["#667eea", 0],
+      ["#764ba2", 100],
+    ],
+  },
+  {
+    name: "Everlasting Sky",
+    deg: 135,
+    stops: [
+      ["#fdfcfb", 0],
+      ["#e2d1c3", 100],
+    ],
+  },
+  {
+    name: "Happy Fisher",
+    deg: 120,
+    stops: [
+      ["#89f7fe", 0],
+      ["#66a6ff", 100],
+    ],
+  },
+  {
+    name: "Blessing",
+    deg: 0,
+    stops: [
+      ["#fddb92", 0],
+      ["#d1fdff", 100],
+    ],
+  },
+  {
+    name: "Sharpeye Eagle",
+    deg: 0,
+    stops: [
+      ["#9890e3", 0],
+      ["#b1f4cf", 100],
+    ],
+  },
+  {
+    name: "Ladoga Bottom",
+    deg: 0,
+    stops: [
+      ["#ebc0fd", 0],
+      ["#d9ded8", 100],
+    ],
+  },
+  {
+    name: "Lemon Gate",
+    deg: 0,
+    stops: [
+      ["#96fbc4", 0],
+      ["#f9f586", 100],
+    ],
+  },
+  {
+    name: "Itmeo Branding",
+    deg: 180,
+    stops: [
+      ["#2af598", 0],
+      ["#009efd", 100],
+    ],
+  },
+  {
+    name: "Zeus Miracle",
+    deg: 0,
+    stops: [
+      ["#cd9cf2", 0],
+      ["#f6f3ff", 100],
+    ],
+  },
+  {
+    name: "Old Hat",
+    deg: 0,
+    stops: [
+      ["#e4afcb", 0],
+      ["#b8cbb8", 0],
+      ["#b8cbb8", 0],
+      ["#e2c58b", 30],
+      ["#c2ce9c", 64],
+      ["#7edbdc", 100],
+    ],
+  },
+  {
+    name: "Star Wine",
+    deg: 0,
+    stops: [
+      ["#b8cbb8", 0],
+      ["#b8cbb8", 0],
+      ["#b465da", 0],
+      ["#cf6cc9", 33],
+      ["#ee609c", 66],
+      ["#ee609c", 100],
+    ],
+  },
+  {
+    name: "Deep Blue",
+    deg: 120,
+    stops: [
+      ["#e0c3fc", 0],
+      ["#8ec5fc", 100],
+    ],
+  },
+  {
+    name: "Coup de Grace",
+    deg: 0,
+    stops: [
+      ["#DCD9D4", 0],
+      ["#DCD9D4", 100],
+    ],
+  },
+  {
+    name: "Happy Acid",
+    deg: 0,
+    stops: [
+      ["#37ecba", 0],
+      ["#72afd3", 100],
+    ],
+  },
+  {
+    name: "Awesome Pine",
+    deg: 0,
+    stops: [
+      ["#ebbba7", 0],
+      ["#cfc7f8", 100],
+    ],
+  },
+  {
+    name: "New York",
+    deg: 0,
+    stops: [
+      ["#fff1eb", 0],
+      ["#ace0f9", 100],
+    ],
+  },
+  {
+    name: "Shy Rainbow",
+    deg: 0,
+    stops: [
+      ["#eea2a2", 0],
+      ["#bbc1bf", 19],
+      ["#57c6e1", 42],
+    ],
+  },
+  {
+    name: "Loon Crest",
+    deg: 0,
+    stops: [
+      ["#989898", 0],
+      ["#989898", 100],
+    ],
+  },
+  {
+    name: "Mixed Hopes",
+    deg: 0,
+    stops: [
+      ["#c471f5", 0],
+      ["#fa71cd", 100],
+    ],
+  },
+  {
+    name: "Fly High",
+    deg: 0,
+    stops: [
+      ["#48c6ef", 0],
+      ["#6f86d6", 100],
+    ],
+  },
+  {
+    name: "Strong Bliss",
+    deg: 0,
+    stops: [
+      ["#f78ca0", 0],
+      ["#f9748f", 19],
+      ["#fd868c", 60],
+    ],
+  },
+  {
+    name: "Fresh Milk",
+    deg: 0,
+    stops: [
+      ["#feada6", 0],
+      ["#f5efef", 100],
+    ],
+  },
+  {
+    name: "Snow Again",
+    deg: 0,
+    stops: [
+      ["#e6e9f0", 0],
+      ["#eef1f5", 100],
+    ],
+  },
+  {
+    name: "February Ink",
+    deg: 0,
+    stops: [
+      ["#accbee", 0],
+      ["#e7f0fd", 100],
+    ],
+  },
+  {
+    name: "Kind Steel",
+    deg: -20,
+    stops: [
+      ["#e9defa", 0],
+      ["#fbfcdb", 100],
+    ],
+  },
+  {
+    name: "Soft Grass",
+    deg: 0,
+    stops: [
+      ["#c1dfc4", 0],
+      ["#deecdd", 100],
+    ],
+  },
+  {
+    name: "Grown Early",
+    deg: 0,
+    stops: [
+      ["#0ba360", 0],
+      ["#3cba92", 100],
+    ],
+  },
+  {
+    name: "Sharp Blues",
+    deg: 0,
+    stops: [
+      ["#00c6fb", 0],
+      ["#005bea", 100],
+    ],
+  },
+  {
+    name: "Shady Water",
+    deg: 0,
+    stops: [
+      ["#74ebd5", 0],
+      ["#9face6", 100],
+    ],
+  },
+  {
+    name: "Dirty Beauty",
+    deg: 0,
+    stops: [
+      ["#6a85b6", 0],
+      ["#bac8e0", 100],
+    ],
+  },
+  {
+    name: "Great Whale",
+    deg: 0,
+    stops: [
+      ["#a3bded", 0],
+      ["#6991c7", 100],
+    ],
+  },
+  {
+    name: "Teen Notebook",
+    deg: 0,
+    stops: [
+      ["#9795f0", 0],
+      ["#fbc8d4", 100],
+    ],
+  },
+  {
+    name: "Polite Rumors",
+    deg: 0,
+    stops: [
+      ["#a7a6cb", 0],
+      ["#8989ba", 52],
+      ["#8989ba", 100],
+    ],
+  },
+  {
+    name: "Sweet Period",
+    deg: 0,
+    stops: [
+      ["#3f51b1", 0],
+      ["#5a55ae", 13],
+      ["#7b5fac", 25],
+      ["#8f6aae", 38],
+      ["#a86aa4", 50],
+      ["#cc6b8e", 62],
+      ["#f18271", 75],
+      ["#f3a469", 87],
+      ["#f7c978", 100],
+    ],
+  },
+  {
+    name: "Wide Matrix",
+    deg: 0,
+    stops: [
+      ["#fcc5e4", 0],
+      ["#fda34b", 15],
+      ["#ff7882", 35],
+      ["#c8699e", 52],
+      ["#7046aa", 71],
+      ["#0c1db8", 87],
+      ["#020f75", 100],
+    ],
+  },
+  {
+    name: "Soft Cherish",
+    deg: 0,
+    stops: [
+      ["#dbdcd7", 0],
+      ["#dddcd7", 24],
+      ["#e2c9cc", 30],
+      ["#e7627d", 46],
+      ["#b8235a", 59],
+      ["#801357", 71],
+      ["#3d1635", 84],
+      ["#1c1a27", 100],
+    ],
+  },
+  {
+    name: "Red Salvation",
+    deg: 0,
+    stops: [
+      ["#f43b47", 0],
+      ["#453a94", 100],
+    ],
+  },
+  {
+    name: "Burning Spring",
+    deg: 0,
+    stops: [
+      ["#4fb576", 0],
+      ["#44c489", 30],
+      ["#28a9ae", 46],
+      ["#28a2b7", 59],
+      ["#4c7788", 71],
+      ["#6c4f63", 80],
+      ["#432c39", 100],
+    ],
+  },
+  {
+    name: "Night Party",
+    deg: 0,
+    stops: [
+      ["#0250c5", 0],
+      ["#d43f8d", 100],
+    ],
+  },
+  {
+    name: "Sky Glider",
+    deg: 0,
+    stops: [
+      ["#88d3ce", 0],
+      ["#6e45e2", 100],
+    ],
+  },
+  {
+    name: "Heaven Peach",
+    deg: 0,
+    stops: [
+      ["#d9afd9", 0],
+      ["#97d9e1", 100],
+    ],
+  },
+  {
+    name: "Purple Division",
+    deg: 0,
+    stops: [
+      ["#7028e4", 0],
+      ["#e5b2ca", 100],
+    ],
+  },
+  {
+    name: "Aqua Splash",
+    deg: 15,
+    stops: [
+      ["#13547a", 0],
+      ["#80d0c7", 100],
+    ],
+  },
+  {
+    name: "Above Clouds",
+    deg: 0,
+    stops: [
+      ["#BDBBBE", 0],
+      ["#9D9EA3", 100],
+    ],
+  },
+  {
+    name: "Spiky Naga",
+    deg: 0,
+    stops: [
+      ["#505285", 0],
+      ["#585e92", 12],
+      ["#65689f", 25],
+    ],
+  },
+  {
+    name: "Love Kiss",
+    deg: 0,
+    stops: [
+      ["#ff0844", 0],
+      ["#ffb199", 100],
+    ],
+  },
+  {
+    name: "Sharp Glass",
+    deg: 0,
+    stops: [
+      ["#C9CCD3", 0],
+      ["#C9CCD3", 100],
+    ],
+  },
+  {
+    name: "Clean Mirror",
+    deg: 45,
+    stops: [
+      ["#93a5cf", 0],
+      ["#e4efe9", 100],
+    ],
+  },
+  {
+    name: "Premium Dark",
+    deg: 0,
+    stops: [
+      ["#434343", 0],
+      ["#000000", 100],
+    ],
+  },
+  {
+    name: "Cold Evening",
+    deg: 0,
+    stops: [
+      ["#0c3483", 0],
+      ["#a2b6df", 100],
+      ["#6b8cce", 100],
+    ],
+  },
+  {
+    name: "Cochiti Lake",
+    deg: 45,
+    stops: [
+      ["#93a5cf", 0],
+      ["#e4efe9", 100],
+    ],
+  },
+  {
+    name: "Summer Games",
+    deg: 0,
+    stops: [
+      ["#92fe9d", 0],
+      ["#00c9ff", 100],
+    ],
+  },
+  {
+    name: "Passionate Bed",
+    deg: 0,
+    stops: [
+      ["#ff758c", 0],
+      ["#ff7eb3", 100],
+    ],
+  },
+  {
+    name: "Mountain Rock",
+    deg: 0,
+    stops: [
+      ["#868f96", 0],
+      ["#596164", 100],
+    ],
+  },
+  {
+    name: "Desert Hump",
+    deg: 0,
+    stops: [
+      ["#c79081", 0],
+      ["#dfa579", 100],
+    ],
+  },
+  {
+    name: "Jungle Day",
+    deg: 45,
+    stops: [
+      ["#8baaaa", 0],
+      ["#ae8b9c", 100],
+    ],
+  },
+  {
+    name: "Phoenix Start",
+    deg: 0,
+    stops: [
+      ["#f83600", 0],
+      ["#f9d423", 100],
+    ],
+  },
+  {
+    name: "October Silence",
+    deg: -20,
+    stops: [
+      ["#b721ff", 0],
+      ["#21d4fd", 100],
+    ],
+  },
+  {
+    name: "Faraway River",
+    deg: -20,
+    stops: [
+      ["#6e45e2", 0],
+      ["#88d3ce", 100],
+    ],
+  },
+  {
+    name: "Alchemist Lab",
+    deg: -20,
+    stops: [
+      ["#d558c8", 0],
+      ["#24d292", 100],
+    ],
+  },
+  {
+    name: "Over Sun",
+    deg: 60,
+    stops: [
+      ["#abecd6", 0],
+      ["#fbed96", 100],
+    ],
+  },
+  {
+    name: "Premium White",
+    deg: 0,
+    stops: [
+      ["#d5d4d0", 0],
+      ["#d5d4d0", 1],
+      ["#eeeeec", 31],
+    ],
+  },
+  {
+    name: "Mars Party",
+    deg: 0,
+    stops: [
+      ["#5f72bd", 0],
+      ["#9b23ea", 100],
+    ],
+  },
+  {
+    name: "Eternal Constance",
+    deg: 0,
+    stops: [
+      ["#09203f", 0],
+      ["#537895", 100],
+    ],
+  },
+  {
+    name: "Japan Blush",
+    deg: -20,
+    stops: [
+      ["#ddd6f3", 0],
+      ["#faaca8", 100],
+      ["#faaca8", 100],
+    ],
+  },
+  {
+    name: "Smiling Rain",
+    deg: -20,
+    stops: [
+      ["#dcb0ed", 0],
+      ["#99c99c", 100],
+    ],
+  },
+  {
+    name: "Cloudy Apple",
+    deg: 0,
+    stops: [
+      ["#f3e7e9", 0],
+      ["#e3eeff", 99],
+      ["#e3eeff", 100],
+    ],
+  },
+  {
+    name: "Big Mango",
+    deg: 0,
+    stops: [
+      ["#c71d6f", 0],
+      ["#d09693", 100],
+    ],
+  },
+  {
+    name: "Healthy Water",
+    deg: 60,
+    stops: [
+      ["#96deda", 0],
+      ["#50c9c3", 100],
+    ],
+  },
+  {
+    name: "Amour Amour",
+    deg: 0,
+    stops: [
+      ["#f77062", 0],
+      ["#fe5196", 100],
+    ],
+  },
+  {
+    name: "Risky Concrete",
+    deg: 0,
+    stops: [
+      ["#c4c5c7", 0],
+      ["#dcdddf", 52],
+      ["#ebebeb", 100],
+    ],
+  },
+  {
+    name: "Strong Stick",
+    deg: 0,
+    stops: [
+      ["#a8caba", 0],
+      ["#5d4157", 100],
+    ],
+  },
+  {
+    name: "Vicious Stance",
+    deg: 60,
+    stops: [
+      ["#29323c", 0],
+      ["#485563", 100],
+    ],
+  },
+  {
+    name: "Palo Alto",
+    deg: -60,
+    stops: [
+      ["#16a085", 0],
+      ["#f4d03f", 100],
+    ],
+  },
+  {
+    name: "Happy Memories",
+    deg: -60,
+    stops: [
+      ["#ff5858", 0],
+      ["#f09819", 100],
+    ],
+  },
+  {
+    name: "Midnight Bloom",
+    deg: -20,
+    stops: [
+      ["#2b5876", 0],
+      ["#4e4376", 100],
+    ],
+  },
+  {
+    name: "Crystalline",
+    deg: -20,
+    stops: [
+      ["#00cdac", 0],
+      ["#8ddad5", 100],
+    ],
+  },
+  {
+    name: "Raccoon Back",
+    deg: -180,
+    stops: [
+      ["#BCC5CE", 0],
+      ["#929EAD", 98],
+    ],
+  },
+  {
+    name: "Party Bliss",
+    deg: 0,
+    stops: [
+      ["#4481eb", 0],
+      ["#04befe", 100],
+    ],
+  },
+  {
+    name: "Confident Cloud",
+    deg: 0,
+    stops: [
+      ["#dad4ec", 0],
+      ["#dad4ec", 1],
+      ["#f3e7e9", 100],
+    ],
+  },
+  {
+    name: "Le Cocktail",
+    deg: 45,
+    stops: [
+      ["#874da2", 0],
+      ["#c43a30", 100],
+    ],
+  },
+  {
+    name: "River City",
+    deg: 0,
+    stops: [
+      ["#4481eb", 0],
+      ["#04befe", 100],
+    ],
+  },
+  {
+    name: "Frozen Berry",
+    deg: 0,
+    stops: [
+      ["#e8198b", 0],
+      ["#c7eafd", 100],
+    ],
+  },
+  {
+    name: "Elegance",
+    deg: 0,
+    stops: [
+      ["#EADFDF", 59],
+      ["#ECE2DF", 100],
+    ],
+  },
+  {
+    name: "Child Care",
+    deg: -20,
+    stops: [
+      ["#f794a4", 0],
+      ["#fdd6bd", 100],
+    ],
+  },
+  {
+    name: "Flying Lemon",
+    deg: 60,
+    stops: [
+      ["#64b3f4", 0],
+      ["#c2e59c", 100],
+    ],
+  },
+  {
+    name: "New Retrowave",
+    deg: 0,
+    stops: [
+      ["#3b41c5", 0],
+      ["#a981bb", 49],
+      ["#ffc8a9", 100],
+    ],
+  },
+  {
+    name: "Hidden Jaguar",
+    deg: 0,
+    stops: [
+      ["#0fd850", 0],
+      ["#f9f047", 100],
+    ],
+  },
+  {
+    name: "Above The Sky",
+    deg: 0,
+    stops: [
+      ["#d3d3d3", 0],
+      ["#d3d3d3", 1],
+      ["#e0e0e0", 26],
+    ],
+  },
+  {
+    name: "Nega",
+    deg: 45,
+    stops: [
+      ["#ee9ca7", 0],
+      ["#ffdde1", 100],
+    ],
+  },
+  {
+    name: "Dense Water",
+    deg: 0,
+    stops: [
+      ["#3ab5b0", 0],
+      ["#3d99be", 31],
+      ["#56317a", 100],
+    ],
+  },
+  {
+    name: "Chemic Aqua",
+    deg: 0,
+    stops: [
+      ["#CDDCDC", 0],
+      ["#CDDCDC", 100],
+    ],
+  },
+  {
+    name: "Seashore",
+    deg: 0,
+    stops: [
+      ["#209cff", 0],
+      ["#68e0cf", 100],
+    ],
+  },
+  {
+    name: "Marble Wall",
+    deg: 0,
+    stops: [
+      ["#bdc2e8", 0],
+      ["#bdc2e8", 1],
+      ["#e6dee9", 100],
+    ],
+  },
+  {
+    name: "Cheerful Caramel",
+    deg: 0,
+    stops: [
+      ["#e6b980", 0],
+      ["#eacda3", 100],
+    ],
+  },
+  {
+    name: "Night Sky",
+    deg: 0,
+    stops: [
+      ["#1e3c72", 0],
+      ["#1e3c72", 1],
+      ["#2a5298", 100],
+    ],
+  },
+  {
+    name: "Magic Lake",
+    deg: 0,
+    stops: [
+      ["#d5dee7", 0],
+      ["#ffafbd", 0],
+      ["#c9ffbf", 100],
+    ],
+  },
+  {
+    name: "Young Grass",
+    deg: 0,
+    stops: [
+      ["#9be15d", 0],
+      ["#00e3ae", 100],
+    ],
+  },
+  {
+    name: "Colorful Peach",
+    deg: 0,
+    stops: [
+      ["#ed6ea0", 0],
+      ["#ec8c69", 100],
+    ],
+  },
+  {
+    name: "Gentle Care",
+    deg: 0,
+    stops: [
+      ["#ffc3a0", 0],
+      ["#ffafbd", 100],
+    ],
+  },
+  {
+    name: "Plum Bath",
+    deg: 0,
+    stops: [
+      ["#cc208e", 0],
+      ["#6713d2", 100],
+    ],
+  },
+  {
+    name: "Happy Unicorn",
+    deg: 0,
+    stops: [
+      ["#b3ffab", 0],
+      ["#12fff7", 100],
+    ],
+  },
+  {
+    name: "Full Metal",
+    deg: 0,
+    stops: [
+      ["#D5DEE7", 0],
+      ["#E8EBF2", 50],
+      ["#E2E7ED", 100],
+    ],
+  },
+  {
+    name: "African Field",
+    deg: 0,
+    stops: [
+      ["#65bd60", 0],
+      ["#5ac1a8", 25],
+      ["#3ec6ed", 50],
+    ],
+  },
+  {
+    name: "Solid Stone",
+    deg: 0,
+    stops: [
+      ["#243949", 0],
+      ["#517fa4", 100],
+    ],
+  },
+  {
+    name: "Orange Juice",
+    deg: -20,
+    stops: [
+      ["#fc6076", 0],
+      ["#ff9a44", 100],
+    ],
+  },
+  {
+    name: "Glass Water",
+    deg: 0,
+    stops: [
+      ["#dfe9f3", 0],
+      ["#ffffff", 100],
+    ],
+  },
+  {
+    name: "Slick Carbon",
+    deg: 180,
+    stops: [
+      ["#323232", 0],
+      ["#3F3F3F", 40],
+      ["#1C1C1C", 150],
+    ],
+  },
+  {
+    name: "North Miracle",
+    deg: 0,
+    stops: [
+      ["#00dbde", 0],
+      ["#fc00ff", 100],
+    ],
+  },
+  {
+    name: "Fruit Blend",
+    deg: 0,
+    stops: [
+      ["#f9d423", 0],
+      ["#ff4e50", 100],
+    ],
+  },
+  {
+    name: "Millennium Pine",
+    deg: 0,
+    stops: [
+      ["#50cc7f", 0],
+      ["#f5d100", 100],
+    ],
+  },
+  {
+    name: "High Flight",
+    deg: 0,
+    stops: [
+      ["#0acffe", 0],
+      ["#495aff", 100],
+    ],
+  },
+  {
+    name: "Mole Hall",
+    deg: -20,
+    stops: [
+      ["#616161", 0],
+      ["#9bc5c3", 100],
+    ],
+  },
+  {
+    name: "Earl Gray",
+    deg: 0,
+    stops: [
+      ["#E4E4E1", 0],
+      ["#E4E4E1", 100],
+    ],
+  },
+  {
+    name: "Space Shift",
+    deg: 60,
+    stops: [
+      ["#3d3393", 0],
+      ["#2b76b9", 37],
+      ["#2cacd1", 65],
+      ["#35eb93", 100],
+    ],
+  },
+  {
+    name: "Forest Inei",
+    deg: 0,
+    stops: [
+      ["#df89b5", 0],
+      ["#bfd9fe", 100],
+    ],
+  },
+  {
+    name: "Royal Garden",
+    deg: 0,
+    stops: [
+      ["#ed6ea0", 0],
+      ["#ec8c69", 100],
+    ],
+  },
+  {
+    name: "Rich Metal",
+    deg: 0,
+    stops: [
+      ["#d7d2cc", 0],
+      ["#304352", 100],
+    ],
+  },
+  {
+    name: "Juicy Cake",
+    deg: 0,
+    stops: [
+      ["#e14fad", 0],
+      ["#f9d423", 100],
+    ],
+  },
+  {
+    name: "Smart Indigo",
+    deg: 0,
+    stops: [
+      ["#b224ef", 0],
+      ["#7579ff", 100],
+    ],
+  },
+  {
+    name: "Sand Strike",
+    deg: 0,
+    stops: [
+      ["#c1c161", 0],
+      ["#c1c161", 0],
+      ["#d4d4b1", 100],
+    ],
+  },
+  {
+    name: "Norse Beauty",
+    deg: 0,
+    stops: [
+      ["#ec77ab", 0],
+      ["#7873f5", 100],
+    ],
+  },
+  {
+    name: "Aqua Guidance",
+    deg: 0,
+    stops: [
+      ["#007adf", 0],
+      ["#00ecbc", 100],
+    ],
+  },
+  {
+    name: "Sun Veggie",
+    deg: -225,
+    stops: [
+      ["#20E2D7", 0],
+      ["#F9FEA5", 100],
+    ],
+  },
+  {
+    name: "Sea Lord",
+    deg: -225,
+    stops: [
+      ["#2CD8D5", 0],
+      ["#C5C1FF", 56],
+      ["#FFBAC3", 100],
+    ],
+  },
+  {
+    name: "Black Sea",
+    deg: -225,
+    stops: [
+      ["#2CD8D5", 0],
+      ["#6B8DD6", 48],
+      ["#8E37D7", 100],
+    ],
+  },
+  {
+    name: "Grass Shampoo",
+    deg: -225,
+    stops: [
+      ["#DFFFCD", 0],
+      ["#90F9C4", 48],
+      ["#39F3BB", 100],
+    ],
+  },
+  {
+    name: "Landing Aircraft",
+    deg: -225,
+    stops: [
+      ["#5D9FFF", 0],
+      ["#B8DCFF", 48],
+      ["#6BBBFF", 100],
+    ],
+  },
+  {
+    name: "Witch Dance",
+    deg: -225,
+    stops: [
+      ["#A8BFFF", 0],
+      ["#884D80", 100],
+    ],
+  },
+  {
+    name: "Sleepless Night",
+    deg: -225,
+    stops: [
+      ["#5271C4", 0],
+      ["#B19FFF", 48],
+      ["#ECA1FE", 100],
+    ],
+  },
+  {
+    name: "Angel Care",
+    deg: -225,
+    stops: [
+      ["#FFE29F", 0],
+      ["#FFA99F", 48],
+      ["#FF719A", 100],
+    ],
+  },
+  {
+    name: "Crystal River",
+    deg: -225,
+    stops: [
+      ["#22E1FF", 0],
+      ["#1D8FE1", 48],
+      ["#625EB1", 100],
+    ],
+  },
+  {
+    name: "Soft Lipstick",
+    deg: -225,
+    stops: [
+      ["#B6CEE8", 0],
+      ["#F578DC", 100],
+    ],
+  },
+  {
+    name: "Salt Mountain",
+    deg: -225,
+    stops: [
+      ["#FFFEFF", 0],
+      ["#D7FFFE", 100],
+    ],
+  },
+  {
+    name: "Perfect White",
+    deg: -225,
+    stops: [
+      ["#E3FDF5", 0],
+      ["#FFE6FA", 100],
+    ],
+  },
+  {
+    name: "Fresh Oasis",
+    deg: -225,
+    stops: [
+      ["#7DE2FC", 0],
+      ["#B9B6E5", 100],
+    ],
+  },
+  {
+    name: "Strict November",
+    deg: -225,
+    stops: [
+      ["#CBBACC", 0],
+      ["#2580B3", 100],
+    ],
+  },
+  {
+    name: "Morning Salad",
+    deg: -225,
+    stops: [
+      ["#B7F8DB", 0],
+      ["#50A7C2", 100],
+    ],
+  },
+  {
+    name: "Deep Relief",
+    deg: -225,
+    stops: [
+      ["#7085B6", 0],
+      ["#87A7D9", 50],
+      ["#DEF3F8", 100],
+    ],
+  },
+  {
+    name: "Sea Strike",
+    deg: -225,
+    stops: [
+      ["#77FFD2", 0],
+      ["#6297DB", 48],
+      ["#1EECFF", 100],
+    ],
+  },
+  {
+    name: "Night Call",
+    deg: -225,
+    stops: [
+      ["#AC32E4", 0],
+      ["#7918F2", 48],
+      ["#4801FF", 100],
+    ],
+  },
+  {
+    name: "Supreme Sky",
+    deg: -225,
+    stops: [
+      ["#D4FFEC", 0],
+      ["#57F2CC", 48],
+      ["#4596FB", 100],
+    ],
+  },
+  {
+    name: "Light Blue",
+    deg: -225,
+    stops: [
+      ["#9EFBD3", 0],
+      ["#57E9F2", 48],
+      ["#45D4FB", 100],
+    ],
+  },
+  {
+    name: "Mind Crawl",
+    deg: -225,
+    stops: [
+      ["#473B7B", 0],
+      ["#3584A7", 51],
+      ["#30D2BE", 100],
+    ],
+  },
+  {
+    name: "Lily Meadow",
+    deg: -225,
+    stops: [
+      ["#65379B", 0],
+      ["#886AEA", 53],
+      ["#6457C6", 100],
+    ],
+  },
+  {
+    name: "Sugar Lollipop",
+    deg: -225,
+    stops: [
+      ["#A445B2", 0],
+      ["#D41872", 52],
+      ["#FF0066", 100],
+    ],
+  },
+  {
+    name: "Sweet Dessert",
+    deg: -225,
+    stops: [
+      ["#7742B2", 0],
+      ["#F180FF", 52],
+      ["#FD8BD9", 100],
+    ],
+  },
+  {
+    name: "Magic Ray",
+    deg: -225,
+    stops: [
+      ["#FF3CAC", 0],
+      ["#562B7C", 52],
+      ["#2B86C5", 100],
+    ],
+  },
+  {
+    name: "Teen Party",
+    deg: -225,
+    stops: [
+      ["#FF057C", 0],
+      ["#8D0B93", 50],
+      ["#321575", 100],
+    ],
+  },
+  {
+    name: "Frozen Heat",
+    deg: -225,
+    stops: [
+      ["#FF057C", 0],
+      ["#7C64D5", 48],
+      ["#4CC3FF", 100],
+    ],
+  },
+  {
+    name: "Gagarin View",
+    deg: -225,
+    stops: [
+      ["#69EACB", 0],
+      ["#EACCF8", 48],
+      ["#6654F1", 100],
+    ],
+  },
+  {
+    name: "Fabled Sunset",
+    deg: -225,
+    stops: [
+      ["#231557", 0],
+      ["#44107A", 29],
+      ["#FF1361", 67],
+    ],
+  },
+  {
+    name: "Perfect Blue",
+    deg: -225,
+    stops: [
+      ["#3D4E81", 0],
+      ["#5753C9", 48],
+      ["#6E7FF3", 100],
+    ],
+  },
 ];
 const GENERATED_GRADIENTS = WEBGRADIENTS.map(({ name, deg, stops }) => ({
   label: name,
@@ -476,8 +1875,11 @@ const MONOCHROMATIC_GRADIENTS = MONOCHROMATIC_HUES.map(({ name, hue, sat }) => (
 // cool = greens/teals/blues/purples — same split the reference image's
 // rows actually land on: greens sit in "Cool tones" there, not "Warm").
 function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
-  const rn = r / 255, gn = g / 255, bn = b / 255;
-  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn);
+  const rn = r / 255,
+    gn = g / 255,
+    bn = b / 255;
+  const max = Math.max(rn, gn, bn),
+    min = Math.min(rn, gn, bn);
   const l = (max + min) / 2;
   if (max === min) return { h: 0, s: 0, l: l * 100 };
   const d = max - min;
@@ -609,9 +2011,12 @@ export function parseGradientCss(
 // than that (most of the WEBGRADIENTS/COSINE_PALETTES entries), but shows
 // something recognizably related to the source gradient instead of the
 // editor's unrelated leftover defaults.
-export function reduceGradientStops(
-  stops: { color: string; pos: number }[],
-): { start: string; mid?: string; accent2?: string; end: string } {
+export function reduceGradientStops(stops: { color: string; pos: number }[]): {
+  start: string;
+  mid?: string;
+  accent2?: string;
+  end: string;
+} {
   const n = stops.length;
   if (n === 0) return { start: "#6366f1", end: "#ec4899" };
   if (n === 1) return { start: stops[0]!.color, end: stops[0]!.color };
@@ -654,61 +2059,271 @@ export const ALL_FONT_WEIGHTS = [
 
 export const FONTS: FontOption[] = [
   // Top Modern Sans-Serif (25)
-  { label: "Outfit", value: '"Outfit", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Inter", value: '"Inter", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Plus Jakarta Sans", value: '"Plus Jakarta Sans", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800] },
-  { label: "Poppins", value: '"Poppins", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Montserrat", value: '"Montserrat", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Space Grotesk", value: '"Space Grotesk", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700] },
-  { label: "DM Sans", value: '"DM Sans", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Manrope", value: '"Manrope", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800] },
-  { label: "Urbanist", value: '"Urbanist", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Work Sans", value: '"Work Sans", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Raleway", value: '"Raleway", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Nunito", value: '"Nunito", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Rubik", value: '"Rubik", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700, 800, 900] },
-  { label: "Sora", value: '"Sora", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800] },
-  { label: "Syne", value: '"Syne", sans-serif', category: "sans", weights: [400, 500, 600, 700, 800] },
-  { label: "Figtree", value: '"Figtree", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700, 800, 900] },
-  { label: "Lexend", value: '"Lexend", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Bricolage Grotesque", value: '"Bricolage Grotesque", sans-serif', category: "sans", weights: [200, 300, 400, 500, 600, 700, 800] },
-  { label: "Instrument Sans", value: '"Instrument Sans", sans-serif', category: "sans", weights: [400, 500, 600, 700] },
-  { label: "Spline Sans", value: '"Spline Sans", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700] },
-  { label: "Public Sans", value: '"Public Sans", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Epilogue", value: '"Epilogue", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Archivo", value: '"Archivo", sans-serif', category: "sans", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
+  {
+    label: "Outfit",
+    value: '"Outfit", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Inter",
+    value: '"Inter", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Plus Jakarta Sans",
+    value: '"Plus Jakarta Sans", sans-serif',
+    category: "sans",
+    weights: [200, 300, 400, 500, 600, 700, 800],
+  },
+  {
+    label: "Poppins",
+    value: '"Poppins", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Montserrat",
+    value: '"Montserrat", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Space Grotesk",
+    value: '"Space Grotesk", sans-serif',
+    category: "sans",
+    weights: [300, 400, 500, 600, 700],
+  },
+  {
+    label: "DM Sans",
+    value: '"DM Sans", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Manrope",
+    value: '"Manrope", sans-serif',
+    category: "sans",
+    weights: [200, 300, 400, 500, 600, 700, 800],
+  },
+  {
+    label: "Urbanist",
+    value: '"Urbanist", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Work Sans",
+    value: '"Work Sans", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Raleway",
+    value: '"Raleway", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Nunito",
+    value: '"Nunito", sans-serif',
+    category: "sans",
+    weights: [200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Rubik",
+    value: '"Rubik", sans-serif',
+    category: "sans",
+    weights: [300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Sora",
+    value: '"Sora", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800],
+  },
+  {
+    label: "Syne",
+    value: '"Syne", sans-serif',
+    category: "sans",
+    weights: [400, 500, 600, 700, 800],
+  },
+  {
+    label: "Figtree",
+    value: '"Figtree", sans-serif',
+    category: "sans",
+    weights: [300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Lexend",
+    value: '"Lexend", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Bricolage Grotesque",
+    value: '"Bricolage Grotesque", sans-serif',
+    category: "sans",
+    weights: [200, 300, 400, 500, 600, 700, 800],
+  },
+  {
+    label: "Instrument Sans",
+    value: '"Instrument Sans", sans-serif',
+    category: "sans",
+    weights: [400, 500, 600, 700],
+  },
+  {
+    label: "Spline Sans",
+    value: '"Spline Sans", sans-serif',
+    category: "sans",
+    weights: [300, 400, 500, 600, 700],
+  },
+  {
+    label: "Public Sans",
+    value: '"Public Sans", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Epilogue",
+    value: '"Epilogue", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Archivo",
+    value: '"Archivo", sans-serif',
+    category: "sans",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
   { label: "Cabin", value: '"Cabin", sans-serif', category: "sans", weights: [400, 500, 600, 700] },
-  { label: "Red Hat Display", value: '"Red Hat Display", sans-serif', category: "sans", weights: [300, 400, 500, 600, 700, 800, 900] },
+  {
+    label: "Red Hat Display",
+    value: '"Red Hat Display", sans-serif',
+    category: "sans",
+    weights: [300, 400, 500, 600, 700, 800, 900],
+  },
 
   // Top Editorial & Luxury Serifs (15)
-  { label: "Playfair Display", value: '"Playfair Display", Georgia, serif', category: "serif", weights: [400, 500, 600, 700, 800, 900] },
-  { label: "Lora", value: '"Lora", Georgia, serif', category: "serif", weights: [400, 500, 600, 700] },
-  { label: "Merriweather", value: '"Merriweather", Georgia, serif', category: "serif", weights: [300, 400, 700, 900] },
-  { label: "Cormorant Garamond", value: '"Cormorant Garamond", Georgia, serif', category: "serif", weights: [300, 400, 500, 600, 700] },
-  { label: "Cinzel", value: '"Cinzel", serif', category: "serif", weights: [400, 500, 600, 700, 800, 900] },
+  {
+    label: "Playfair Display",
+    value: '"Playfair Display", Georgia, serif',
+    category: "serif",
+    weights: [400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Lora",
+    value: '"Lora", Georgia, serif',
+    category: "serif",
+    weights: [400, 500, 600, 700],
+  },
+  {
+    label: "Merriweather",
+    value: '"Merriweather", Georgia, serif',
+    category: "serif",
+    weights: [300, 400, 700, 900],
+  },
+  {
+    label: "Cormorant Garamond",
+    value: '"Cormorant Garamond", Georgia, serif',
+    category: "serif",
+    weights: [300, 400, 500, 600, 700],
+  },
+  {
+    label: "Cinzel",
+    value: '"Cinzel", serif',
+    category: "serif",
+    weights: [400, 500, 600, 700, 800, 900],
+  },
   { label: "Prata", value: '"Prata", serif', category: "serif", weights: [400] },
-  { label: "Fraunces", value: '"Fraunces", serif', category: "serif", weights: [100, 200, 300, 400, 500, 600, 700, 800, 900] },
-  { label: "Bodoni Moda", value: '"Bodoni Moda", serif', category: "serif", weights: [400, 500, 600, 700, 800, 900] },
-  { label: "DM Serif Display", value: '"DM Serif Display", serif', category: "serif", weights: [400] },
-  { label: "Libre Baskerville", value: '"Libre Baskerville", serif', category: "serif", weights: [400, 700] },
-  { label: "EB Garamond", value: '"EB Garamond", serif', category: "serif", weights: [400, 500, 600, 700, 800] },
-  { label: "Newsreader", value: '"Newsreader", serif', category: "serif", weights: [200, 300, 400, 500, 600, 700, 800] },
-  { label: "Spectral", value: '"Spectral", serif', category: "serif", weights: [200, 300, 400, 500, 600, 700, 800] },
+  {
+    label: "Fraunces",
+    value: '"Fraunces", serif',
+    category: "serif",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "Bodoni Moda",
+    value: '"Bodoni Moda", serif',
+    category: "serif",
+    weights: [400, 500, 600, 700, 800, 900],
+  },
+  {
+    label: "DM Serif Display",
+    value: '"DM Serif Display", serif',
+    category: "serif",
+    weights: [400],
+  },
+  {
+    label: "Libre Baskerville",
+    value: '"Libre Baskerville", serif',
+    category: "serif",
+    weights: [400, 700],
+  },
+  {
+    label: "EB Garamond",
+    value: '"EB Garamond", serif',
+    category: "serif",
+    weights: [400, 500, 600, 700, 800],
+  },
+  {
+    label: "Newsreader",
+    value: '"Newsreader", serif',
+    category: "serif",
+    weights: [200, 300, 400, 500, 600, 700, 800],
+  },
+  {
+    label: "Spectral",
+    value: '"Spectral", serif',
+    category: "serif",
+    weights: [200, 300, 400, 500, 600, 700, 800],
+  },
   { label: "Marcellus", value: '"Marcellus", serif', category: "serif", weights: [400] },
   { label: "Rozha One", value: '"Rozha One", serif', category: "serif", weights: [400] },
 
   // Top Modern Monospace (5)
-  { label: "JetBrains Mono", value: '"JetBrains Mono", ui-monospace, monospace', category: "mono", weights: [100, 200, 300, 400, 500, 600, 700, 800] },
+  {
+    label: "JetBrains Mono",
+    value: '"JetBrains Mono", ui-monospace, monospace',
+    category: "mono",
+    weights: [100, 200, 300, 400, 500, 600, 700, 800],
+  },
   { label: "Space Mono", value: '"Space Mono", monospace', category: "mono", weights: [400, 700] },
-  { label: "Fira Code", value: '"Fira Code", monospace', category: "mono", weights: [300, 400, 500, 600, 700] },
-  { label: "IBM Plex Mono", value: '"IBM Plex Mono", monospace', category: "mono", weights: [100, 200, 300, 400, 500, 600, 700] },
-  { label: "Source Code Pro", value: '"Source Code Pro", monospace', category: "mono", weights: [200, 300, 400, 500, 600, 700, 800, 900] },
+  {
+    label: "Fira Code",
+    value: '"Fira Code", monospace',
+    category: "mono",
+    weights: [300, 400, 500, 600, 700],
+  },
+  {
+    label: "IBM Plex Mono",
+    value: '"IBM Plex Mono", monospace',
+    category: "mono",
+    weights: [100, 200, 300, 400, 500, 600, 700],
+  },
+  {
+    label: "Source Code Pro",
+    value: '"Source Code Pro", monospace',
+    category: "mono",
+    weights: [200, 300, 400, 500, 600, 700, 800, 900],
+  },
 
   // Top Display & Handwriting (5)
   { label: "Bebas Neue", value: '"Bebas Neue", sans-serif', category: "display", weights: [400] },
   { label: "Anton", value: '"Anton", sans-serif', category: "display", weights: [400] },
-  { label: "Caveat", value: '"Caveat", cursive', category: "handwriting", weights: [400, 500, 600, 700] },
-  { label: "Dancing Script", value: '"Dancing Script", cursive', category: "handwriting", weights: [400, 500, 600, 700] },
+  {
+    label: "Caveat",
+    value: '"Caveat", cursive',
+    category: "handwriting",
+    weights: [400, 500, 600, 700],
+  },
+  {
+    label: "Dancing Script",
+    value: '"Dancing Script", cursive',
+    category: "handwriting",
+    weights: [400, 500, 600, 700],
+  },
   { label: "Pacifico", value: '"Pacifico", cursive', category: "handwriting", weights: [400] },
 ];
 
@@ -760,7 +2375,11 @@ export function findFontOption(fonts: FontOption[], value?: string): FontOption 
   const clean = cleanFontFamily(value).toLowerCase();
   if (!clean) return undefined;
   return fonts.find((f) => {
-    return isSameFontFamily(f.value, value) || f.label.toLowerCase() === clean || cleanFontFamily(f.value).toLowerCase() === clean;
+    return (
+      isSameFontFamily(f.value, value) ||
+      f.label.toLowerCase() === clean ||
+      cleanFontFamily(f.value).toLowerCase() === clean
+    );
   });
 }
 
@@ -914,9 +2533,15 @@ export function normalizeColorToHex(color?: string | null): string {
   }
   const rgbMatch = c.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
   if (rgbMatch) {
-    const r = parseInt(rgbMatch[1] ?? "0", 10).toString(16).padStart(2, "0");
-    const g = parseInt(rgbMatch[2] ?? "0", 10).toString(16).padStart(2, "0");
-    const b = parseInt(rgbMatch[3] ?? "0", 10).toString(16).padStart(2, "0");
+    const r = parseInt(rgbMatch[1] ?? "0", 10)
+      .toString(16)
+      .padStart(2, "0");
+    const g = parseInt(rgbMatch[2] ?? "0", 10)
+      .toString(16)
+      .padStart(2, "0");
+    const b = parseInt(rgbMatch[3] ?? "0", 10)
+      .toString(16)
+      .padStart(2, "0");
     return `#${r}${g}${b}`;
   }
   if (c === "white") return "#ffffff";
@@ -1193,7 +2818,11 @@ export function inferLineStyleFromKind(kind: LineKind): {
     case "line-arrow-right":
     case "line-arrow-open-right":
     case "line-arrow-dotted-right":
-      return { style, start: "none", end: kind === "line-arrow-open-right" ? "arrow-open" : "arrow" };
+      return {
+        style,
+        start: "none",
+        end: kind === "line-arrow-open-right" ? "arrow-open" : "arrow",
+      };
     case "line-tbar":
       return { style, start: "tbar", end: "tbar" };
     case "line-double-arrow":
@@ -1249,13 +2878,21 @@ export const LINE_PRESETS: { id: string; label: string; kind: LineKind }[] = [
   { id: "line-arrow-dotted-right", label: "Dotted Arrow Right", kind: "line-arrow-dotted-right" },
   { id: "line-tbar", label: "T-Bar Line", kind: "line-tbar" },
   { id: "line-double-arrow", label: "Double Arrow", kind: "line-double-arrow" },
-  { id: "line-double-arrow-dotted", label: "Dotted Double Arrow", kind: "line-double-arrow-dotted" },
+  {
+    id: "line-double-arrow-dotted",
+    label: "Dotted Double Arrow",
+    kind: "line-double-arrow-dotted",
+  },
   { id: "line-square-ends", label: "Square Ends", kind: "line-square-ends" },
   { id: "line-circle-ends", label: "Circle Ends", kind: "line-circle-ends" },
   { id: "line-diamond-ends", label: "Diamond Ends", kind: "line-diamond-ends" },
   { id: "line-square-hollow-ends", label: "Hollow Square Ends", kind: "line-square-hollow-ends" },
   { id: "line-circle-hollow-ends", label: "Hollow Circle Ends", kind: "line-circle-hollow-ends" },
-  { id: "line-diamond-hollow-ends", label: "Hollow Diamond Ends", kind: "line-diamond-hollow-ends" },
+  {
+    id: "line-diamond-hollow-ends",
+    label: "Hollow Diamond Ends",
+    kind: "line-diamond-hollow-ends",
+  },
 ];
 
 // Picker entries — several share a `kind` (square/rounded/circle are all
@@ -1300,7 +2937,7 @@ export const CANVA_FRAME_PLACEHOLDER_SRC =
       </g>
       <path d="M -20 270 Q 80 190 220 235 Q 340 275 420 225 L 420 420 L -20 420 Z" fill="#7ba315" />
       <path d="M -20 315 Q 120 245 280 305 Q 360 335 420 305 L 420 420 L -20 420 Z" fill="#9bc81e" />
-    </svg>`
+    </svg>`,
   );
 
 export const FRAME_PRESETS: { id: string; label: string; kind: FrameKind }[] = [
@@ -1313,7 +2950,11 @@ export const FRAME_PRESETS: { id: string; label: string; kind: FrameKind }[] = [
   { id: "pentagon", label: "Pentagon Frame", kind: "pentagon" },
   { id: "hexagon-v", label: "Hexagon Vertical Frame", kind: "hexagon-v" },
   { id: "hexagon-h", label: "Hexagon Horizontal Frame", kind: "hexagon-h" },
-  { id: "hexagon-horizontal-pill", label: "Elongated Hexagon Frame", kind: "hexagon-horizontal-pill" },
+  {
+    id: "hexagon-horizontal-pill",
+    label: "Elongated Hexagon Frame",
+    kind: "hexagon-horizontal-pill",
+  },
   { id: "octagon", label: "Octagon Frame", kind: "octagon" },
   { id: "star-4", label: "4-Point Star Frame", kind: "star-4" },
   { id: "star-5", label: "5-Point Star Frame", kind: "star-5" },
@@ -1328,8 +2969,16 @@ export const FRAME_PRESETS: { id: string; label: string; kind: FrameKind }[] = [
   { id: "arrow-down", label: "Down Arrow Frame", kind: "arrow-down" },
   { id: "arrow-right", label: "Right Arrow Frame", kind: "arrow-right" },
   { id: "arrow-left", label: "Left Arrow Frame", kind: "arrow-left" },
-  { id: "arrow-bidirectional-h", label: "Double Arrow Horizontal Frame", kind: "arrow-bidirectional-h" },
-  { id: "arrow-bidirectional-v", label: "Double Arrow Vertical Frame", kind: "arrow-bidirectional-v" },
+  {
+    id: "arrow-bidirectional-h",
+    label: "Double Arrow Horizontal Frame",
+    kind: "arrow-bidirectional-h",
+  },
+  {
+    id: "arrow-bidirectional-v",
+    label: "Double Arrow Vertical Frame",
+    kind: "arrow-bidirectional-v",
+  },
   { id: "arrow-pentagon-right", label: "Tag / Signpost Frame", kind: "arrow-pentagon-right" },
   { id: "arrow-chevron-right", label: "Chevron Notch Frame", kind: "arrow-chevron-right" },
   { id: "ribbon-horizontal", label: "Ribbon Banner Frame", kind: "ribbon-horizontal" },
@@ -1373,7 +3022,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "bottom-fade-full",
     label: "Bottom Fade (Full)",
-    gradient: "linear-gradient(to top, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.65) 45%, rgba(0,0,0,0) 100%)",
+    gradient:
+      "linear-gradient(to top, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.65) 45%, rgba(0,0,0,0) 100%)",
     width: 1200,
     height: 650,
     x: 50,
@@ -1386,7 +3036,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "bottom-fade-soft",
     label: "Soft Bottom Feather",
-    gradient: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 100%)",
+    gradient:
+      "linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 100%)",
     width: 1200,
     height: 500,
     x: 50,
@@ -1412,7 +3063,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "bottom-arch-horizon",
     label: "Curved Horizon Bottom",
-    gradient: "radial-gradient(ellipse 70% 50% at 50% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, rgba(0,0,0,0) 90%)",
+    gradient:
+      "radial-gradient(ellipse 70% 50% at 50% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, rgba(0,0,0,0) 90%)",
     width: 1200,
     height: 700,
     x: 50,
@@ -1425,7 +3077,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "top-fade-full",
     label: "Top Header Fade",
-    gradient: "linear-gradient(to bottom, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.65) 45%, rgba(0,0,0,0) 100%)",
+    gradient:
+      "linear-gradient(to bottom, rgba(0,0,0,0.96) 0%, rgba(0,0,0,0.65) 45%, rgba(0,0,0,0) 100%)",
     width: 1200,
     height: 650,
     x: 50,
@@ -1438,7 +3091,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "top-fade-soft",
     label: "Soft Top Feather",
-    gradient: "linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 100%)",
+    gradient:
+      "linear-gradient(to bottom, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0) 100%)",
     width: 1200,
     height: 500,
     x: 50,
@@ -1464,7 +3118,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "left-edge-fade",
     label: "Left Edge Fade",
-    gradient: "linear-gradient(to right, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 100%)",
+    gradient:
+      "linear-gradient(to right, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 100%)",
     width: 600,
     height: 1500,
     x: 25,
@@ -1477,7 +3132,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "right-edge-fade",
     label: "Right Edge Fade",
-    gradient: "linear-gradient(to left, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 100%)",
+    gradient:
+      "linear-gradient(to left, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0) 100%)",
     width: 600,
     height: 1500,
     x: 75,
@@ -1490,7 +3146,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "dual-edge-vignette",
     label: "Dual Edge Cinema Fade",
-    gradient: "linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 28%, transparent 72%, rgba(0,0,0,0.9) 100%)",
+    gradient:
+      "linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 28%, transparent 72%, rgba(0,0,0,0.9) 100%)",
     width: 1200,
     height: 1500,
     x: 50,
@@ -1505,7 +3162,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "center-spotlight-radial",
     label: "Center Spotlight (Dark)",
-    gradient: "radial-gradient(circle at center, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 45%, rgba(0,0,0,0) 75%)",
+    gradient:
+      "radial-gradient(circle at center, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 45%, rgba(0,0,0,0) 75%)",
     width: 900,
     height: 900,
     x: 50,
@@ -1519,7 +3177,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "center-spotlight-soft",
     label: "Soft Diffused Spotlight",
-    gradient: "radial-gradient(circle at center, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%)",
+    gradient:
+      "radial-gradient(circle at center, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%)",
     width: 1100,
     height: 1100,
     x: 50,
@@ -1533,7 +3192,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "corner-spotlight-tl",
     label: "Corner Spotlight (Top-Left)",
-    gradient: "radial-gradient(circle at 0% 0%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 0% 0%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
     width: 1000,
     height: 1000,
     x: 35,
@@ -1546,7 +3206,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "corner-spotlight-tr",
     label: "Corner Spotlight (Top-Right)",
-    gradient: "radial-gradient(circle at 100% 0%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 100% 0%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
     width: 1000,
     height: 1000,
     x: 65,
@@ -1559,7 +3220,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "corner-spotlight-bl",
     label: "Corner Spotlight (Bottom-Left)",
-    gradient: "radial-gradient(circle at 0% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 0% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
     width: 1000,
     height: 1000,
     x: 35,
@@ -1572,7 +3234,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "corner-spotlight-br",
     label: "Corner Spotlight (Bottom-Right)",
-    gradient: "radial-gradient(circle at 100% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 100% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0) 80%)",
     width: 1000,
     height: 1000,
     x: 65,
@@ -1585,7 +3248,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "inverted-vignette",
     label: "Deep Vignette (Dark Corners)",
-    gradient: "radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.95) 100%)",
+    gradient:
+      "radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.95) 100%)",
     width: 1200,
     height: 1500,
     x: 50,
@@ -1600,7 +3264,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "ground-oval-shadow",
     label: "Oval Ground Shadow",
-    gradient: "radial-gradient(ellipse 50% 50% at 50% 50%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0) 85%)",
+    gradient:
+      "radial-gradient(ellipse 50% 50% at 50% 50%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0) 85%)",
     width: 700,
     height: 180,
     x: 50,
@@ -1614,7 +3279,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "wide-pedestal-shadow",
     label: "Wide Pedestal Shadow",
-    gradient: "radial-gradient(ellipse 60% 30% at 50% 50%, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%)",
+    gradient:
+      "radial-gradient(ellipse 60% 30% at 50% 50%, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.4) 60%, rgba(0,0,0,0) 100%)",
     width: 900,
     height: 220,
     x: 50,
@@ -1667,7 +3333,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "diagonal-cinema-slash",
     label: "Diagonal Shadow Slash (45°)",
-    gradient: "linear-gradient(135deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0) 80%)",
+    gradient:
+      "linear-gradient(135deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0) 80%)",
     width: 1200,
     height: 1500,
     x: 50,
@@ -1680,7 +3347,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "diagonal-cinema-slash-inv",
     label: "Diagonal Shadow Slash (135°)",
-    gradient: "linear-gradient(225deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0) 80%)",
+    gradient:
+      "linear-gradient(225deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0) 80%)",
     width: 1200,
     height: 1500,
     x: 50,
@@ -1693,7 +3361,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "dense-ambient-fog",
     label: "Atmospheric Ambient Fog",
-    gradient: "radial-gradient(circle at 50% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0) 85%)",
+    gradient:
+      "radial-gradient(circle at 50% 100%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 40%, rgba(0,0,0,0) 85%)",
     width: 1200,
     height: 800,
     x: 50,
@@ -1708,7 +3377,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-mist-bottom",
     label: "White Mist Bottom Fade",
-    gradient: "linear-gradient(to top, rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 45%, rgba(255,255,255,0) 100%)",
+    gradient:
+      "linear-gradient(to top, rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 45%, rgba(255,255,255,0) 100%)",
     width: 1200,
     height: 600,
     x: 50,
@@ -1721,7 +3391,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-mist-soft-bottom",
     label: "Soft White Bottom Glow",
-    gradient: "linear-gradient(to top, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%)",
+    gradient:
+      "linear-gradient(to top, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 100%)",
     width: 1200,
     height: 480,
     x: 50,
@@ -1734,7 +3405,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-mist-top",
     label: "White Top Header Fade",
-    gradient: "linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0.65) 45%, rgba(255,255,255,0) 100%)",
+    gradient:
+      "linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0.65) 45%, rgba(255,255,255,0) 100%)",
     width: 1200,
     height: 600,
     x: 50,
@@ -1747,7 +3419,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-spotlight-center",
     label: "White Center Glow",
-    gradient: "radial-gradient(circle at center, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
+    gradient:
+      "radial-gradient(circle at center, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
     width: 850,
     height: 850,
     x: 50,
@@ -1761,7 +3434,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-spotlight-soft",
     label: "Soft Diffused White Center",
-    gradient: "radial-gradient(circle at center, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.3) 55%, rgba(255,255,255,0) 80%)",
+    gradient:
+      "radial-gradient(circle at center, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.3) 55%, rgba(255,255,255,0) 80%)",
     width: 1100,
     height: 1100,
     x: 50,
@@ -1775,7 +3449,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-corner-tl",
     label: "White Flare (Top-Left)",
-    gradient: "radial-gradient(circle at 0% 0%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 0% 0%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
     width: 1000,
     height: 1000,
     x: 35,
@@ -1788,7 +3463,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-corner-tr",
     label: "White Flare (Top-Right)",
-    gradient: "radial-gradient(circle at 100% 0%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 100% 0%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
     width: 1000,
     height: 1000,
     x: 65,
@@ -1801,7 +3477,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-corner-bl",
     label: "White Flare (Bottom-Left)",
-    gradient: "radial-gradient(circle at 0% 100%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 0% 100%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
     width: 1000,
     height: 1000,
     x: 35,
@@ -1814,7 +3491,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-corner-br",
     label: "White Flare (Bottom-Right)",
-    gradient: "radial-gradient(circle at 100% 100%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
+    gradient:
+      "radial-gradient(circle at 100% 100%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 45%, rgba(255,255,255,0) 80%)",
     width: 1000,
     height: 1000,
     x: 65,
@@ -1827,7 +3505,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-ground-oval",
     label: "White Oval Light Base",
-    gradient: "radial-gradient(ellipse 50% 50% at 50% 50%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0) 85%)",
+    gradient:
+      "radial-gradient(ellipse 50% 50% at 50% 50%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.5) 50%, rgba(255,255,255,0) 85%)",
     width: 700,
     height: 180,
     x: 50,
@@ -1841,7 +3520,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-horizontal-bar",
     label: "White Horizontal Light Bar",
-    gradient: "linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.95) 50%, transparent 100%)",
+    gradient:
+      "linear-gradient(to bottom, transparent 0%, rgba(255,255,255,0.95) 50%, transparent 100%)",
     width: 1000,
     height: 180,
     x: 50,
@@ -1854,7 +3534,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-vertical-beam",
     label: "White Vertical Light Pillar",
-    gradient: "linear-gradient(to right, transparent 0%, rgba(255,255,255,0.9) 50%, transparent 100%)",
+    gradient:
+      "linear-gradient(to right, transparent 0%, rgba(255,255,255,0.9) 50%, transparent 100%)",
     width: 300,
     height: 1200,
     x: 50,
@@ -1867,7 +3548,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-dual-cinema",
     label: "White Dual Cinema Glow",
-    gradient: "linear-gradient(to bottom, rgba(255,255,255,0.92) 0%, transparent 28%, transparent 72%, rgba(255,255,255,0.92) 100%)",
+    gradient:
+      "linear-gradient(to bottom, rgba(255,255,255,0.92) 0%, transparent 28%, transparent 72%, rgba(255,255,255,0.92) 100%)",
     width: 1200,
     height: 1500,
     x: 50,
@@ -1880,7 +3562,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-inverted-vignette",
     label: "White Radiant Vignette",
-    gradient: "radial-gradient(ellipse at center, rgba(255,255,255,0) 30%, rgba(255,255,255,0.6) 70%, rgba(255,255,255,0.95) 100%)",
+    gradient:
+      "radial-gradient(ellipse at center, rgba(255,255,255,0) 30%, rgba(255,255,255,0.6) 70%, rgba(255,255,255,0.95) 100%)",
     width: 1200,
     height: 1500,
     x: 50,
@@ -1893,7 +3576,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-diagonal-sunbeam",
     label: "White Diagonal Sunbeam (45°)",
-    gradient: "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.45) 45%, rgba(255,255,255,0) 80%)",
+    gradient:
+      "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.45) 45%, rgba(255,255,255,0) 80%)",
     width: 1200,
     height: 1500,
     x: 50,
@@ -1906,7 +3590,8 @@ export const SHADOW_OVERLAY_PRESETS: ShadowPreset[] = [
   {
     id: "white-arch-horizon",
     label: "White Arch Horizon",
-    gradient: "radial-gradient(ellipse 70% 50% at 50% 100%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0) 90%)",
+    gradient:
+      "radial-gradient(ellipse 70% 50% at 50% 100%, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0) 90%)",
     width: 1200,
     height: 700,
     x: 50,
@@ -1991,7 +3676,10 @@ export function getMatchingShapePresetId(shape: ShapeLayer): string {
 // Single source of truth for a shape's visual geometry, shared by the
 // picker's preview swatches and the actual canvas-rendered layer so they
 // can never drift apart.
-export function shapeCss(kind: ShapeKind, radius: number): { borderRadius?: string; clipPath?: string } {
+export function shapeCss(
+  kind: ShapeKind,
+  radius: number,
+): { borderRadius?: string; clipPath?: string } {
   switch (kind) {
     case "rect":
       return { borderRadius: `${radius}px` };
@@ -2063,8 +3751,7 @@ export function frameShapeCss(
       };
     case "star-4":
       return {
-        clipPath:
-          "polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)",
+        clipPath: "polygon(50% 0%, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0% 50%, 38% 38%)",
       };
     case "star-5":
       return {
@@ -2112,9 +3799,13 @@ export function frameShapeCss(
     case "arrow-right":
       return { clipPath: "polygon(0% 30%, 60% 30%, 60% 10%, 100% 50%, 60% 90%, 60% 70%, 0% 70%)" };
     case "arrow-left":
-      return { clipPath: "polygon(40% 10%, 40% 30%, 100% 30%, 100% 70%, 40% 70%, 40% 90%, 0% 50%)" };
+      return {
+        clipPath: "polygon(40% 10%, 40% 30%, 100% 30%, 100% 70%, 40% 70%, 40% 90%, 0% 50%)",
+      };
     case "arrow-up":
-      return { clipPath: "polygon(50% 0%, 90% 40%, 70% 40%, 70% 100%, 30% 100%, 30% 40%, 10% 40%)" };
+      return {
+        clipPath: "polygon(50% 0%, 90% 40%, 70% 40%, 70% 100%, 30% 100%, 30% 40%, 10% 40%)",
+      };
     case "arrow-down":
       return { clipPath: "polygon(30% 0%, 70% 0%, 70% 60%, 90% 60%, 50% 100%, 10% 60%, 30% 60%)" };
     case "arrow-bidirectional-h":
@@ -2164,8 +3855,7 @@ export function frameShapeCss(
       };
     case "chamfered-square":
       return {
-        clipPath:
-          "polygon(20% 0%, 80% 0%, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0% 80%, 0% 20%)",
+        clipPath: "polygon(20% 0%, 80% 0%, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0% 80%, 0% 20%)",
       };
     case "curved-top-square":
       return {
@@ -2387,7 +4077,6 @@ export type EditorState = {
   topButtonPadY: number;
   topButtonLocked?: boolean;
 
-
   // Set once this design has been initialized under the shapes/texts
   // layer model — either built that way from the start (INITIAL_STATE, a
   // STARTER_TEMPLATE, blankState) or upgraded from an old fixed-field save
@@ -2481,6 +4170,8 @@ export type Template = {
   description: string;
   thumbnailUrl?: string | undefined;
   state: Partial<EditorState>;
+  is_premium?: boolean | undefined;
+  category?: "starter" | "premium" | string | undefined;
 };
 
 // Builds the shapes/texts/images that make up a classic "quote card" —
@@ -2569,7 +4260,8 @@ function buildQuoteCardLayers(opts: {
 
   if (isLeftAlign) {
     if (opts.avatarSrc) {
-      const avatarXPct = 50 - (opts.boxWidthPct / 2) + ((55 + avatarSize / 2) / opts.canvasWidth) * 100;
+      const avatarXPct =
+        50 - opts.boxWidthPct / 2 + ((55 + avatarSize / 2) / opts.canvasWidth) * 100;
       images.push({
         id: newLayerId(),
         src: opts.avatarSrc,
@@ -2585,7 +4277,8 @@ function buildQuoteCardLayers(opts: {
 
       const textLeftMarginPx = 55 + avatarSize + 16;
       const textWidthPx = boxWidthPx - textLeftMarginPx - 45;
-      const textXPct = 50 - (opts.boxWidthPct / 2) + ((textLeftMarginPx + textWidthPx / 2) / opts.canvasWidth) * 100;
+      const textXPct =
+        50 - opts.boxWidthPct / 2 + ((textLeftMarginPx + textWidthPx / 2) / opts.canvasWidth) * 100;
 
       texts.push(
         {
@@ -3058,7 +4751,7 @@ export const INITIAL_STATE: EditorState = {
   canvasRadius: 0,
 
   exportFormat: "png",
-  exportScale: 2,
+  exportScale: 1,
   layersInitialized: true,
 
   shapes: [],
@@ -3209,7 +4902,9 @@ export function resizeEditorStateToNewSize(
     // matching comment) — size/height above already scale by this same
     // factor, so the waypoints need to as well or the line's actual bend/
     // curve shape stops matching its own (correctly resized) box.
-    ...(sh.lineWaypoints ? { lineWaypoints: sh.lineWaypoints.map((p) => ({ x: p.x * scale, y: p.y * scale })) } : {}),
+    ...(sh.lineWaypoints
+      ? { lineWaypoints: sh.lineWaypoints.map((p) => ({ x: p.x * scale, y: p.y * scale })) }
+      : {}),
   }));
 
   return {
@@ -3279,6 +4974,7 @@ export function withImageAdded(s: EditorState, src: string): ImageLayer[] {
 export function withFrameAdded(
   s: EditorState,
   frameKind: FrameKind,
+  opts?: { x?: number; y?: number },
 ): { list: ImageLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
   const list = getImageLayers(s);
   const position = list.length;
@@ -3288,8 +4984,8 @@ export function withFrameAdded(
     id: newLayerId(),
     src: CANVA_FRAME_PLACEHOLDER_SRC,
     originalSrc: CANVA_FRAME_PLACEHOLDER_SRC,
-    x: 50 + offset,
-    y: 50 + offset,
+    x: opts?.x ?? 50 + offset,
+    y: opts?.y ?? 50 + offset,
     size: defaultSize,
     height: defaultSize,
     radius: frameKind === "rounded" ? 28 : 0,
@@ -3309,11 +5005,20 @@ export function withFrameAdded(
 export function withImagesAdded(
   s: EditorState,
   srcs: string[],
+  opts?: { x?: number; y?: number },
 ): { list: ImageLayer[]; layerOrder: UnifiedLayerRef[]; newIds: string[] } {
   const list = getImageLayers(s);
-  const newLayers = srcs.map((src, i) => makeImageLayer(list.length + i, src, s.width));
+  const newLayers = srcs.map((src, i) => {
+    const layer = makeImageLayer(list.length + i, src, s.width);
+    if (opts?.x !== undefined) layer.x = opts.x;
+    if (opts?.y !== undefined) layer.y = opts.y;
+    return layer;
+  });
   const newImages = [...list, ...newLayers];
-  const newRefs: UnifiedLayerRef[] = newLayers.map((img) => ({ kind: "image" as const, id: img.id }));
+  const newRefs: UnifiedLayerRef[] = newLayers.map((img) => ({
+    kind: "image" as const,
+    id: img.id,
+  }));
   const layerOrder = [...getUnifiedLayers(s), ...newRefs];
   return { list: newImages, layerOrder, newIds: newLayers.map((n) => n.id) };
 }
@@ -3333,7 +5038,10 @@ export function withImageRemoved(s: EditorState, id: string): ImageLayer[] {
 // Clones the image right next to itself (slightly offset so the copy isn't
 // hidden exactly underneath the original) and returns it, so the caller can
 // select it immediately after duplicating.
-export function withImageDuplicated(s: EditorState, id: string): { list: ImageLayer[]; newId: string } {
+export function withImageDuplicated(
+  s: EditorState,
+  id: string,
+): { list: ImageLayer[]; newId: string } {
   const list = getImageLayers(s);
   const idx = list.findIndex((img) => img.id === id);
   if (idx === -1) return { list, newId: id };
@@ -3342,7 +5050,11 @@ export function withImageDuplicated(s: EditorState, id: string): { list: ImageLa
   return { list: [...list.slice(0, idx + 1), copy, ...list.slice(idx + 1)], newId: copy.id };
 }
 
-export function withImageReordered(s: EditorState, id: string, direction: "up" | "down"): ImageLayer[] {
+export function withImageReordered(
+  s: EditorState,
+  id: string,
+  direction: "up" | "down",
+): ImageLayer[] {
   const list = [...getImageLayers(s)];
   const idx = list.findIndex((img) => img.id === id);
   if (idx === -1) return list;
@@ -3366,7 +5078,9 @@ export function withImagesUpdated(
   patch: Partial<Omit<ImageLayer, "id">>,
 ): ImageLayer[] {
   const idSet = new Set(ids);
-  return getImageLayers(s).map((img) => (idSet.has(img.id) && !img.locked ? { ...img, ...patch } : img));
+  return getImageLayers(s).map((img) =>
+    idSet.has(img.id) && !img.locked ? { ...img, ...patch } : img,
+  );
 }
 
 export function withImagesLockSet(s: EditorState, ids: string[], locked: boolean): ImageLayer[] {
@@ -3374,7 +5088,11 @@ export function withImagesLockSet(s: EditorState, ids: string[], locked: boolean
   return getImageLayers(s).map((img) => (idSet.has(img.id) ? { ...img, locked } : img));
 }
 
-export function withImagesAligned(s: EditorState, ids: string[], edge: ShapeAlignEdge): ImageLayer[] {
+export function withImagesAligned(
+  s: EditorState,
+  ids: string[],
+  edge: ShapeAlignEdge,
+): ImageLayer[] {
   const idSet = new Set(ids);
   return getImageLayers(s).map((img) => {
     if (!idSet.has(img.id) || img.locked) return img;
@@ -3399,7 +5117,12 @@ export function withImagesAligned(s: EditorState, ids: string[], edge: ShapeAlig
   });
 }
 
-export function withImagesShifted(s: EditorState, ids: string[], dxPercent: number, dyPercent: number): ImageLayer[] {
+export function withImagesShifted(
+  s: EditorState,
+  ids: string[],
+  dxPercent: number,
+  dyPercent: number,
+): ImageLayer[] {
   const idSet = new Set(ids);
   return getImageLayers(s).map((img) =>
     idSet.has(img.id) && !img.locked ? { ...img, x: img.x + dxPercent, y: img.y + dyPercent } : img,
@@ -3425,7 +5148,13 @@ function isDarkBg(bg: string): boolean {
       return (r * 299 + g * 587 + b * 114) / 1000 < 140;
     }
   }
-  return bg.includes("gradient") || bg.includes("black") || bg.includes("dark") || bg.includes("#0") || bg.includes("#1");
+  return (
+    bg.includes("gradient") ||
+    bg.includes("black") ||
+    bg.includes("dark") ||
+    bg.includes("#0") ||
+    bg.includes("#1")
+  );
 }
 
 function makeTextLayer(
@@ -3494,7 +5223,10 @@ export function withTextRemoved(s: EditorState, id: string): TextLayer[] {
   return getTextLayers(s).filter((t) => t.id !== id);
 }
 
-export function withTextDuplicated(s: EditorState, id: string): { list: TextLayer[]; newId: string } {
+export function withTextDuplicated(
+  s: EditorState,
+  id: string,
+): { list: TextLayer[]; newId: string } {
   const list = getTextLayers(s);
   const idx = list.findIndex((t) => t.id === id);
   if (idx === -1) return { list, newId: id };
@@ -3503,7 +5235,11 @@ export function withTextDuplicated(s: EditorState, id: string): { list: TextLaye
   return { list: [...list.slice(0, idx + 1), copy, ...list.slice(idx + 1)], newId: copy.id };
 }
 
-export function withTextReordered(s: EditorState, id: string, direction: "up" | "down"): TextLayer[] {
+export function withTextReordered(
+  s: EditorState,
+  id: string,
+  direction: "up" | "down",
+): TextLayer[] {
   const list = [...getTextLayers(s)];
   const idx = list.findIndex((t) => t.id === id);
   if (idx === -1) return list;
@@ -3522,7 +5258,12 @@ export function getShapeLayers(s: EditorState): ShapeLayer[] {
   return s.shapes ?? [];
 }
 
-function makeShapeLayer(position: number, kind: ShapeKind, radius: number, isDarkBg = false): ShapeLayer {
+function makeShapeLayer(
+  position: number,
+  kind: ShapeKind,
+  radius: number,
+  isDarkBg = false,
+): ShapeLayer {
   const offset = (position % 6) * 6;
   const isLine = isLineShape(kind);
   const defaultLineColor = isDarkBg ? "#ffffff" : "#000000";
@@ -3547,10 +5288,17 @@ export function withShapeAdded(
   s: EditorState,
   kind: ShapeKind,
   radius: number,
+  opts?: { x?: number; y?: number; size?: number; color?: string; opacity?: number; shadow?: boolean },
 ): { list: ShapeLayer[]; layerOrder: UnifiedLayerRef[]; newId: string } {
   const list = getShapeLayers(s);
   const isDark = isCanvasBackgroundDark(s.background);
   const newShape = makeShapeLayer(list.length, kind, radius, isDark);
+  if (opts?.x !== undefined) newShape.x = opts.x;
+  if (opts?.y !== undefined) newShape.y = opts.y;
+  if (opts?.size !== undefined) newShape.size = opts.size;
+  if (opts?.color !== undefined) newShape.color = opts.color;
+  if (opts?.opacity !== undefined) newShape.opacity = opts.opacity;
+  if (opts?.shadow !== undefined) newShape.shadow = opts.shadow;
   const newShapes = [...list, newShape];
   const layerOrder = [...getUnifiedLayers(s), { kind: "shape" as const, id: newShape.id }];
   return { list: newShapes, layerOrder, newId: newShape.id };
@@ -3591,7 +5339,10 @@ export function withShapeRemoved(s: EditorState, id: string): ShapeLayer[] {
   return getShapeLayers(s).filter((sh) => sh.id !== id);
 }
 
-export function withShapeDuplicated(s: EditorState, id: string): { list: ShapeLayer[]; newId: string } {
+export function withShapeDuplicated(
+  s: EditorState,
+  id: string,
+): { list: ShapeLayer[]; newId: string } {
   const list = getShapeLayers(s);
   const idx = list.findIndex((sh) => sh.id === id);
   if (idx === -1) return { list, newId: id };
@@ -3600,7 +5351,11 @@ export function withShapeDuplicated(s: EditorState, id: string): { list: ShapeLa
   return { list: [...list.slice(0, idx + 1), copy, ...list.slice(idx + 1)], newId: copy.id };
 }
 
-export function withShapeReordered(s: EditorState, id: string, direction: "up" | "down"): ShapeLayer[] {
+export function withShapeReordered(
+  s: EditorState,
+  id: string,
+  direction: "up" | "down",
+): ShapeLayer[] {
   const list = [...getShapeLayers(s)];
   const idx = list.findIndex((sh) => sh.id === id);
   if (idx === -1) return list;
@@ -3612,7 +5367,10 @@ export function withShapeReordered(s: EditorState, id: string, direction: "up" |
   return list;
 }
 
-export function withShadowAdded(s: EditorState, preset: ShadowPreset): { list: ShapeLayer[]; newId: string } {
+export function withShadowAdded(
+  s: EditorState,
+  preset: ShadowPreset,
+): { list: ShapeLayer[]; newId: string } {
   const list = getShapeLayers(s);
   const newId = newLayerId();
   const shadowLayer: ShapeLayer = {
@@ -3646,9 +5404,12 @@ export function getUnifiedLayers(s: EditorState): UnifiedLayerRef[] {
   if (totalCount === 0) return [];
 
   const allKnown = new Map<string, UnifiedLayerRef>();
-  for (let i = 0; i < texts.length; i++) allKnown.set(texts[i]!.id, { kind: "text", id: texts[i]!.id });
-  for (let i = 0; i < images.length; i++) allKnown.set(images[i]!.id, { kind: "image", id: images[i]!.id });
-  for (let i = 0; i < shapes.length; i++) allKnown.set(shapes[i]!.id, { kind: "shape", id: shapes[i]!.id });
+  for (let i = 0; i < texts.length; i++)
+    allKnown.set(texts[i]!.id, { kind: "text", id: texts[i]!.id });
+  for (let i = 0; i < images.length; i++)
+    allKnown.set(images[i]!.id, { kind: "image", id: images[i]!.id });
+  for (let i = 0; i < shapes.length; i++)
+    allKnown.set(shapes[i]!.id, { kind: "shape", id: shapes[i]!.id });
 
   if (!s.layerOrder || s.layerOrder.length === 0) {
     const shapesBehind: UnifiedLayerRef[] = [];
@@ -3658,7 +5419,10 @@ export function getUnifiedLayers(s: EditorState): UnifiedLayerRef[] {
       if (sh.layer === "behind") shapesBehind.push({ kind: "shape", id: sh.id });
       else shapesFront.push({ kind: "shape", id: sh.id });
     }
-    const imgRefs: UnifiedLayerRef[] = images.map((img) => ({ kind: "image" as const, id: img.id }));
+    const imgRefs: UnifiedLayerRef[] = images.map((img) => ({
+      kind: "image" as const,
+      id: img.id,
+    }));
     const textRefs: UnifiedLayerRef[] = texts.map((t) => ({ kind: "text" as const, id: t.id }));
     return [...shapesBehind, ...imgRefs, ...shapesFront, ...textRefs];
   }
@@ -3716,7 +5480,10 @@ export function withUnifiedLayersReordered(
     const otherItems = stack.filter((item) => !idSet.has(item.id));
     if (selectedItems.length === 0) return { layerOrder: stack };
     return {
-      layerOrder: direction === "front" ? [...otherItems, ...selectedItems] : [...selectedItems, ...otherItems],
+      layerOrder:
+        direction === "front"
+          ? [...otherItems, ...selectedItems]
+          : [...selectedItems, ...otherItems],
     };
   }
 
@@ -3788,9 +5555,7 @@ export function getArrangeEligibility(
   const canForward = selectedIndices.some(
     (i) => i < stack.length - 1 && !idSet.has(stack[i + 1]!.id),
   );
-  const canBackward = selectedIndices.some(
-    (i) => i > 0 && !idSet.has(stack[i - 1]!.id),
-  );
+  const canBackward = selectedIndices.some((i) => i > 0 && !idSet.has(stack[i - 1]!.id));
   const isAllAtTop = selectedIndices.every(
     (i, idxInSel) => i === stack.length - selectedIndices.length + idxInSel,
   );
@@ -3810,7 +5575,11 @@ export function getArrangeEligibility(
 // its own width/height, rather than lining up against each other.
 export type ShapeAlignEdge = "left" | "center-h" | "right" | "top" | "middle-v" | "bottom";
 
-export function withShapesAligned(s: EditorState, ids: string[], edge: ShapeAlignEdge): ShapeLayer[] {
+export function withShapesAligned(
+  s: EditorState,
+  ids: string[],
+  edge: ShapeAlignEdge,
+): ShapeLayer[] {
   const idSet = new Set(ids);
   return getShapeLayers(s).map((sh) => {
     if (!idSet.has(sh.id) || sh.locked) return sh;
@@ -3840,7 +5609,12 @@ export function withShapesAligned(s: EditorState, ids: string[], edge: ShapeAlig
 // X/Y fields to move the whole group together: the caller works out
 // dxPercent/dyPercent from the desired new group position vs the group's
 // current bounding box, this just applies that one delta uniformly.
-export function withShapesShifted(s: EditorState, ids: string[], dxPercent: number, dyPercent: number): ShapeLayer[] {
+export function withShapesShifted(
+  s: EditorState,
+  ids: string[],
+  dxPercent: number,
+  dyPercent: number,
+): ShapeLayer[] {
   const idSet = new Set(ids);
   return getShapeLayers(s).map((sh) =>
     idSet.has(sh.id) && !sh.locked ? { ...sh, x: sh.x + dxPercent, y: sh.y + dyPercent } : sh,
@@ -3924,7 +5698,12 @@ export function withMultipleLayersDuplicated(
   const imageIds = new Set(selected.filter((item) => item.kind === "image").map((item) => item.id));
   const shapeIds = new Set(selected.filter((item) => item.kind === "shape").map((item) => item.id));
 
-  const newSelection: { kind: "text" | "image" | "shape"; id: string; startX: number; startY: number }[] = [];
+  const newSelection: {
+    kind: "text" | "image" | "shape";
+    id: string;
+    startX: number;
+    startY: number;
+  }[] = [];
   const newRefs: UnifiedLayerRef[] = [];
 
   const texts = getTextLayers(s).flatMap((t) => {
@@ -3984,8 +5763,10 @@ export function withMultipleLayersRotated(
     ];
 
     if (allSelectedItems.length > 0) {
-      const centerX = allSelectedItems.reduce((acc, item) => acc + item.x, 0) / allSelectedItems.length;
-      const centerY = allSelectedItems.reduce((acc, item) => acc + item.y, 0) / allSelectedItems.length;
+      const centerX =
+        allSelectedItems.reduce((acc, item) => acc + item.x, 0) / allSelectedItems.length;
+      const centerY =
+        allSelectedItems.reduce((acc, item) => acc + item.y, 0) / allSelectedItems.length;
       const aspect = s.width / s.height;
 
       const rotatePoint = (px: number, py: number) => {
@@ -4002,21 +5783,21 @@ export function withMultipleLayersRotated(
       const texts = getTextLayers(s).map((t) => {
         if (!textIds.has(t.id) || t.locked) return t;
         const pt = rotatePoint(t.x, t.y);
-        const nextRotation = (((t.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+        const nextRotation = ((((t.rotation ?? 0) + rotationDeltaDeg) % 360) + 360) % 360;
         return { ...t, x: pt.x, y: pt.y, rotation: Math.round(nextRotation) };
       });
 
       const images = getImageLayers(s).map((img) => {
         if (!imageIds.has(img.id) || img.locked) return img;
         const pt = rotatePoint(img.x, img.y);
-        const nextRotation = (((img.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+        const nextRotation = ((((img.rotation ?? 0) + rotationDeltaDeg) % 360) + 360) % 360;
         return { ...img, x: pt.x, y: pt.y, rotation: Math.round(nextRotation) };
       });
 
       const shapes = getShapeLayers(s).map((sh) => {
         if (!shapeIds.has(sh.id) || sh.locked) return sh;
         const pt = rotatePoint(sh.x, sh.y);
-        const nextRotation = (((sh.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+        const nextRotation = ((((sh.rotation ?? 0) + rotationDeltaDeg) % 360) + 360) % 360;
         return { ...sh, x: pt.x, y: pt.y, rotation: Math.round(nextRotation) };
       });
 
@@ -4026,19 +5807,19 @@ export function withMultipleLayersRotated(
 
   const texts = getTextLayers(s).map((t) => {
     if (!textIds.has(t.id) || t.locked) return t;
-    const nextRotation = (((t.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+    const nextRotation = ((((t.rotation ?? 0) + rotationDeltaDeg) % 360) + 360) % 360;
     return { ...t, rotation: Math.round(nextRotation) };
   });
 
   const images = getImageLayers(s).map((img) => {
     if (!imageIds.has(img.id) || img.locked) return img;
-    const nextRotation = (((img.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+    const nextRotation = ((((img.rotation ?? 0) + rotationDeltaDeg) % 360) + 360) % 360;
     return { ...img, rotation: Math.round(nextRotation) };
   });
 
   const shapes = getShapeLayers(s).map((sh) => {
     if (!shapeIds.has(sh.id) || sh.locked) return sh;
-    const nextRotation = (((sh.rotation ?? 0) + rotationDeltaDeg) % 360 + 360) % 360;
+    const nextRotation = ((((sh.rotation ?? 0) + rotationDeltaDeg) % 360) + 360) % 360;
     return { ...sh, rotation: Math.round(nextRotation) };
   });
 
@@ -4091,8 +5872,10 @@ export function withMultipleLayersScaled(
     const newPxY = newBounds.top + relY * scaleY;
 
     const nextSize = Math.max(8, Math.round(orig.size * uniformScale));
-    const nextWidth = orig.width !== undefined ? Math.max(40, Math.round(orig.width * scaleX)) : undefined;
-    const nextMinHeight = orig.height !== undefined ? Math.max(20, Math.round(orig.height * scaleY)) : undefined;
+    const nextWidth =
+      orig.width !== undefined ? Math.max(40, Math.round(orig.width * scaleX)) : undefined;
+    const nextMinHeight =
+      orig.height !== undefined ? Math.max(20, Math.round(orig.height * scaleY)) : undefined;
 
     return {
       ...t,
@@ -4118,7 +5901,8 @@ export function withMultipleLayersScaled(
     const newPxY = newBounds.top + relY * scaleY;
 
     const nextSize = Math.max(10, Math.round(orig.size * scaleX));
-    const nextHeight = orig.height !== undefined ? Math.max(10, Math.round(orig.height * scaleY)) : undefined;
+    const nextHeight =
+      orig.height !== undefined ? Math.max(10, Math.round(orig.height * scaleY)) : undefined;
 
     return {
       ...img,
@@ -4154,21 +5938,31 @@ export function withMultipleLayersScaled(
     // ratio, leaving visible slack around it instead of staying tight.
     // Lines use the same uniformScale as `size` for exactly that reason;
     // every other shape kind keeps the independent scaleY it always had.
-    const nextHeight = orig.height !== undefined ? Math.max(4, Math.round(orig.height * (isLine ? uniformScale : scaleY))) : undefined;
-    const nextStrokeWidth = orig.strokeWidth !== undefined ? Math.max(1, Math.min(24, Math.round(orig.strokeWidth * uniformScale))) : undefined;
+    const nextHeight =
+      orig.height !== undefined
+        ? Math.max(4, Math.round(orig.height * (isLine ? uniformScale : scaleY)))
+        : undefined;
+    const nextStrokeWidth =
+      orig.strokeWidth !== undefined
+        ? Math.max(1, Math.min(24, Math.round(orig.strokeWidth * uniformScale)))
+        : undefined;
     // Same uniformScale as the waypoints it fillets — a corner radius set
     // relative to a small elbow box would otherwise swallow the whole bend
     // (or vanish to a hard corner) the instant the group scales up or down.
-    const nextCornerRadius = orig.lineCornerRadius !== undefined ? Math.max(0, Math.round(orig.lineCornerRadius * uniformScale)) : undefined;
+    const nextCornerRadius =
+      orig.lineCornerRadius !== undefined
+        ? Math.max(0, Math.round(orig.lineCornerRadius * uniformScale))
+        : undefined;
     // The waypoints themselves are stored as absolute pixel coordinates in
     // the shape's OLD size/height box — left un-scaled here, they'd stay
     // anchored to their old positions while size/height (and therefore the
     // percentages LineShapeSvg/QuoteCanvas's handles measure them against)
     // change underneath them, distorting the actual bend/curve shape rather
     // than just resizing its box uniformly around it.
-    const nextWaypoints = isLine && sh.lineWaypoints
-      ? sh.lineWaypoints.map((p) => ({ x: p.x * uniformScale, y: p.y * uniformScale }))
-      : undefined;
+    const nextWaypoints =
+      isLine && sh.lineWaypoints
+        ? sh.lineWaypoints.map((p) => ({ x: p.x * uniformScale, y: p.y * uniformScale }))
+        : undefined;
 
     return {
       ...sh,
@@ -4192,24 +5986,37 @@ export function withTextsAligned(s: EditorState, ids: string[], edge: ShapeAlign
   const idSet = new Set(ids);
   return getTextLayers(s).map((t) => {
     if (!idSet.has(t.id) || t.locked) return t;
-    const el = typeof document !== "undefined"
-      ? (document.querySelector(`[data-layer-id="${t.id}"]`) as HTMLElement | null)
-      : null;
+    const el =
+      typeof document !== "undefined"
+        ? (document.querySelector(`[data-layer-id="${t.id}"]`) as HTMLElement | null)
+        : null;
     const w = el ? el.offsetWidth : (t.width ?? 400);
     const h = el ? el.offsetHeight : (t.minHeight ?? t.size * 1.3);
     switch (edge) {
-      case "left":      return { ...t, x: (w / 2 / s.width) * 100 };
-      case "center-h":  return { ...t, x: 50 };
-      case "right":     return { ...t, x: 100 - (w / 2 / s.width) * 100 };
-      case "top":       return { ...t, y: (h / 2 / s.height) * 100 };
-      case "middle-v":  return { ...t, y: 50 };
-      case "bottom":    return { ...t, y: 100 - (h / 2 / s.height) * 100 };
-      default:          return t;
+      case "left":
+        return { ...t, x: (w / 2 / s.width) * 100 };
+      case "center-h":
+        return { ...t, x: 50 };
+      case "right":
+        return { ...t, x: 100 - (w / 2 / s.width) * 100 };
+      case "top":
+        return { ...t, y: (h / 2 / s.height) * 100 };
+      case "middle-v":
+        return { ...t, y: 50 };
+      case "bottom":
+        return { ...t, y: 100 - (h / 2 / s.height) * 100 };
+      default:
+        return t;
     }
   });
 }
 
-export function withTextsShifted(s: EditorState, ids: string[], dxPercent: number, dyPercent: number): TextLayer[] {
+export function withTextsShifted(
+  s: EditorState,
+  ids: string[],
+  dxPercent: number,
+  dyPercent: number,
+): TextLayer[] {
   const idSet = new Set(ids);
   return getTextLayers(s).map((t) =>
     idSet.has(t.id) && !t.locked ? { ...t, x: t.x + dxPercent, y: t.y + dyPercent } : t,
@@ -4222,16 +6029,12 @@ export function withTextsUpdated(
   patch: Partial<Omit<TextLayer, "id">>,
 ): TextLayer[] {
   const idSet = new Set(ids);
-  return getTextLayers(s).map((t) =>
-    idSet.has(t.id) && !t.locked ? { ...t, ...patch } : t,
-  );
+  return getTextLayers(s).map((t) => (idSet.has(t.id) && !t.locked ? { ...t, ...patch } : t));
 }
 
 export function withTextsLockSet(s: EditorState, ids: string[], locked: boolean): TextLayer[] {
   const idSet = new Set(ids);
-  return getTextLayers(s).map((t) =>
-    idSet.has(t.id) ? { ...t, locked } : t,
-  );
+  return getTextLayers(s).map((t) => (idSet.has(t.id) ? { ...t, locked } : t));
 }
 
 // Cross-kind alignment: aligns every selected layer (text, image, or shape)
@@ -4265,8 +6068,12 @@ export function withMixedLayersShifted(
   const shapeIds = selected.filter((l) => l.kind === "shape").map((l) => l.id);
   return {
     texts: textIds.length ? withTextsShifted(s, textIds, dxPercent, dyPercent) : getTextLayers(s),
-    images: imageIds.length ? withImagesShifted(s, imageIds, dxPercent, dyPercent) : getImageLayers(s),
-    shapes: shapeIds.length ? withShapesShifted(s, shapeIds, dxPercent, dyPercent) : getShapeLayers(s),
+    images: imageIds.length
+      ? withImagesShifted(s, imageIds, dxPercent, dyPercent)
+      : getImageLayers(s),
+    shapes: shapeIds.length
+      ? withShapesShifted(s, shapeIds, dxPercent, dyPercent)
+      : getShapeLayers(s),
   };
 }
 
@@ -4288,9 +6095,10 @@ export function withMixedLayersSpacedEvenly(
   const items = selected.map((ref) => {
     if (ref.kind === "text") {
       const t = getTextLayers(s).find((item) => item.id === ref.id);
-      const el = typeof document !== "undefined"
-        ? (document.querySelector(`[data-layer-id="${ref.id}"]`) as HTMLElement | null)
-        : null;
+      const el =
+        typeof document !== "undefined"
+          ? (document.querySelector(`[data-layer-id="${ref.id}"]`) as HTMLElement | null)
+          : null;
       const w = el ? el.offsetWidth : (t?.width ?? 300);
       const h = el ? el.offsetHeight : (t?.minHeight ?? (t ? t.size * 1.3 : 40));
       return {
@@ -4470,4 +6278,3 @@ export function withTextsSpacedEvenly(
   const refs: MixedLayerRef[] = ids.map((id) => ({ kind: "text", id }));
   return withMixedLayersSpacedEvenly(s, refs, direction).texts;
 }
-

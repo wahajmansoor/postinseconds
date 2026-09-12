@@ -1,12 +1,18 @@
-import { ArrowLeft01Icon, FilterIcon, RefreshIcon } from "hugeicons-react";
+import { ArrowLeft01Icon, FilterIcon, RefreshIcon, SparklesIcon } from "hugeicons-react";
 import type React from "react";
 import { useState } from "react";
 import type { TextEffectType, TextLayer, TextShapeType } from "./types";
 import { ColorInput, Range } from "./ui";
+import {
+  getSmartHighlightColor,
+  getSmartTextColorForHighlight,
+  getRecommendedHighlightColors,
+} from "./textEffects";
 
 type Props = {
   layer: TextLayer | null;
   onChange: (patch: Partial<Omit<TextLayer, "id">>) => void;
+  canvasBg?: string;
 };
 
 type EffectOption = {
@@ -139,7 +145,7 @@ const EFFECT_OPTIONS: EffectOption[] = [
   },
 ];
 
-export function TextEffectsPanel({ layer, onChange }: Props) {
+export function TextEffectsPanel({ layer, onChange, canvasBg }: Props) {
   const currentEffect = layer?.effectType ?? "none";
   const currentShape = layer?.shapeType ?? "none";
 
@@ -154,14 +160,30 @@ export function TextEffectsPanel({ layer, onChange }: Props) {
     );
   }
 
+  const smartDefaultBgColor = getSmartHighlightColor(canvasBg);
+
   const handleSelectEffect = (effect: TextEffectType) => {
     if (effect === "none") {
       onChange({ effectType: "none" });
       setActiveDetail(null);
     } else {
+      const effectColor =
+        layer.effectColor ??
+        (effect === "background"
+          ? smartDefaultBgColor
+          : effect === "neon"
+            ? "#0021FF"
+            : "#000000");
+
+      const smartTextColor =
+        effect === "background"
+          ? getSmartTextColorForHighlight(effectColor)
+          : undefined;
+
       onChange({
         effectType: effect,
-        effectColor: layer.effectColor ?? (effect === "background" ? "#0021FF" : effect === "neon" ? "#0021FF" : "#000000"),
+        effectColor,
+        ...(smartTextColor ? { color: smartTextColor } : {}),
         effectThickness: layer.effectThickness ?? 40,
         effectOffset: layer.effectOffset ?? 50,
         effectDirection: layer.effectDirection ?? 45,
@@ -297,14 +319,80 @@ export function TextEffectsPanel({ layer, onChange }: Props) {
 
           {/* Color Control */}
           {["drop", "glow", "echo", "outline", "background", "splice", "hollow", "neon", "glitch"].includes(activeDetail) && (
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-xs font-semibold text-muted-foreground">Effect Color</span>
-              <ColorInput
-                value={layer.effectColor ?? (activeDetail === "background" ? "#0021FF" : activeDetail === "neon" ? "#0021FF" : "#000000")}
-                onChange={(c) => onChange({ effectColor: c })}
-                showHex={true}
-                swatchClassName="h-7 w-7 rounded-lg border-border"
-              />
+            <div className="space-y-2 pt-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {activeDetail === "background" ? "Highlight Color" : "Effect Color"}
+                </span>
+                <ColorInput
+                  value={layer.effectColor ?? (activeDetail === "background" ? smartDefaultBgColor : activeDetail === "neon" ? "#0021FF" : "#000000")}
+                  onChange={(c) => {
+                    const smartTextColor =
+                      activeDetail === "background"
+                        ? getSmartTextColorForHighlight(c)
+                        : undefined;
+                    onChange({
+                      effectColor: c,
+                      ...(smartTextColor ? { color: smartTextColor } : {}),
+                    });
+                  }}
+                  showHex={true}
+                  swatchClassName="h-7 w-7 rounded-lg border-border"
+                />
+              </div>
+
+              {/* Recommended Highlight Swatches for Background Effect */}
+              {activeDetail === "background" && (
+                <div className="rounded-xl border border-border/70 bg-secondary/30 p-2.5 space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="flex items-center gap-1 font-semibold text-foreground">
+                      <SparklesIcon size={12} className="text-amber-500" />
+                      Smart Highlight Colors
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Auto-contrasted
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {getRecommendedHighlightColors(canvasBg).map((opt) => {
+                      const isActive =
+                        (layer.effectColor || smartDefaultBgColor).toLowerCase() ===
+                        opt.color.toLowerCase();
+                      return (
+                        <button
+                          key={opt.color}
+                          type="button"
+                          title={`${opt.name}${opt.isRecommended ? " (Recommended)" : ""}`}
+                          onClick={() => {
+                            onChange({
+                              effectColor: opt.color,
+                              color: opt.textColor,
+                            });
+                          }}
+                          className={`group relative flex h-7 w-full items-center justify-center rounded-lg border transition-all cursor-pointer ${
+                            isActive
+                              ? "border-primary ring-2 ring-primary/40 shadow-sm scale-105"
+                              : "border-border/60 hover:scale-105 hover:border-foreground/40"
+                          }`}
+                          style={{ backgroundColor: opt.color }}
+                        >
+                          {opt.isRecommended && (
+                            <span className="absolute -top-1 -right-1 flex h-3 w-3 items-center justify-center rounded-full bg-amber-500 text-[8px] font-black text-amber-950 shadow">
+                              ★
+                            </span>
+                          )}
+                          <span
+                            className="text-[9px] font-extrabold"
+                            style={{ color: opt.textColor }}
+                          >
+                            Ag
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

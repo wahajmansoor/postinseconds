@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AdminDashboard } from "@/components/admin/AdminDashboard";
 import { SignupPage } from "@/components/auth/SignupPage";
-import { useAuth } from "@/lib/auth";
+import { useAuth, isEmailAdmin } from "@/lib/auth";
 import { FullScreenLogoLoader } from "@/components/FullScreenLogoLoader";
 import { SecurityCheckIcon } from "hugeicons-react";
 
@@ -21,6 +21,7 @@ function AdminPage() {
 
 function AdminGate() {
   const { user, isAuthenticated, isAdmin, isLoading } = useAuth();
+  const hasAdminAccess = isAdmin || (user?.email ? isEmailAdmin(user.email) : false);
 
   // Each branch below replaces the previous one outright (React unmounts
   // one, mounts the other), but fading each incoming view in via
@@ -53,7 +54,7 @@ function AdminGate() {
     );
   }
 
-  if (!isAdmin) {
+  if (!hasAdminAccess) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-background px-4 text-center text-foreground animate-in fade-in duration-200">
         <span className="grid h-12 w-12 place-items-center rounded-2xl bg-destructive/10 text-destructive">

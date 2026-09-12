@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAuth } from "@/lib/auth";
 import {
   AlignBottomIcon,
   AlignHorizontalCenterIcon,
@@ -17,6 +18,7 @@ import {
   SquareLock02Icon,
   SquareUnlock02Icon,
   Upload01Icon,
+  Crown03Icon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
 import { useCustomFonts } from "@/hooks/useCustomFonts";
@@ -178,6 +180,7 @@ export function MultiMixedSelectionToolbar({
   // list) — loaded lazily once this popover actually opens. See
   // loadGoogleFontsCatalog/searchAllFonts in types.ts.
   const [fontCatalog, setFontCatalog] = useState<FontOption[] | null>(null);
+  const { isPro, openUpgradeModal } = useAuth();
   const { options: customFontOptions } = useCustomFonts();
   const [customFontsDialogOpen, setCustomFontsDialogOpen] = useState(false);
   useEffect(() => {
@@ -421,16 +424,22 @@ export function MultiMixedSelectionToolbar({
               <button
                 type="button"
                 onClick={() => {
+                  if (!isPro) {
+                    setFontOpen(false);
+                    openUpgradeModal();
+                    return;
+                  }
                   if (onOpenCustomFonts) {
                     onOpenCustomFonts();
                   } else {
                     setCustomFontsDialogOpen(true);
                   }
                 }}
-                className="mx-2 my-1.5 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
+                className="mx-2 my-1.5 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 cursor-pointer"
               >
                 <Upload01Icon size={12} />
-                Upload / manage your fonts
+                <span>Upload / manage your fonts</span>
+                {!isPro && <Crown03Icon size={11} className="text-amber-500 ml-0.5 shrink-0" />}
               </button>
               {/* Font list */}
               <div ref={fontListScrollRef} className="flex max-h-64 flex-col overflow-y-auto">

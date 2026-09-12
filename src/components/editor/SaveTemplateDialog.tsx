@@ -13,6 +13,7 @@ import {
   SparklesIcon,
   StarCircleIcon,
 } from "hugeicons-react";
+import { toast } from "@/components/ui/sonner";
 
 interface SaveTemplateDialogProps {
   open: boolean;
@@ -59,19 +60,25 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
     try {
       if (isAdmin && (saveType === "premium" || saveType === "starter")) {
         // ADMIN: Save to global platform templates
-        const templateId = "custom-" + Math.random().toString(36).substring(2, 9);
         const isPremium = saveType === "premium";
+        const templateId = (isPremium ? "premium-custom-" : "starter-custom-") + Math.random().toString(36).substring(2, 9);
 
         const newTemplate: Template = {
           id: templateId,
           label: label.trim(),
+          category: isPremium ? "premium" : "starter",
+          is_premium: isPremium,
           description:
             description.trim() || (isPremium ? "Custom Premium Pro layout" : "Custom Starter layout"),
           thumbnailUrl: thumbnailUrl.trim() || undefined,
           state: { ...s },
         };
 
-        await upsertTemplate(newTemplate, isPremium);
+        const ok = await upsertTemplate(newTemplate, isPremium, user?.email);
+        if (!ok) {
+          toast.error("Failed to save template. Please check database permissions.");
+          return;
+        }
         if (onSaved) onSaved(newTemplate);
       } else {
         // REGULAR USER (OR ADMIN SAVING PRIVATELY): Save to user's personal saved library
@@ -95,12 +102,22 @@ export function SaveTemplateDialog({ open, onClose, s, onSaved }: SaveTemplateDi
       );
 
       setSuccess(true);
+      toast.success(
+        saveType === "premium"
+          ? "Premium Template published successfully!"
+          : saveType === "starter"
+            ? "Starter Template published successfully!"
+            : "Template saved to your personal library!",
+      );
       setTimeout(() => {
         setSuccess(false);
         setLabel("");
         setDescription("");
         onClose();
       }, 1000);
+    } catch (err: any) {
+      console.error("Save template error:", err);
+      toast.error(err.message || "Could not save template.");
     } finally {
       setSaving(false);
     }

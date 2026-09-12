@@ -1,8 +1,10 @@
 import { forwardRef, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
-import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinIcon, Search01Icon, Tick02Icon, Upload01Icon } from "hugeicons-react";
+import { Add01Icon, ArrowDown01Icon, MinusSignIcon, MultiplicationSignIcon, PinIcon, Search01Icon, Tick02Icon, Upload01Icon, Crown03Icon } from "hugeicons-react";
 import { GripHorizontal, Minimize2, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
+import { toast } from "@/components/ui/sonner";
 import { AppTooltip, InfoTooltip } from "@/components/ui/tooltip";
 import { loadGoogleFont } from "@/lib/fontLoader";
 import { compressImageFile } from "@/lib/imageCompression";
@@ -125,6 +127,13 @@ export function useDraggableOffset(persistKey?: string) {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (isMobile) return;
+    // Same fix as preserveSelection in TextSelectionToolbar.tsx: without
+    // preventDefault, the browser's own default mousedown behavior (start a
+    // fresh selection at the click point) fires the instant you press this
+    // grip to start dragging, collapsing whatever text the user has
+    // highlighted on the canvas before the drag gesture even begins — even
+    // though this div itself has nothing to do with that selection.
+    e.preventDefault();
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     movedRef.current = false;
@@ -1170,6 +1179,7 @@ export function FontPickerField({
   canvasFonts?: FontOption[] | null;
   className?: string;
 }) {
+  const { isPro, openUpgradeModal } = useAuth();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
@@ -1315,11 +1325,22 @@ export function FontPickerField({
               {onOpenCustomFonts ? (
                 <button
                   type="button"
-                  onClick={onOpenCustomFonts}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
+                  onClick={() => {
+                    if (!isPro) {
+                      setOpen(false);
+                      openUpgradeModal();
+                      toast.info("Custom Fonts is a PRO Feature", {
+                        description: "Upgrade to PRO to upload and manage custom .ttf and .otf brand typography.",
+                      });
+                      return;
+                    }
+                    onOpenCustomFonts();
+                  }}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-primary/50 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 cursor-pointer"
                 >
                   <Upload01Icon size={12} />
-                  Upload / manage your fonts
+                  <span>Upload / manage your fonts</span>
+                  {!isPro && <Crown03Icon size={11} className="text-amber-500 ml-0.5 shrink-0" />}
                 </button>
               ) : null}
               <div

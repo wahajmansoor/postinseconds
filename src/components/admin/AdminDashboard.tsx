@@ -14,7 +14,7 @@ import {
 } from "@/lib/supabase";
 import { TemplatePreview } from "@/components/editor/TemplatePreview";
 import { compressImageFile } from "@/lib/imageCompression";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import {
   INITIAL_STATE,
   type Template,
@@ -134,7 +134,7 @@ export function AdminDashboard() {
         },
       };
 
-      const success = await upsertTemplate(updated, editCategory === "premium");
+      const success = await upsertTemplate(updated, editCategory === "premium", user?.email);
       if (success) {
         toast.success("Template saved successfully!");
         window.dispatchEvent(
@@ -162,27 +162,23 @@ export function AdminDashboard() {
     await loadData();
   };
 
-  const starterTemplates = templates.filter(
-    (t) =>
-      !t.id.includes("founder") &&
-      !t.id.includes("hormozi") &&
-      !t.id.includes("jasmin") &&
-      !t.id.includes("viral") &&
-      !t.id.includes("cyber") &&
-      !t.id.includes("creator") &&
-      !t.id.includes("luxury"),
-  );
-
-  const premiumTemplates = templates.filter(
-    (t) =>
+  const isTemplatePremium = (t: Template) => {
+    if (t.category === "premium" || t.is_premium === true) return true;
+    if (t.category === "starter" || t.is_premium === false) return false;
+    return (
+      t.id.startsWith("premium-") ||
       t.id.includes("founder") ||
       t.id.includes("hormozi") ||
       t.id.includes("jasmin") ||
       t.id.includes("viral") ||
       t.id.includes("cyber") ||
       t.id.includes("creator") ||
-      t.id.includes("luxury"),
-  );
+      t.id.includes("luxury")
+    );
+  };
+
+  const starterTemplates = templates.filter((t) => !isTemplatePremium(t));
+  const premiumTemplates = templates.filter((t) => isTemplatePremium(t));
 
   return (
     <div className="min-h-screen bg-background text-foreground">

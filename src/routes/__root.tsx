@@ -81,6 +81,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
+      { name: "referrer", content: "no-referrer" },
       {
         name: "viewport",
         content:
@@ -150,15 +151,13 @@ function RootComponent() {
       <OfflineGate>
         <AuthProvider>
           <Outlet />
-          {/* bottom-center everywhere for consistency (most call sites were
-              already overriding position to this per-toast — see Toaster's
-              own comment for the full rationale, including the mobile
-              offset). richColors dropped in favor of Toaster's own custom
-              per-type icons/card styling, see sonner.tsx. */}
+          {/* Gooey morphing toast component */}
           <Toaster
             position="bottom-center"
-            offset={{ bottom: 24 }}
-            mobileOffset={{ bottom: "calc(76px + env(safe-area-inset-bottom))" }}
+            preset="bouncy"
+            bounce={0.4}
+            richColors
+            showTimestamp={false}
           />
         </AuthProvider>
       </OfflineGate>

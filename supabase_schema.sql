@@ -10,9 +10,23 @@ create table if not exists public.profiles (
   full_name text,
   avatar_url text,
   role text not null default 'user' check (role in ('user', 'admin')),
+  is_pro boolean not null default false,
+  plan text not null default 'free' check (plan in ('free', 'pro_monthly', 'pro_annual', 'lifetime')),
+  stripe_customer_id text,
+  stripe_subscription_id text,
+  subscription_status text default 'inactive',
+  subscription_period_end timestamp with time zone,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- Idempotent column additions for existing deployments
+alter table public.profiles add column if not exists is_pro boolean not null default false;
+alter table public.profiles add column if not exists plan text not null default 'free';
+alter table public.profiles add column if not exists stripe_customer_id text;
+alter table public.profiles add column if not exists stripe_subscription_id text;
+alter table public.profiles add column if not exists subscription_status text default 'inactive';
+alter table public.profiles add column if not exists subscription_period_end timestamp with time zone;
 
 alter table public.profiles enable row level security;
 
@@ -32,6 +46,20 @@ as $$
   select exists (
     select 1 from public.profiles
     where id = auth.uid() and role = 'admin'
+  );
+$$;
+
+-- Helper: does the user have PRO access (either pro subscriber or admin)
+create or replace function public.is_pro()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and (role = 'admin' or is_pro = true)
   );
 $$;
 
@@ -56,12 +84,10 @@ create policy "Admins can update all profiles."
   on public.profiles for update
   using ( public.is_admin() );
 
--- Guard trigger: role can only change through the bypass flag set by
--- sanctioned SECURITY DEFINER functions (admin_update_user_role below), never
--- through a direct client UPDATE — even one that the RLS policies above would
--- otherwise allow (a user updating their own row, or an admin updating any
--- row). Without this, "Users can update own profile" alone lets any signed-in
--- user PATCH their own role to 'admin'.
+-- Guard trigger: role and is_pro/plan can only change through the bypass flag set by
+-- sanctioned SECURITY DEFINER functions (admin_update_user_role or Stripe webhook handlers),
+-- never through a direct client UPDATE — even one that the RLS policies above would
+-- otherwise allow.
 create or replace function public.guard_profile_privileged_columns()
 returns trigger
 language plpgsql
@@ -71,6 +97,9 @@ begin
   if current_setting('app.bypass_profile_guard', true) <> 'on' then
     if new.role is distinct from old.role then
       raise exception 'Not authorized to change role directly';
+    end if;
+    if new.is_pro is distinct from old.is_pro or new.plan is distinct from old.plan then
+      raise exception 'Not authorized to change pro status directly';
     end if;
   end if;
   return new;
@@ -107,6 +136,29 @@ end;
 $$;
 
 grant execute on function public.admin_update_user_role(uuid, text) to authenticated;
+
+-- Sanctioned RPC for admins to grant/revoke Pro status manually.
+create or replace function public.admin_update_user_pro(target_id uuid, new_is_pro boolean, new_plan text default 'pro_monthly')
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    raise exception 'Not authorized';
+  end if;
+
+  perform set_config('app.bypass_profile_guard', 'on', true);
+  update public.profiles
+  set is_pro = new_is_pro,
+      plan = case when new_is_pro then coalesce(new_plan, 'pro_monthly') else 'free' end,
+      updated_at = now()
+  where id = target_id;
+end;
+$$;
+
+grant execute on function public.admin_update_user_pro(uuid, boolean, text) to authenticated;
 
 -- 2. TEMPLATES TABLE (Starter & Premium Templates)
 create table if not exists public.templates (

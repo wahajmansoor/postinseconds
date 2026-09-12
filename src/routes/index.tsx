@@ -18,7 +18,7 @@ import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Haptics, NotificationType } from "@capacitor/haptics";
 import { Share } from "@capacitor/share";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/sonner";
 import {
   Add01Icon,
   Bookmark01Icon,
@@ -77,6 +77,8 @@ import {
 } from "@/components/editor/MultiShapeSelectionToolbar";
 import { MultiImageSelectionToolbar } from "@/components/editor/MultiImageSelectionToolbar";
 import { MultiMixedSelectionToolbar } from "@/components/editor/MultiMixedSelectionToolbar";
+import { adjustTextsForNewBackground } from "@/components/editor/textEffects";
+import { saveUserUploads } from "@/lib/userUploads";
 import {
   INITIAL_STATE,
   PREMIUM_TEMPLATES,
@@ -87,6 +89,9 @@ import {
   getTextLayers,
   isLineShape,
   migrateLegacyContentToLayers,
+  withTextAdded,
+  withShapeAdded,
+  withFrameAdded,
   withImageDuplicated,
   withImageRemoved,
   withImageUpdated,
@@ -150,6 +155,10 @@ import { useCustomFonts } from "@/hooks/useCustomFonts";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { GoogleLoginDialog } from "@/components/auth/GoogleLoginDialog";
 import { SaveTemplateDialog } from "@/components/editor/SaveTemplateDialog";
+import { UpgradeProModal } from "@/components/pricing/UpgradeProModal";
+import { ProSuccessModal } from "@/components/pricing/ProSuccessModal";
+import { verifyStripeSession } from "@/lib/stripe";
+import { setAccountProStatus } from "@/lib/supabase";
 import { SignupPage } from "@/components/auth/SignupPage";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -538,12 +547,13 @@ function DraggableFloatingLayersButton({
           ref={btnRef}
           type="button"
           onPointerDown={startDrag}
-          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${isDragging
+          className={`group relative flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xl backdrop-blur-xl transition-transform select-none ${
+            isDragging
               ? "scale-110 border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)]"
               : active
                 ? "border-primary bg-primary text-primary-foreground shadow-[var(--shadow-glow)] hover:scale-105"
                 : "border-border/80 bg-card/95 text-foreground shadow-xl hover:border-primary/60 hover:bg-card hover:shadow-2xl hover:scale-105"
-            }`}
+          }`}
           style={{ cursor: isDragging ? "grabbing" : "grab" }}
         >
           <Motion01Icon
@@ -556,10 +566,11 @@ function DraggableFloatingLayersButton({
           />
           {layerCount > 0 ? (
             <span
-              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${active || isDragging
+              className={`absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black shadow-md transition-colors ${
+                active || isDragging
                   ? "bg-background text-foreground border border-border"
                   : "bg-primary text-primary-foreground"
-                }`}
+              }`}
             >
               {layerCount}
             </span>
@@ -636,7 +647,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch { }
+    } catch {}
     toast.success(`Image saved successfully to your Gallery/Documents!`);
     return;
   } catch (docErr) {
@@ -653,7 +664,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch { }
+    } catch {}
     toast.success(`Image saved successfully to your Gallery / Downloads!`);
     return;
   } catch (extErr) {
@@ -670,7 +681,7 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
     });
     try {
       await Haptics.notification({ type: NotificationType.Success });
-    } catch { }
+    } catch {}
     toast.success(`Downloaded ${filename}!`);
   } catch (cacheErr) {
     console.error("Native write failed:", cacheErr);
@@ -679,7 +690,77 @@ async function saveExportedImageNative(url: string, filename: string): Promise<v
 }
 
 function Index() {
-  const { user } = useAuth();
+  const {
+    user,
+    isPro,
+    isUpgradeModalOpen,
+    openUpgradeModal,
+    closeUpgradeModal,
+    refreshUser,
+    updateLocalUser,
+  } = useAuth();
+  const [proSuccessOpen, setProSuccessOpen] = useState(false);
+  const [proPlanName, setProPlanName] = useState("Lifetime Pro");
+  const verifiedSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const upgradeStatus = urlParams.get("upgrade");
+    const sessionId = urlParams.get("session_id");
+    const planId = urlParams.get("plan");
+
+    if (upgradeStatus === "success" && sessionId) {
+      if (verifiedSessionIdRef.current === sessionId) return;
+      verifiedSessionIdRef.current = sessionId;
+
+      // Clean the URL synchronously so re-renders/HMR don't loop
+      window.history.replaceState({}, document.title, window.location.pathname);
+
+      // Immediately unlock UI state locally so creator doesn't wait
+      updateLocalUser({ isPro: true, plan: planId || "lifetime" });
+
+      verifyStripeSession({
+        data: {
+          sessionId,
+          userId: user?.id || undefined,
+          userEmail: user?.email || undefined,
+          planId: planId || "lifetime",
+        },
+      })
+        .then(async (res) => {
+          if (res?.success) {
+            const activePlan = res.plan || planId || "lifetime";
+            if (user?.id) {
+              await setAccountProStatus(user.id, user.email, activePlan);
+            }
+            updateLocalUser({ isPro: true, plan: activePlan });
+            await refreshUser();
+            setProPlanName("Lifetime Pro");
+            setProSuccessOpen(true);
+            toast.success("Welcome to PostInSeconds PRO!", {
+              description:
+                "All premium templates, 4K exports, and creator tools are now unlocked on your account.",
+            });
+          }
+        })
+        .catch((err) => {
+          console.error("Verification error:", err);
+        });
+    } else if (upgradeStatus === "canceled") {
+      toast.info("Upgrade Canceled", {
+        description: "You can upgrade to PRO anytime to unlock all premium templates.",
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    const handleOpenUpgrade = () => openUpgradeModal();
+    window.addEventListener("postinseconds:open-upgrade", handleOpenUpgrade);
+    return () => {
+      window.removeEventListener("postinseconds:open-upgrade", handleOpenUpgrade);
+    };
+  }, [user?.id, user?.email, refreshUser, openUpgradeModal, updateLocalUser]);
+
   // Registers the user's uploaded custom fonts' @font-face rules as soon as
   // the editor mounts (not just whenever a font picker happens to open) —
   // needed so a design that already uses one renders correctly right away,
@@ -1217,7 +1298,7 @@ function Index() {
       if (list && list.length > 0) {
         setPlatformTemplates(list);
       }
-    } catch { }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -1544,6 +1625,16 @@ function Index() {
           typeof v === "function"
             ? (v as (prev: EditorState[K], state: EditorState) => EditorState[K])(p[k], p)
             : v;
+
+        if (k === "background" && typeof nextVal === "string" && nextVal !== p.background) {
+          const adjustedTexts = adjustTextsForNewBackground(p.texts, nextVal, p.background);
+          return {
+            ...p,
+            background: nextVal,
+            ...(adjustedTexts ? { texts: adjustedTexts } : {}),
+          };
+        }
+
         return { ...p, [k]: nextVal };
       }, opts);
     },
@@ -1572,7 +1663,9 @@ function Index() {
     // true no-op if that one run somehow doesn't need to do anything.
     set("images", (prevImages) =>
       (prevImages ?? []).map((img) =>
-        img.id === erasingImageLayer.id && !img.originalSrc ? { ...img, originalSrc: img.src } : img,
+        img.id === erasingImageLayer.id && !img.originalSrc
+          ? { ...img, originalSrc: img.src }
+          : img,
       ),
     );
   }, [erasingImageLayer, set]);
@@ -1692,11 +1785,14 @@ function Index() {
   // revertNewPostSizePreview below restores the exact pre-dialog size if
   // the user backs out, and handleStartNewPost's own commit() fully
   // supersedes it if they confirm instead.
-  const previewNewPostSize = useCallback((size: { width: number; height: number }, groupKey: string | null) => {
-    setNewPostCanvasSize(size);
-    setExplicitPlatformKey(groupKey);
-    setS((prev) => ({ ...prev, width: size.width, height: size.height }));
-  }, []);
+  const previewNewPostSize = useCallback(
+    (size: { width: number; height: number }, groupKey: string | null) => {
+      setNewPostCanvasSize(size);
+      setExplicitPlatformKey(groupKey);
+      setS((prev) => ({ ...prev, width: size.width, height: size.height }));
+    },
+    [],
+  );
 
   const revertNewPostSizePreview = useCallback(() => {
     const original = preNewPostCanvasSizeRef.current;
@@ -2031,11 +2127,7 @@ function Index() {
   useEffect(() => {
     let t: number | undefined;
     if (isMobile) {
-      if (
-        prevSelectionLenRef.current &&
-        !hasSelection &&
-        !isCustomZoomRef.current
-      ) {
+      if (prevSelectionLenRef.current && !hasSelection && !isCustomZoomRef.current) {
         fit();
         t = window.setTimeout(fit, 320);
       }
@@ -2533,7 +2625,7 @@ function Index() {
           });
         }
       }
-    } catch { }
+    } catch {}
   }, [applyTemplate]);
 
   const handleQuickSaveTemplate = async () => {
@@ -2579,8 +2671,9 @@ function Index() {
   const renderExport = async (targetScale: number = s.exportScale) => {
     if (!canvasRef.current) return null;
     const mod = await import("html-to-image");
+    const effectiveScale = !isPro && targetScale > 1 ? 1 : targetScale;
     const opts = {
-      pixelRatio: targetScale,
+      pixelRatio: effectiveScale,
       width: s.width,
       height: s.height,
       cacheBust: false,
@@ -2832,7 +2925,7 @@ function Index() {
         ),
       updateLayer: (patch) =>
         set("texts", (_, prevS) => withTextUpdated(prevS, selectedTextLayer.id, patch)),
-      snapshotSelection: () => { },
+      snapshotSelection: () => {},
       getActiveFormat: () => ({
         bold: selectedTextLayer.weight >= 700,
         italic: !!selectedTextLayer.italic,
@@ -2846,7 +2939,7 @@ function Index() {
         numberedList: false,
       }),
       subscribeActiveFormat: () => () => {},
-      startEditing: () => { },
+      startEditing: () => {},
     };
   }, [selectedTextLayer, s, set]);
 
@@ -2869,8 +2962,8 @@ function Index() {
   const multiSelectedShapeLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "shape")
       ? (canvasSelection
-        .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
-        .filter(Boolean) as ShapeLayer[])
+          .map((sel) => getShapeLayers(s).find((sh) => sh.id === sel.id))
+          .filter(Boolean) as ShapeLayer[])
       : [];
   const isMultiShapeSelection = multiSelectedShapeLayers.length > 1;
 
@@ -2891,7 +2984,19 @@ function Index() {
   // of the catalog's official one, which is a cosmetic difference only.
   const canvasFontsInUse = useMemo(
     () => getCanvasFontsInUse(s, getFontPool(null, customFontOptions)),
-    [s.quote, s.quoteFont, s.name, s.authorFont, s.tagline, s.taglineFont, s.showTopButton, s.topButtonText, s.topButtonFont, s.texts, customFontOptions],
+    [
+      s.quote,
+      s.quoteFont,
+      s.name,
+      s.authorFont,
+      s.tagline,
+      s.taglineFont,
+      s.showTopButton,
+      s.topButtonText,
+      s.topButtonFont,
+      s.texts,
+      customFontOptions,
+    ],
   );
 
   // Position-panel callbacks for the multi-shape toolbar (Arrange/Align/
@@ -2957,8 +3062,8 @@ function Index() {
   const multiSelectedImageLayers =
     canvasSelection.length > 1 && canvasSelection.every((sel) => sel.kind === "image")
       ? (canvasSelection
-        .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
-        .filter(Boolean) as ImageLayer[])
+          .map((sel) => getImageLayers(s).find((img) => img.id === sel.id))
+          .filter(Boolean) as ImageLayer[])
       : [];
   const isMultiImageSelection = multiSelectedImageLayers.length > 1;
 
@@ -2973,9 +3078,9 @@ function Index() {
   // Text layers that are part of a mixed multi-selection
   const mixedSelectedTextLayers = isMixedMultiSelection
     ? (canvasSelection
-      .filter((sel) => sel.kind === "text")
-      .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
-      .filter(Boolean) as import("@/components/editor/types").TextLayer[])
+        .filter((sel) => sel.kind === "text")
+        .map((sel) => getTextLayers(s).find((t) => t.id === sel.id))
+        .filter(Boolean) as import("@/components/editor/types").TextLayer[])
     : [];
   const mixedAllText = isMixedMultiSelection && canvasSelection.every((sel) => sel.kind === "text");
 
@@ -3388,23 +3493,100 @@ function Index() {
           setIsDraggingOver(false);
           dragCounterRef.current = 0;
 
+          // Compute canvas percentage coordinates (x: 0-100, y: 0-100)
+          const canvasEl = document.getElementById("quote-canvas-root");
+          let dropX = 50;
+          let dropY = 50;
+          if (canvasEl) {
+            const rect = canvasEl.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              const relX = (e.clientX - rect.left) / rect.width;
+              const relY = (e.clientY - rect.top) / rect.height;
+              dropX = Math.max(5, Math.min(95, Math.round(relX * 100)));
+              dropY = Math.max(5, Math.min(95, Math.round(relY * 100)));
+            }
+          }
+
+          // Case 1: Drag & drop image files from computer
           const files = Array.from(e.dataTransfer.files).filter((file) =>
             file.type.startsWith("image/"),
           );
-          if (files.length === 0) return;
+          if (files.length > 0) {
+            const dataUrls = (await compressImageFiles(files)).filter(Boolean);
+            if (dataUrls.length > 0) {
+              // 1. Save to persistent User Uploads library so it shows in the Uploads tab!
+              saveUserUploads(
+                dataUrls.map((src, idx) => ({
+                  src,
+                  name: files[idx]?.name || `Upload ${idx + 1}`,
+                })),
+              );
 
-          // Downscaled + re-encoded before ever becoming a data URL — see
-          // imageCompression.ts's own comment for why this matters (every
-          // image in this app is embedded as base64, not uploaded to
-          // object storage).
-          const dataUrls = (await compressImageFiles(files)).filter(Boolean);
-          if (dataUrls.length === 0) return;
+              // 2. Add to canvas at drop coordinates
+              const res = withImagesAdded(s, dataUrls, { x: dropX, y: dropY });
+              set("images", res.list);
+              set("layerOrder", res.layerOrder);
+              if (res.newIds[0]) {
+                handleSelectLayer({ kind: "image", id: res.newIds[0] });
+              }
+              toast.success(`${files.length > 1 ? `${files.length} images` : "Image"} uploaded and added to canvas!`);
+            }
+            return;
+          }
 
-          const res = withImagesAdded(s, dataUrls);
-          set("images", res.list);
-          set("layerOrder", res.layerOrder);
-          if (res.newIds[0]) {
-            handleSelectLayer({ kind: "image", id: res.newIds[0] });
+          // Case 2: Drag & drop elements from LeftPanel sidebar
+          const rawJson = e.dataTransfer.getData("application/json") || e.dataTransfer.getData("text/plain");
+          if (rawJson) {
+            try {
+              const payload = JSON.parse(rawJson);
+              if (payload && typeof payload === "object") {
+                if (payload.type === "text") {
+                  const res = withTextAdded(s, {
+                    text: payload.text ?? "New Text",
+                    size: payload.size ?? 32,
+                    weight: payload.weight ?? 600,
+                    color: payload.color,
+                    fontFamily: payload.fontFamily,
+                    x: dropX,
+                    y: dropY,
+                  });
+                  set("texts", res.list);
+                  set("layerOrder", res.layerOrder);
+                  handleSelectLayer({ kind: "text", id: res.newId });
+                  toast.success("Text placed on canvas");
+                } else if (payload.type === "shape") {
+                  const res = withShapeAdded(s, payload.kind ?? "rectangle", payload.radius ?? 0, {
+                    x: dropX,
+                    y: dropY,
+                    size: payload.size,
+                    color: payload.color,
+                  });
+                  set("shapes", res.list);
+                  set("layerOrder", res.layerOrder);
+                  handleSelectLayer({ kind: "shape", id: res.newId });
+                  toast.success("Shape placed on canvas");
+                } else if (payload.type === "frame") {
+                  const res = withFrameAdded(s, payload.frameKind ?? "rounded", {
+                    x: dropX,
+                    y: dropY,
+                  });
+                  set("images", res.list);
+                  set("layerOrder", res.layerOrder);
+                  if (res.newId) {
+                    handleSelectLayer({ kind: "image", id: res.newId });
+                  }
+                  toast.success("Frame placed on canvas");
+                } else if (payload.type === "image" && payload.src) {
+                  const res = withImagesAdded(s, [payload.src], { x: dropX, y: dropY });
+                  set("images", res.list);
+                  set("layerOrder", res.layerOrder);
+                  if (res.newIds[0]) {
+                    handleSelectLayer({ kind: "image", id: res.newIds[0] });
+                  }
+                  toast.success("Image placed on canvas");
+                }
+              }
+            } catch {}
           }
         }}
         onPointerDown={handleStagePointerDown}
@@ -3419,10 +3601,10 @@ function Index() {
       >
         {/* Marquee Selection Rectangle (Canva style) */}
         {stageMarquee &&
-          Math.hypot(
-            stageMarquee.currentX - stageMarquee.startX,
-            stageMarquee.currentY - stageMarquee.startY,
-          ) > 4 ? (
+        Math.hypot(
+          stageMarquee.currentX - stageMarquee.startX,
+          stageMarquee.currentY - stageMarquee.startY,
+        ) > 4 ? (
           <div
             style={{
               position: "absolute",
@@ -3454,16 +3636,16 @@ function Index() {
             what lets that popover's own state survive the transition
             instead of resetting. */}
         {!isMobile &&
-          !stageMarquee &&
-          (canvasSelection.length === 1 ||
-            isMultiShapeSelection ||
-            isMultiImageSelection ||
-            isMixedMultiSelection ||
-            isBackgroundSelected ||
-            textDetached ||
-            imageDetached ||
-            shapeDetached ||
-            backgroundDetached) ? (
+        !stageMarquee &&
+        (canvasSelection.length === 1 ||
+          isMultiShapeSelection ||
+          isMultiImageSelection ||
+          isMixedMultiSelection ||
+          isBackgroundSelected ||
+          textDetached ||
+          imageDetached ||
+          shapeDetached ||
+          backgroundDetached) ? (
           <div
             className="pointer-events-none z-40 flex justify-center overflow-visible sticky h-0 w-full transition-[top] duration-150"
             style={{
@@ -3478,7 +3660,7 @@ function Index() {
               className="pointer-events-auto relative"
             >
               {(selectedTextLayer && selectedTextLayerHandle) ||
-                (textDetached && pinnedTextLayer && pinnedTextLayerHandle) ? (
+              (textDetached && pinnedTextLayer && pinnedTextLayerHandle) ? (
                 <TextSelectionToolbar
                   layer={(selectedTextLayer ?? pinnedTextLayer)!}
                   handle={(selectedTextLayerHandle ?? pinnedTextLayerHandle)!}
@@ -3922,7 +4104,9 @@ function Index() {
     explicitPlatformKey && groupHasExactPreset(explicitPlatformKey, s.width, s.height)
       ? explicitPlatformKey
       : findCanvasPresetGroupKey(s.width, s.height);
-  const MatchedPlatformIcon = matchedPlatformKey ? CANVAS_PRESET_GROUP_ICONS[matchedPlatformKey] : null;
+  const MatchedPlatformIcon = matchedPlatformKey
+    ? CANVAS_PRESET_GROUP_ICONS[matchedPlatformKey]
+    : null;
 
   // Shared by both the round "+" trigger and the canvas-size chip next to
   // it — either one opens the same New Post dialog.
@@ -3999,10 +4183,11 @@ function Index() {
                   type="button"
                   onClick={handleQuickSaveTemplate}
                   disabled={isSavingTemplate}
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${saveSuccess
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold shadow-sm transition-all active:scale-95 ${
+                    saveSuccess
                       ? "bg-emerald-500 text-white"
                       : "bg-primary text-primary-foreground hover:bg-primary/90"
-                    }`}
+                  }`}
                   title="Save changes to template"
                 >
                   <Bookmark01Icon size={13} />
@@ -4067,8 +4252,9 @@ function Index() {
                       setLeftPanelCollapsed(false);
                       window.dispatchEvent(new CustomEvent("postinseconds:open-premium"));
                     }}
-                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${dark ? "text-white" : "text-zinc-900"
-                      }`}
+                    className={`relative flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all hover:scale-105 active:scale-95 ${
+                      dark ? "text-white" : "text-zinc-900"
+                    }`}
                   >
                     {/* Two stacked light/dark background+border layers,
                         crossfaded via opacity instead of animating the
@@ -4281,7 +4467,9 @@ function Index() {
                   onClick={() => setShowMargins((m) => !m)}
                   className={cn(
                     "pointer-events-auto grid h-7 w-7 place-items-center rounded-full transition-all active:scale-95",
-                    showMargins ? "bg-secondary text-foreground" : "text-foreground hover:bg-secondary",
+                    showMargins
+                      ? "bg-secondary text-foreground"
+                      : "text-foreground hover:bg-secondary",
                   )}
                   title={showMargins ? "Hide margins" : "Show margins"}
                 >
@@ -4363,334 +4551,344 @@ function Index() {
                 true once a real FloatingDropdown has actually mounted and
                 measured a nonzero height (see floatingDrawerHeightPx above),
                 which is exactly "a bottom sheet is genuinely open now". */}
-            {typeof document !== "undefined" && !postPreviewOpen && !profilePreviewOpen && !mobileExportDrawerOpen
+            {typeof document !== "undefined" &&
+            !postPreviewOpen &&
+            !profilePreviewOpen &&
+            !mobileExportDrawerOpen
               ? createPortal(
-                !(
-                  selectedTextLayer ||
-                  selectedImageLayer ||
-                  selectedShapeLayer ||
-                  isMultiShapeSelection ||
-                  isMultiImageSelection ||
-                  isMixedMultiSelection ||
-                  isBackgroundSelected
-                ) ? (
-                  <MobileBottomTabBar
-                    activeTab={tab}
-                    isDrawerOpen={mobileToolDrawerOpen}
-                    onTabChange={(id) => {
-                      if (id === tab && mobileToolDrawerOpen) {
-                        setMobileToolDrawerOpen(false);
-                      } else {
-                        setTab(id);
-                        setMobileToolDrawerOpen(true);
-                      }
-                    }}
-                  />
-                ) : (
-                  <div
-                    data-nopan=""
-                    data-keep-text-editing=""
-                    // Faded out (not unmounted — see the long comment above
-                    // this whole block for why it can't be) while any of
-                    // this toolbar's own FloatingDropdown popovers is open,
-                    // so it stops sitting on top of (z-[100] vs the sheet's
-                    // z-30) the last couple of rows of whatever bottom
-                    // sheet is now open below it. pointer-events-none goes
-                    // along with the fade so its still-mounted, now-
-                    // invisible buttons (e.g. the Done tick) can't eat taps
-                    // meant for the sheet or the canvas beneath it.
-                    className={cn(
-                      "fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl transition-opacity duration-150",
-                      mobileDrawerLiftActive ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100",
-                    )}
-                    style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-                  >
-                    {/* Absolute solid Tick02Icon button on far left */}
-                    <button
-                      type="button"
-                      onPointerDown={(e) => e.preventDefault()}
-                      onClick={(e) => {
-                        e.currentTarget.blur();
-                        // Force-closes the mobile on-screen keyboard if some
-                        // input still has it open underneath (e.g. a hex
-                        // color field inside the Custom color picker, or a
-                        // text layer mid-edit) — blurring the BUTTON itself
-                        // above doesn't touch whatever ELSE was focused, and
-                        // the onPointerDown preventDefault() below (there to
-                        // stop this tap from otherwise stealing focus oddly
-                        // on mobile) also suppresses the browser's own
-                        // default blur-on-tap-elsewhere behavior for that
-                        // other input, so nothing was ever telling it to
-                        // give up focus and let the keyboard dismiss.
-                        (document.activeElement as HTMLElement | null)?.blur();
-                        setCanvasSelection([]);
-                        setIsBackgroundSelected(false);
-                        // This button unmounts whichever *SelectionToolbar
-                        // is currently showing (text/image/shape/background)
-                        // outright, mid-render, the instant selection clears
-                        // — unlike the desktop floating toolbar, mobile has
-                        // no `detached` fallback slot to keep it mounted for
-                        // one more tick. So if one of its color/gradient/font
-                        // popovers was open, it never gets the chance to
-                        // fire its own onOpenChange(false) and clear its
-                        // pinnedOwners slot — leaving anyPopoverOpen stuck
-                        // true forever and permanently blocking the mobile
-                        // "restore canvas to fit" effect (see its own
-                        // comment above, trigger 3). Clearing all four
-                        // slots here directly is what the vanishing
-                        // popover would have done itself had it gotten the
-                        // chance.
-                        setPinnedOwners({ text: null, image: null, shape: null, background: null });
+                  !(
+                    selectedTextLayer ||
+                    selectedImageLayer ||
+                    selectedShapeLayer ||
+                    isMultiShapeSelection ||
+                    isMultiImageSelection ||
+                    isMixedMultiSelection ||
+                    isBackgroundSelected
+                  ) ? (
+                    <MobileBottomTabBar
+                      activeTab={tab}
+                      isDrawerOpen={mobileToolDrawerOpen}
+                      onTabChange={(id) => {
+                        if (id === tab && mobileToolDrawerOpen) {
+                          setMobileToolDrawerOpen(false);
+                        } else {
+                          setTab(id);
+                          setMobileToolDrawerOpen(true);
+                        }
                       }}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
-                      title="Done (Deselect)"
+                    />
+                  ) : (
+                    <div
+                      data-nopan=""
+                      data-keep-text-editing=""
+                      // Faded out (not unmounted — see the long comment above
+                      // this whole block for why it can't be) while any of
+                      // this toolbar's own FloatingDropdown popovers is open,
+                      // so it stops sitting on top of (z-[100] vs the sheet's
+                      // z-30) the last couple of rows of whatever bottom
+                      // sheet is now open below it. pointer-events-none goes
+                      // along with the fade so its still-mounted, now-
+                      // invisible buttons (e.g. the Done tick) can't eat taps
+                      // meant for the sheet or the canvas beneath it.
+                      className={cn(
+                        "fixed inset-x-0 bottom-0 z-[100] flex h-[60px] w-full items-center border-t border-border bg-card/95 backdrop-blur-xl transition-opacity duration-150",
+                        mobileDrawerLiftActive
+                          ? "pointer-events-none opacity-0"
+                          : "pointer-events-auto opacity-100",
+                      )}
+                      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
                     >
-                      <Tick02Icon size={16} />
-                    </button>
+                      {/* Absolute solid Tick02Icon button on far left */}
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.currentTarget.blur();
+                          // Force-closes the mobile on-screen keyboard if some
+                          // input still has it open underneath (e.g. a hex
+                          // color field inside the Custom color picker, or a
+                          // text layer mid-edit) — blurring the BUTTON itself
+                          // above doesn't touch whatever ELSE was focused, and
+                          // the onPointerDown preventDefault() below (there to
+                          // stop this tap from otherwise stealing focus oddly
+                          // on mobile) also suppresses the browser's own
+                          // default blur-on-tap-elsewhere behavior for that
+                          // other input, so nothing was ever telling it to
+                          // give up focus and let the keyboard dismiss.
+                          (document.activeElement as HTMLElement | null)?.blur();
+                          setCanvasSelection([]);
+                          setIsBackgroundSelected(false);
+                          // This button unmounts whichever *SelectionToolbar
+                          // is currently showing (text/image/shape/background)
+                          // outright, mid-render, the instant selection clears
+                          // — unlike the desktop floating toolbar, mobile has
+                          // no `detached` fallback slot to keep it mounted for
+                          // one more tick. So if one of its color/gradient/font
+                          // popovers was open, it never gets the chance to
+                          // fire its own onOpenChange(false) and clear its
+                          // pinnedOwners slot — leaving anyPopoverOpen stuck
+                          // true forever and permanently blocking the mobile
+                          // "restore canvas to fit" effect (see its own
+                          // comment above, trigger 3). Clearing all four
+                          // slots here directly is what the vanishing
+                          // popover would have done itself had it gotten the
+                          // chance.
+                          setPinnedOwners({
+                            text: null,
+                            image: null,
+                            shape: null,
+                            background: null,
+                          });
+                        }}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 z-30 grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105 active:scale-95"
+                        title="Done (Deselect)"
+                      >
+                        <Tick02Icon size={16} />
+                      </button>
 
-                    {/* Left & Right gradient edge fades */}
-                    <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
-                    <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
+                      {/* Left & Right gradient edge fades */}
+                      <div className="pointer-events-none absolute left-0 top-0 bottom-0 z-20 w-12 bg-gradient-to-r from-card via-card/90 to-transparent" />
+                      <div className="pointer-events-none absolute right-0 top-0 bottom-0 z-20 w-8 bg-gradient-to-l from-card via-card/85 to-transparent" />
 
-                    {/* Scrollable toolbar items with pl-14 pr-3 */}
-                    <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
-                      {selectedTextLayer && selectedTextLayerHandle ? (
-                        <TextSelectionToolbar
-                          layer={selectedTextLayer}
-                          handle={selectedTextLayerHandle}
-                          onArrange={(dir) => handleSingleArrange(selectedTextLayer.id, dir)}
-                          canArrange={getArrangeEligibility(unifiedLayers, selectedTextLayer.id)}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("text", selectedTextLayer.id, open)
-                          }
-                          onOpenEffectsTab={() => {
-                            setTab("text");
-                            setTextSubTab("effects");
-                            setMobileToolDrawerOpen(true);
-                          }}
-                          onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
-                          canvasFonts={canvasFontsInUse}
-                        />
-                      ) : selectedImageLayer ? (
-                        <ImageSelectionToolbar
-                          layer={selectedImageLayer}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
-                          canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("image", selectedImageLayer.id, open)
-                          }
-                          onUpdate={(patch) =>
-                            set("images", (_, prevS) =>
-                              withImageUpdated(prevS, selectedImageLayer.id, patch),
-                            )
-                          }
-                          onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
-                          onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
-                        />
-                      ) : selectedShapeLayer ? (
-                        <ShapeSelectionToolbar
-                          layer={selectedShapeLayer}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
-                          canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
-                          }
-                          onUpdate={(patch) =>
-                            set("shapes", (_, prevS) =>
-                              withShapeUpdated(prevS, selectedShapeLayer.id, patch),
-                            )
-                          }
-                          onDuplicate={() => {
-                            const dup = withShapeDuplicated(s, selectedShapeLayer.id);
-                            set("shapes", dup.list);
-                            setCanvasSelection([{ kind: "shape", id: dup.newId }]);
-                          }}
-                          onDelete={() => {
-                            set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
-                            setCanvasSelection([]);
-                          }}
-                          onToggleLock={() =>
-                            set(
-                              "shapes",
-                              withShapeUpdated(s, selectedShapeLayer.id, {
-                                locked: !selectedShapeLayer.locked,
-                              }),
-                            )
-                          }
-                        />
-                      ) : isMultiShapeSelection ? (
-                        <MultiShapeSelectionToolbar
-                          layers={multiSelectedShapeLayers}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("shape", "multi-shape", open)
-                          }
-                          onArrange={handleShapeArrange}
-                          canArrange={getArrangeEligibility(
-                            unifiedLayers,
-                            multiSelectedShapeLayers.map((l) => l.id),
-                          )}
-                          onAlign={handleShapeAlign}
-                          onSpaceEvenly={handleShapeSpaceEvenly}
-                          onShiftGroup={handleShapeShiftGroup}
-                          onUpdateAll={(patch) =>
-                            set("shapes", (_, prev) =>
-                              withShapesUpdated(
-                                prev,
-                                multiSelectedShapeLayers.map((l) => l.id),
-                                patch,
-                              ),
-                            )
-                          }
-                          onToggleLockAll={() => {
-                            const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
-                            set("shapes", (_, prev) =>
-                              withShapesLockSet(
-                                prev,
-                                multiSelectedShapeLayers.map((l) => l.id),
-                                !allLocked,
-                              ),
-                            );
-                          }}
-                          onDeleteAll={() => {
-                            commit((prev) => {
-                              const result = withMultipleLayersRemoved(prev, canvasSelection);
-                              return { ...prev, ...result };
-                            });
-                            setCanvasSelection([]);
-                          }}
-                        />
-                      ) : isMultiImageSelection ? (
-                        <MultiImageSelectionToolbar
-                          layers={multiSelectedImageLayers}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("image", "multi-image", open)
-                          }
-                          onArrange={handleImageArrange}
-                          canArrange={getArrangeEligibility(
-                            unifiedLayers,
-                            multiSelectedImageLayers.map((l) => l.id),
-                          )}
-                          onAlign={handleImageAlign}
-                          onSpaceEvenly={handleImageSpaceEvenly}
-                          onShiftGroup={handleImageShiftGroup}
-                          onUpdateAll={(patch) =>
-                            set("images", (_, prev) =>
-                              withImagesUpdated(
-                                prev,
-                                multiSelectedImageLayers.map((l) => l.id),
-                                patch,
-                              ),
-                            )
-                          }
-                          onToggleLockAll={() => {
-                            const allLocked = multiSelectedImageLayers.every((l) => l.locked);
-                            set("images", (_, prev) =>
-                              withImagesLockSet(
-                                prev,
-                                multiSelectedImageLayers.map((l) => l.id),
-                                !allLocked,
-                              ),
-                            );
-                          }}
-                          onDeleteAll={() => {
-                            commit((prev) => {
-                              const result = withMultipleLayersRemoved(prev, canvasSelection);
-                              return { ...prev, ...result };
-                            });
-                            setCanvasSelection([]);
-                          }}
-                        />
-                      ) : isMixedMultiSelection ? (
-                        <MultiMixedSelectionToolbar
-                          selectedIds={canvasSelection as MixedLayerRef[]}
-                          textLayers={mixedSelectedTextLayers}
-                          allText={mixedAllText}
-                          canvasWidth={s.width}
-                          canvasHeight={s.height}
-                          onAlign={handleMixedAlign}
-                          onSpaceEvenly={handleMixedSpaceEvenly}
-                          onArrange={handleMixedArrange}
-                          canArrange={getArrangeEligibility(
-                            unifiedLayers,
-                            canvasSelection.map((l) => l.id),
-                          )}
-                          onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("text", "multi-mixed", open)
-                          }
-                          onToggleLockAll={() => {
-                            const allLocked = canvasSelection.every((sel) => {
+                      {/* Scrollable toolbar items with pl-14 pr-3 */}
+                      <div className="w-full overflow-x-auto pl-14 pr-3 py-1 no-scrollbar scroll-smooth [mask-image:linear-gradient(to_right,transparent_0%,black_16px,black_calc(100%-16px),transparent_100%)]">
+                        {selectedTextLayer && selectedTextLayerHandle ? (
+                          <TextSelectionToolbar
+                            layer={selectedTextLayer}
+                            handle={selectedTextLayerHandle}
+                            onArrange={(dir) => handleSingleArrange(selectedTextLayer.id, dir)}
+                            canArrange={getArrangeEligibility(unifiedLayers, selectedTextLayer.id)}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("text", selectedTextLayer.id, open)
+                            }
+                            onOpenEffectsTab={() => {
+                              setTab("text");
+                              setTextSubTab("effects");
+                              setMobileToolDrawerOpen(true);
+                            }}
+                            onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
+                            canvasFonts={canvasFontsInUse}
+                          />
+                        ) : selectedImageLayer ? (
+                          <ImageSelectionToolbar
+                            layer={selectedImageLayer}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onArrange={(dir) => handleSingleArrange(selectedImageLayer.id, dir)}
+                            canArrange={getArrangeEligibility(unifiedLayers, selectedImageLayer.id)}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("image", selectedImageLayer.id, open)
+                            }
+                            onUpdate={(patch) =>
+                              set("images", (_, prevS) =>
+                                withImageUpdated(prevS, selectedImageLayer.id, patch),
+                              )
+                            }
+                            onOpenCrop={() => setCroppingImageLayer(selectedImageLayer)}
+                            onOpenErase={() => setErasingImageLayer(selectedImageLayer)}
+                          />
+                        ) : selectedShapeLayer ? (
+                          <ShapeSelectionToolbar
+                            layer={selectedShapeLayer}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onArrange={(dir) => handleSingleArrange(selectedShapeLayer.id, dir)}
+                            canArrange={getArrangeEligibility(unifiedLayers, selectedShapeLayer.id)}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("shape", selectedShapeLayer.id, open)
+                            }
+                            onUpdate={(patch) =>
+                              set("shapes", (_, prevS) =>
+                                withShapeUpdated(prevS, selectedShapeLayer.id, patch),
+                              )
+                            }
+                            onDuplicate={() => {
+                              const dup = withShapeDuplicated(s, selectedShapeLayer.id);
+                              set("shapes", dup.list);
+                              setCanvasSelection([{ kind: "shape", id: dup.newId }]);
+                            }}
+                            onDelete={() => {
+                              set("shapes", withShapeRemoved(s, selectedShapeLayer.id));
+                              setCanvasSelection([]);
+                            }}
+                            onToggleLock={() =>
+                              set(
+                                "shapes",
+                                withShapeUpdated(s, selectedShapeLayer.id, {
+                                  locked: !selectedShapeLayer.locked,
+                                }),
+                              )
+                            }
+                          />
+                        ) : isMultiShapeSelection ? (
+                          <MultiShapeSelectionToolbar
+                            layers={multiSelectedShapeLayers}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("shape", "multi-shape", open)
+                            }
+                            onArrange={handleShapeArrange}
+                            canArrange={getArrangeEligibility(
+                              unifiedLayers,
+                              multiSelectedShapeLayers.map((l) => l.id),
+                            )}
+                            onAlign={handleShapeAlign}
+                            onSpaceEvenly={handleShapeSpaceEvenly}
+                            onShiftGroup={handleShapeShiftGroup}
+                            onUpdateAll={(patch) =>
+                              set("shapes", (_, prev) =>
+                                withShapesUpdated(
+                                  prev,
+                                  multiSelectedShapeLayers.map((l) => l.id),
+                                  patch,
+                                ),
+                              )
+                            }
+                            onToggleLockAll={() => {
+                              const allLocked = multiSelectedShapeLayers.every((l) => l.locked);
+                              set("shapes", (_, prev) =>
+                                withShapesLockSet(
+                                  prev,
+                                  multiSelectedShapeLayers.map((l) => l.id),
+                                  !allLocked,
+                                ),
+                              );
+                            }}
+                            onDeleteAll={() => {
+                              commit((prev) => {
+                                const result = withMultipleLayersRemoved(prev, canvasSelection);
+                                return { ...prev, ...result };
+                              });
+                              setCanvasSelection([]);
+                            }}
+                          />
+                        ) : isMultiImageSelection ? (
+                          <MultiImageSelectionToolbar
+                            layers={multiSelectedImageLayers}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("image", "multi-image", open)
+                            }
+                            onArrange={handleImageArrange}
+                            canArrange={getArrangeEligibility(
+                              unifiedLayers,
+                              multiSelectedImageLayers.map((l) => l.id),
+                            )}
+                            onAlign={handleImageAlign}
+                            onSpaceEvenly={handleImageSpaceEvenly}
+                            onShiftGroup={handleImageShiftGroup}
+                            onUpdateAll={(patch) =>
+                              set("images", (_, prev) =>
+                                withImagesUpdated(
+                                  prev,
+                                  multiSelectedImageLayers.map((l) => l.id),
+                                  patch,
+                                ),
+                              )
+                            }
+                            onToggleLockAll={() => {
+                              const allLocked = multiSelectedImageLayers.every((l) => l.locked);
+                              set("images", (_, prev) =>
+                                withImagesLockSet(
+                                  prev,
+                                  multiSelectedImageLayers.map((l) => l.id),
+                                  !allLocked,
+                                ),
+                              );
+                            }}
+                            onDeleteAll={() => {
+                              commit((prev) => {
+                                const result = withMultipleLayersRemoved(prev, canvasSelection);
+                                return { ...prev, ...result };
+                              });
+                              setCanvasSelection([]);
+                            }}
+                          />
+                        ) : isMixedMultiSelection ? (
+                          <MultiMixedSelectionToolbar
+                            selectedIds={canvasSelection as MixedLayerRef[]}
+                            textLayers={mixedSelectedTextLayers}
+                            allText={mixedAllText}
+                            canvasWidth={s.width}
+                            canvasHeight={s.height}
+                            onAlign={handleMixedAlign}
+                            onSpaceEvenly={handleMixedSpaceEvenly}
+                            onArrange={handleMixedArrange}
+                            canArrange={getArrangeEligibility(
+                              unifiedLayers,
+                              canvasSelection.map((l) => l.id),
+                            )}
+                            onUpdateAllTexts={mixedAllText ? handleMixedUpdateAllTexts : undefined}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("text", "multi-mixed", open)
+                            }
+                            onToggleLockAll={() => {
+                              const allLocked = canvasSelection.every((sel) => {
+                                if (sel.kind === "text")
+                                  return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
+                                if (sel.kind === "image")
+                                  return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
+                                return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
+                              });
+                              const textIds = canvasSelection
+                                .filter((l) => l.kind === "text")
+                                .map((l) => l.id);
+                              const imageIds = canvasSelection
+                                .filter((l) => l.kind === "image")
+                                .map((l) => l.id);
+                              const shapeIds = canvasSelection
+                                .filter((l) => l.kind === "shape")
+                                .map((l) => l.id);
+                              if (textIds.length)
+                                set("texts", (_, prev) =>
+                                  withTextsLockSet(prev, textIds, !allLocked),
+                                );
+                              if (imageIds.length)
+                                set("images", (_, prev) =>
+                                  withImagesLockSet(prev, imageIds, !allLocked),
+                                );
+                              if (shapeIds.length)
+                                set("shapes", (_, prev) =>
+                                  withShapesLockSet(prev, shapeIds, !allLocked),
+                                );
+                            }}
+                            allLocked={canvasSelection.every((sel) => {
                               if (sel.kind === "text")
                                 return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
                               if (sel.kind === "image")
                                 return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
                               return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                            });
-                            const textIds = canvasSelection
-                              .filter((l) => l.kind === "text")
-                              .map((l) => l.id);
-                            const imageIds = canvasSelection
-                              .filter((l) => l.kind === "image")
-                              .map((l) => l.id);
-                            const shapeIds = canvasSelection
-                              .filter((l) => l.kind === "shape")
-                              .map((l) => l.id);
-                            if (textIds.length)
-                              set("texts", (_, prev) =>
-                                withTextsLockSet(prev, textIds, !allLocked),
-                              );
-                            if (imageIds.length)
-                              set("images", (_, prev) =>
-                                withImagesLockSet(prev, imageIds, !allLocked),
-                              );
-                            if (shapeIds.length)
-                              set("shapes", (_, prev) =>
-                                withShapesLockSet(prev, shapeIds, !allLocked),
-                              );
-                          }}
-                          allLocked={canvasSelection.every((sel) => {
-                            if (sel.kind === "text")
-                              return getTextLayers(s).find((t) => t.id === sel.id)?.locked;
-                            if (sel.kind === "image")
-                              return getImageLayers(s).find((img) => img.id === sel.id)?.locked;
-                            return getShapeLayers(s).find((sh) => sh.id === sel.id)?.locked;
-                          })}
-                          onDeleteAll={() => {
-                            commit((prev) => {
-                              const result = withMultipleLayersRemoved(prev, canvasSelection);
-                              return { ...prev, ...result };
-                            });
-                            setCanvasSelection([]);
-                          }}
-                          onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
-                          canvasFonts={canvasFontsInUse}
-                        />
-                      ) : isBackgroundSelected ? (
-                        <BackgroundSelectionToolbar
-                          s={s}
-                          set={set}
-                          onAnyPopoverOpenChange={(open) =>
-                            handlePinnedPopoverChange("background", "background", open)
-                          }
-                          onOpenBackgroundTab={() => {
-                            setTab("background");
-                            setMobileToolDrawerOpen(true);
-                          }}
-                        />
-                      ) : null}
+                            })}
+                            onDeleteAll={() => {
+                              commit((prev) => {
+                                const result = withMultipleLayersRemoved(prev, canvasSelection);
+                                return { ...prev, ...result };
+                              });
+                              setCanvasSelection([]);
+                            }}
+                            onOpenCustomFonts={() => setCustomFontsDialogOpen(true)}
+                            canvasFonts={canvasFontsInUse}
+                          />
+                        ) : isBackgroundSelected ? (
+                          <BackgroundSelectionToolbar
+                            s={s}
+                            set={set}
+                            onAnyPopoverOpenChange={(open) =>
+                              handlePinnedPopoverChange("background", "background", open)
+                            }
+                            onOpenBackgroundTab={() => {
+                              setTab("background");
+                              setMobileToolDrawerOpen(true);
+                            }}
+                          />
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ),
-                document.body,
-              )
+                  ),
+                  document.body,
+                )
               : null}
 
             {/* Tool drawer — hosts the exact same LeftPanel used on desktop,
@@ -5161,7 +5359,7 @@ function Index() {
           // onDone is a no-op — unlike the plain Export Preview dialog,
           // downloading from here shouldn't dismiss the mockup; you're
           // still previewing, not confirming a one-shot export.
-          onDownload={() => confirmDownload({ sourceUrl: postPreviewUrl, onDone: () => { } })}
+          onDownload={() => confirmDownload({ sourceUrl: postPreviewUrl, onDone: () => {} })}
           isDownloading={isExportingFinal}
         />
         <LinkedInProfilePreviewDialog
@@ -5175,7 +5373,7 @@ function Index() {
           userAvatar={user?.avatar || "/default-img.png"}
           s={s}
           set={set}
-          onDownload={() => confirmDownload({ sourceUrl: profilePreviewUrl, onDone: () => { } })}
+          onDownload={() => confirmDownload({ sourceUrl: profilePreviewUrl, onDone: () => {} })}
           isDownloading={isExportingFinal}
         />
 
@@ -5207,7 +5405,9 @@ function Index() {
         {/* 1. Start New Blank Design Dialog (with Save Prompt & Canvas Size Options) */}
         <Dialog
           open={newPostConfirmOpen}
-          onOpenChange={(open) => (open ? setNewPostConfirmOpen(true) : closeNewPostDialogWithoutStarting())}
+          onOpenChange={(open) =>
+            open ? setNewPostConfirmOpen(true) : closeNewPostDialogWithoutStarting()
+          }
         >
           {/* max-h + overflow-y-auto: stacking the footer's 4 buttons
               full-width on mobile (see that section's own comment) made
@@ -5379,6 +5579,17 @@ function Index() {
         <CustomFontsDialog
           open={customFontsDialogOpen}
           onClose={() => setCustomFontsDialogOpen(false)}
+        />
+        <UpgradeProModal open={isUpgradeModalOpen} onClose={closeUpgradeModal} />
+        <ProSuccessModal
+          open={proSuccessOpen}
+          onClose={() => setProSuccessOpen(false)}
+          onNavigateToPremium={() => {
+            setTab("templates");
+            setTemplateCategory("premium");
+            setMobileToolDrawerOpen(true);
+          }}
+          planName={proPlanName}
         />
       </div>
     </TooltipProvider>

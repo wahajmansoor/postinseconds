@@ -1,31 +1,37 @@
-import { FilterIcon, MultiplicationSignIcon } from "hugeicons-react";
+import {
+  FilterIcon,
+  MultiplicationSignIcon,
+  SparklesIcon,
+} from "hugeicons-react";
 import type React from "react";
 import { useRef } from "react";
 import type { TextEffectType, TextLayer, TextShapeType } from "./types";
 import { ColorInput } from "./ui";
+import {
+  getSmartHighlightColor,
+  getSmartTextColorForHighlight,
+  getRecommendedHighlightColors,
+} from "./textEffects";
 
 type Props = {
   layer: TextLayer;
   onChange: (patch: Partial<Omit<TextLayer, "id">>) => void;
   onClose?: () => void;
   className?: string;
+  canvasBg?: string;
 };
 
 type EffectOption = {
   id: TextEffectType;
   label: string;
-  renderPreview: (active: boolean) => React.ReactNode;
+  renderPreview: (isActive: boolean) => React.ReactNode;
 };
 
 const EFFECT_OPTIONS: EffectOption[] = [
   {
     id: "none",
     label: "None",
-    renderPreview: () => (
-      <span className="text-2xl font-black text-zinc-900">
-        Ag
-      </span>
-    ),
+    renderPreview: () => <span className="text-2xl font-black text-zinc-900">Ag</span>,
   },
   {
     id: "drop",
@@ -33,7 +39,7 @@ const EFFECT_OPTIONS: EffectOption[] = [
     renderPreview: () => (
       <span
         className="text-2xl font-black text-zinc-900"
-        style={{ textShadow: "3px 3px 5px rgba(0,0,0,0.4)" }}
+        style={{ textShadow: "2px 2px 4px rgba(0,0,0,0.6)" }}
       >
         Ag
       </span>
@@ -45,7 +51,7 @@ const EFFECT_OPTIONS: EffectOption[] = [
     renderPreview: () => (
       <span
         className="text-2xl font-black text-zinc-900"
-        style={{ textShadow: "0 0 8px #0021FF, 0 0 16px #0021FF" }}
+        style={{ textShadow: "0 0 8px #0021FF" }}
       >
         Ag
       </span>
@@ -58,7 +64,7 @@ const EFFECT_OPTIONS: EffectOption[] = [
       <span
         className="text-2xl font-black text-zinc-900"
         style={{
-          textShadow: "2px 2px 0 rgba(0,0,0,0.4), 4px 4px 0 rgba(0,0,0,0.2)",
+          textShadow: "1.5px 1.5px 0 rgba(0,0,0,0.4), 3px 3px 0 rgba(0,0,0,0.2)",
         }}
       >
         Ag
@@ -70,8 +76,8 @@ const EFFECT_OPTIONS: EffectOption[] = [
     label: "Outline",
     renderPreview: () => (
       <span
-        className="text-2xl font-black text-white"
-        style={{ WebkitTextStroke: "1.5px #18181b" }}
+        className="text-2xl font-black text-transparent"
+        style={{ WebkitTextStroke: "1px #0021FF" }}
       >
         Ag
       </span>
@@ -81,8 +87,8 @@ const EFFECT_OPTIONS: EffectOption[] = [
     id: "background",
     label: "Background",
     renderPreview: () => (
-      <div className="rounded-lg bg-zinc-900 px-2 py-0.5 shadow">
-        <span className="text-2xl font-black text-white">Ag</span>
+      <div className="rounded-lg bg-primary px-2 py-0.5 shadow-sm">
+        <span className="text-xl font-black text-primary-foreground">Ag</span>
       </div>
     ),
   },
@@ -91,10 +97,9 @@ const EFFECT_OPTIONS: EffectOption[] = [
     label: "Splice",
     renderPreview: () => (
       <span
-        className="text-2xl font-black"
+        className="text-2xl font-black text-transparent"
         style={{
-          WebkitTextStroke: "1.5px #18181b",
-          WebkitTextFillColor: "transparent",
+          WebkitTextStroke: "1px #000000",
           textShadow: "2px 2px 0 #0021FF",
         }}
       >
@@ -107,10 +112,9 @@ const EFFECT_OPTIONS: EffectOption[] = [
     label: "Hollow",
     renderPreview: () => (
       <span
-        className="text-2xl font-black"
+        className="text-2xl font-black text-transparent"
         style={{
-          WebkitTextStroke: "1.5px #18181b",
-          WebkitTextFillColor: "transparent",
+          WebkitTextStroke: "1px #000000",
         }}
       >
         Ag
@@ -121,16 +125,14 @@ const EFFECT_OPTIONS: EffectOption[] = [
     id: "neon",
     label: "Neon",
     renderPreview: () => (
-      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-900">
-        <span
-          className="text-xl font-black text-white"
-          style={{
-            textShadow: "0 0 4px #fff, 0 0 8px #3b82f6, 0 0 14px #0021FF",
-          }}
-        >
-          Ag
-        </span>
-      </div>
+      <span
+        className="text-2xl font-black text-white"
+        style={{
+          textShadow: "0 0 2px #fff, 0 0 6px #0021FF, 0 0 12px #0021FF",
+        }}
+      >
+        Ag
+      </span>
     ),
   },
   {
@@ -149,18 +151,40 @@ const EFFECT_OPTIONS: EffectOption[] = [
   },
 ];
 
-export function TextEffectsPopover({ layer, onChange, onClose, className = "" }: Props) {
+export function TextEffectsPopover({
+  layer,
+  onChange,
+  onClose,
+  className = "",
+  canvasBg,
+}: Props) {
   const currentEffect = layer.effectType ?? "none";
   const currentShape = layer.shapeType ?? "none";
   const controlsRef = useRef<HTMLDivElement>(null);
+
+  const smartDefaultBgColor = getSmartHighlightColor(canvasBg);
 
   const handleSelectEffect = (effect: TextEffectType) => {
     if (effect === "none") {
       onChange({ effectType: "none" });
     } else {
+      const effectColor =
+        layer.effectColor ??
+        (effect === "background"
+          ? smartDefaultBgColor
+          : effect === "neon"
+            ? "#0021FF"
+            : "#000000");
+
+      const smartTextColor =
+        effect === "background"
+          ? getSmartTextColorForHighlight(effectColor)
+          : undefined;
+
       onChange({
         effectType: effect,
-        effectColor: layer.effectColor ?? (effect === "background" ? "#0021FF" : effect === "neon" ? "#0021FF" : "#000000"),
+        effectColor,
+        ...(smartTextColor ? { color: smartTextColor } : {}),
         effectThickness: layer.effectThickness ?? 40,
         effectOffset: layer.effectOffset ?? 50,
         effectDirection: layer.effectDirection ?? 45,
@@ -306,14 +330,78 @@ export function TextEffectsPopover({ layer, onChange, onClose, className = "" }:
 
           {/* Effect Color */}
           {["drop", "glow", "echo", "outline", "background", "splice", "hollow", "neon", "glitch"].includes(currentEffect) && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-muted-foreground">Color</span>
-              <ColorInput
-                value={layer.effectColor ?? (currentEffect === "background" ? "#0021FF" : currentEffect === "neon" ? "#0021FF" : "#000000")}
-                onChange={(c) => onChange({ effectColor: c })}
-                showHex={true}
-                swatchClassName="h-6 w-6 rounded-lg border-border"
-              />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {currentEffect === "background" ? "Highlight Color" : "Color"}
+                </span>
+                <ColorInput
+                  value={layer.effectColor ?? (currentEffect === "background" ? smartDefaultBgColor : currentEffect === "neon" ? "#0021FF" : "#000000")}
+                  onChange={(c) => {
+                    const smartTextColor =
+                      currentEffect === "background"
+                        ? getSmartTextColorForHighlight(c)
+                        : undefined;
+                    onChange({
+                      effectColor: c,
+                      ...(smartTextColor ? { color: smartTextColor } : {}),
+                    });
+                  }}
+                  showHex={true}
+                  swatchClassName="h-6 w-6 rounded-lg border-border"
+                />
+              </div>
+
+              {/* Recommended Highlight Swatches for Background Effect */}
+              {currentEffect === "background" && (
+                <div className="rounded-xl border border-border/70 bg-secondary/30 p-2 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="flex items-center gap-1 font-semibold text-foreground">
+                      <SparklesIcon size={11} className="text-amber-500" />
+                      Smart Highlight
+                    </span>
+                    <span className="text-[9px] text-muted-foreground">Contrast matched</span>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1">
+                    {getRecommendedHighlightColors(canvasBg).map((opt) => {
+                      const isActive =
+                        (layer.effectColor || smartDefaultBgColor).toLowerCase() ===
+                        opt.color.toLowerCase();
+                      return (
+                        <button
+                          key={opt.color}
+                          type="button"
+                          title={`${opt.name}${opt.isRecommended ? " (Recommended)" : ""}`}
+                          onClick={() => {
+                            onChange({
+                              effectColor: opt.color,
+                              color: opt.textColor,
+                            });
+                          }}
+                          className={`group relative flex h-6 w-full items-center justify-center rounded-md border transition-all cursor-pointer ${
+                            isActive
+                              ? "border-primary ring-2 ring-primary/40 shadow-sm scale-105"
+                              : "border-border/60 hover:scale-105 hover:border-foreground/40"
+                          }`}
+                          style={{ backgroundColor: opt.color }}
+                        >
+                          {opt.isRecommended && (
+                            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-amber-500 text-[7px] font-black text-amber-950 shadow">
+                              ★
+                            </span>
+                          )}
+                          <span
+                            className="text-[8px] font-extrabold"
+                            style={{ color: opt.textColor }}
+                          >
+                            Ag
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
