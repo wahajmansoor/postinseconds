@@ -1115,6 +1115,53 @@ function Index() {
     return unsubscribe;
   }, [user?.id]);
 
+  // Polling fallback for the same cross-device sync — belt-and-suspenders
+  // for the realtime subscription above. Realtime silently not delivering
+  // is a real, easy-to-hit failure mode (see subscribeToCloudActiveDraft's
+  // own comment): the channel can fail to reach SUBSCRIBED for reasons that
+  // never surface as a user-visible error — the `user_active_draft` table
+  // not actually being in the `supabase_realtime` publication (that's a
+  // one-time manual SQL statement in supabase_schema.sql, easy to have
+  // never actually run against the live project), Realtime disabled for the
+  // project, or a WebSocket connection a mobile network/carrier or the
+  // native WebView drops and never re-establishes. When that happens,
+  // fetch/upsert both still work fine — writes land, "Saved" shows
+  // correctly — the two devices just never hear about each other's writes
+  // without a manual reload, which looks exactly like "mobile changes don't
+  // show on desktop" even though nothing is actually broken on the write
+  // side. Polling every few seconds while the tab is visible means sync
+  // still converges even if the WebSocket path is dead, just a little
+  // slower — same newer-than-`lastKnownDraftUpdatedAtRef` guard as the
+  // realtime callback so it can never stomp a newer local edit.
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      const cloudDraft = await fetchCloudActiveDraft(userId);
+      if (cancelled || !cloudDraft) return;
+      if (cloudDraft.updatedAt <= lastKnownDraftUpdatedAtRef.current) return;
+      lastKnownDraftUpdatedAtRef.current = cloudDraft.updatedAt;
+      applyingRemoteDraftRef.current = true;
+      setS(migrateLegacyContentToLayers({ ...INITIAL_STATE, ...cloudDraft.state }));
+    };
+    const interval = setInterval(poll, 5000);
+    // Also poll right away whenever the tab/app comes back to the
+    // foreground — the exact moment a mobile app resuming after being
+    // backgrounded (to use the camera/photo picker on another device, or
+    // just switching apps) most needs to pick up what changed elsewhere.
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [user?.id]);
+
   const [stageMarquee, setStageMarquee] = useState<{
     startX: number;
     startY: number;
