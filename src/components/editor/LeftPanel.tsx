@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TemplatePreview } from "./TemplatePreview";
+import { getImageNaturalSize } from "@/lib/imageCompression";
 import {
   Add01Icon,
   ArrowDown01Icon,
@@ -2193,8 +2194,18 @@ export function LeftPanel({
                 open={Boolean(croppingImage)}
                 onClose={() => setCroppingImage(null)}
                 imageSrc={croppingImage.src}
-                onCropComplete={(croppedDataUrl) => {
-                  set("images", withImageUpdated(s, croppingImage.id, { src: croppedDataUrl }));
+                onCropComplete={async (croppedDataUrl) => {
+                  // See index.tsx's own crop-complete handler for why: a
+                  // layer already auto-fits its natural aspect ratio until
+                  // its height is explicitly set, so only the explicit case
+                  // needs correcting to match the new crop instead of
+                  // stretching/letterboxing it into the old box.
+                  const patch: Partial<ImageLayer> = { src: croppedDataUrl };
+                  if (croppingImage.height !== undefined) {
+                    const size = await getImageNaturalSize(croppedDataUrl);
+                    if (size) patch.height = (croppingImage.size * size.height) / size.width;
+                  }
+                  set("images", withImageUpdated(s, croppingImage.id, patch));
                   setCroppingImage(null);
                 }}
               />

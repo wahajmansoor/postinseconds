@@ -98,3 +98,22 @@ export function compressImageFile(file: File, opts: CompressImageOptions = {}): 
 export function compressImageFiles(files: File[], opts?: CompressImageOptions): Promise<string[]> {
   return Promise.all(files.map((f) => compressImageFile(f, opts)));
 }
+
+// Reads back an already-encoded image's own pixel dimensions — used after
+// an edit (crop, in particular) that can change an image's aspect ratio, so
+// the caller can resize whatever container/layer holds it to match instead
+// of leaving the old box's aspect ratio to stretch or letterbox the result.
+export function getImageNaturalSize(src: string): Promise<{ width: number; height: number } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve(
+        img.naturalWidth > 0 && img.naturalHeight > 0
+          ? { width: img.naturalWidth, height: img.naturalHeight }
+          : null,
+      );
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}

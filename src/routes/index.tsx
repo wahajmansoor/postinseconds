@@ -14,7 +14,7 @@ import {
   upsertCloudActiveDraft,
   subscribeToCloudActiveDraft,
 } from "@/lib/supabase";
-import { compressImageFiles } from "@/lib/imageCompression";
+import { compressImageFiles, getImageNaturalSize } from "@/lib/imageCompression";
 import { Capacitor } from "@capacitor/core";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { Haptics, NotificationType } from "@capacitor/haptics";
@@ -5503,8 +5503,24 @@ function Index() {
             open={Boolean(croppingImageLayer)}
             onClose={() => setCroppingImageLayer(null)}
             imageSrc={croppingImageLayer.src}
-            onCropComplete={(croppedDataUrl) => {
-              set("images", withImageUpdated(s, croppingImageLayer.id, { src: croppedDataUrl }));
+            onCropComplete={async (croppedDataUrl) => {
+              // A crop can change the image's aspect ratio outright (e.g.
+              // picking "1:1 Square" or "16:9 Wide" on a photo that wasn't
+              // that shape before). A layer with no explicit height yet
+              // already auto-fits to its image's natural aspect ratio (see
+              // QuoteCanvas's hasExplicitHeight/naturalAspect), so cropping
+              // one of those already just works. But once a height HAS been
+              // explicitly set (dragging an edge handle switches it out of
+              // "auto" — see ImageLayer's own comment), leaving that old
+              // fixed height untouched would stretch or letterbox the new
+              // crop into the old box instead of showing it at its own
+              // shape — so only that case needs correcting here.
+              const patch: Partial<ImageLayer> = { src: croppedDataUrl };
+              if (croppingImageLayer.height !== undefined) {
+                const size = await getImageNaturalSize(croppedDataUrl);
+                if (size) patch.height = (croppingImageLayer.size * size.height) / size.width;
+              }
+              set("images", withImageUpdated(s, croppingImageLayer.id, patch));
               setCroppingImageLayer(null);
             }}
           />

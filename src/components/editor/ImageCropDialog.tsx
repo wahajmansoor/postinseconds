@@ -173,10 +173,45 @@ export function ImageCropDialog({
   // its own natural-aspect-ratio size; measuring too early wrapped nothing
   // meaningful (or the stale placeholder size), which is what put the box
   // noticeably off from the actual photo.
+  //
+  // That fixed the "stage isn't laid out yet" race, but left a second one:
+  // this Dialog opens with a `zoom-in-95`/`duration-200` CSS animation (see
+  // dialog.tsx) that SCALES the whole panel in via `transform` for ~200ms.
+  // A transform doesn't touch layout, but it does change what
+  // getBoundingClientRect() reports for every descendant while it's
+  // running — and for an already-decoded image (a data URL, or anything
+  // cached), onLoad can fire well inside that 200ms window. computeDefault-
+  // CropBox's rect-based math then measures a mid-animation (smaller) size,
+  // so the box comes out undersized/offset from the image's real, settled
+  // position — which is exactly what made the crop then come out more
+  // "zoomed in" than the selection visually showed, since the actual crop
+  // is computed relative to that same (wrong) box. Re-measuring again once
+  // the animation has had time to finish fixes it up; skipped if the user
+  // has already started actively resizing the box or dragging the image in
+  // the meantime.
+  const openRef = useRef(open);
+  openRef.current = open;
+  const pendingRefitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleImageLoaded = useCallback(() => {
     setCropBox(computeDefaultCropBox(aspectRatio));
+    if (pendingRefitRef.current) clearTimeout(pendingRefitRef.current);
+    pendingRefitRef.current = setTimeout(() => {
+      pendingRefitRef.current = null;
+      if (!openRef.current || resizeStateRef.current || isDraggingRef.current) return;
+      setCropBox(computeDefaultCropBox(aspectRatio));
+    }, 260);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [computeDefaultCropBox]);
+
+  // Don't let a stale re-fit from a previous open land after the dialog has
+  // since closed (e.g. a very quick open/close/reopen with a new image).
+  useEffect(() => {
+    if (open) return;
+    if (pendingRefitRef.current) {
+      clearTimeout(pendingRefitRef.current);
+      pendingRefitRef.current = null;
+    }
+  }, [open]);
 
   // Re-fits the box whenever the user picks a different aspect-ratio preset
   // — by then the image has necessarily already loaded (they're looking at
@@ -346,7 +381,8 @@ export function ImageCropDialog({
 
   const handleApply = async () => {
     const img = imgRef.current;
-    if (!img) return;
+    const container = containerRef.current;
+    if (!img || !container) return;
 
     setIsProcessing(true);
 
@@ -355,7 +391,7 @@ export function ImageCropDialog({
       naturalImg.crossOrigin = "anonymous";
       naturalImg.src = normalizedSrc;
       await new Promise<void>((resolve, reject) => {
-        if (naturalImg.complete) {
+        if (naturalImg.complete && naturalImg.naturalWidth > 0) {
           resolve();
         } else {
           naturalImg.onload = () => resolve();
@@ -363,62 +399,88 @@ export function ImageCropDialog({
         }
       });
 
-      const cropBox = document.getElementById("crop-viewport-box");
-      if (!cropBox) return;
+      // The old version measured getBoundingClientRect() of both the crop
+      // box and the <img> and treated their on-screen size/position as the
+      // whole story. Two things made that wrong:
+      //  1. getBoundingClientRect() on a ROTATED element returns the
+      //     rotated axis-aligned bounding box (bigger, and a different shape,
+      //     than the image itself for any non-0/180° rotation) — then the
+      //     code rotated it AGAIN in canvas, a double rotation that produced
+      //     a wrong crop the moment Rotate was used.
+      //  2. The export size was capped at 2x whatever the on-screen preview
+      //     happened to render at (often only a few hundred px), throwing
+      //     away most of a real photo's actual resolution regardless of
+      //     rotation — the visible "low quality" result even with no
+      //     rotation at all.
+      // Fix: rebuild the exact same translate→rotate→scale pipeline the CSS
+      // preview uses (see the transform on the wrapping div below), but at
+      // full native-image resolution and re-centered so the crop box lands
+      // at canvas (0,0) — i.e. render into a canvas sized to the crop box,
+      // not the whole stage, so no separate "crop" step is even needed.
 
-      const cropRect = cropBox.getBoundingClientRect();
-      const imgRect = img.getBoundingClientRect();
+      // offsetWidth/Height read the <img>'s own LAYOUT box, which CSS
+      // transforms on it (or its ancestors) never affect — unlike
+      // getBoundingClientRect, this stays the untransformed "zoom 100%,
+      // rotation 0" size no matter what rotation/zoom is currently applied.
+      const baseW = img.offsetWidth;
+      const baseH = img.offsetHeight;
+      if (!baseW || !baseH || !naturalImg.naturalWidth || !naturalImg.naturalHeight) return;
 
-      // Output high-resolution crisp result (2x target)
-      const exportScale = 2;
-      const targetW = Math.max(1, Math.round(cropRect.width * exportScale));
-      const targetH = Math.max(1, Math.round(cropRect.height * exportScale));
+      // Natural pixels per on-screen (unzoomed) CSS pixel — rendering at
+      // this density means the export uses the source image's real
+      // resolution instead of whatever small size the preview happened to
+      // be drawn at. Floored at 2x so a source smaller than its display box
+      // (rare, but possible for tiny uploads) still gets an oversampled,
+      // crisp result rather than a native-but-tiny one.
+      let density = Math.max(naturalImg.naturalWidth / baseW, 2);
+
+      // Cap the final crop's longest edge so an extreme zoom-in on a very
+      // high-res source can't blow up into an unreasonably large canvas.
+      const MAX_OUTPUT_EDGE = 2400;
+      const rawEdge = Math.max(cropBox.width, cropBox.height) * density;
+      if (rawEdge > MAX_OUTPUT_EDGE) density *= MAX_OUTPUT_EDGE / rawEdge;
+
+      const targetW = Math.max(1, Math.round(cropBox.width * density));
+      const targetH = Math.max(1, Math.round(cropBox.height * density));
 
       const canvas = document.createElement("canvas");
       canvas.width = targetW;
       canvas.height = targetH;
       const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-      if (ctx) {
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
 
-        // Circle mask if circle preset
-        if (aspectRatio === "circle") {
-          ctx.beginPath();
-          ctx.arc(targetW / 2, targetH / 2, Math.min(targetW, targetH) / 2, 0, Math.PI * 2);
-          ctx.clip();
-        }
-
-        // Exact screen-to-canvas ratio
-        const scaleFactor = exportScale;
-        const cropCenterX = cropRect.left + cropRect.width / 2;
-        const cropCenterY = cropRect.top + cropRect.height / 2;
-        const imgCenterX = imgRect.left + imgRect.width / 2;
-        const imgCenterY = imgRect.top + imgRect.height / 2;
-
-        const offsetX = (imgCenterX - cropCenterX) * scaleFactor;
-        const offsetY = (imgCenterY - cropCenterY) * scaleFactor;
-        const drawnWidth = imgRect.width * scaleFactor;
-        const drawnHeight = imgRect.height * scaleFactor;
-
-        ctx.save();
-        ctx.translate(targetW / 2 + offsetX, targetH / 2 + offsetY);
-        if (rotation !== 0) ctx.rotate((rotation * Math.PI) / 180);
-        ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
-        ctx.drawImage(
-          naturalImg,
-          -drawnWidth / 2,
-          -drawnHeight / 2,
-          drawnWidth,
-          drawnHeight
-        );
-        ctx.restore();
-
-        const croppedUrl = canvas.toDataURL("image/png", 0.95);
-        onCropComplete(croppedUrl);
-        onClose();
+      // Circle mask if circle preset
+      if (aspectRatio === "circle") {
+        ctx.beginPath();
+        ctx.arc(targetW / 2, targetH / 2, Math.min(targetW, targetH) / 2, 0, Math.PI * 2);
+        ctx.clip();
       }
+
+      // The stage centers the image via flex + transform-origin center, so
+      // the image's own (pre-rotation) center is the container's center
+      // shifted by `pan`. The crop box's coordinates are already relative to
+      // the same container (see computeDefaultCropBox), so subtracting its
+      // origin re-centers everything onto this canvas instead of the whole
+      // stage.
+      const containerRect = container.getBoundingClientRect();
+      const centerX = (containerRect.width / 2 + pan.x) * density - cropBox.x * density;
+      const centerY = (containerRect.height / 2 + pan.y) * density - cropBox.y * density;
+      const drawnWidth = naturalImg.naturalWidth * (zoom / 100);
+      const drawnHeight = naturalImg.naturalHeight * (zoom / 100);
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      if (rotation !== 0) ctx.rotate((rotation * Math.PI) / 180);
+      ctx.scale(flipH ? -1 : 1, flipV ? -1 : 1);
+      ctx.drawImage(naturalImg, -drawnWidth / 2, -drawnHeight / 2, drawnWidth, drawnHeight);
+      ctx.restore();
+
+      const croppedUrl = canvas.toDataURL("image/png", 0.95);
+      onCropComplete(croppedUrl);
+      onClose();
     } catch (err) {
       console.error("Failed to crop image:", err);
     } finally {

@@ -15,7 +15,7 @@ import {
   SquareIcon,
 } from "hugeicons-react";
 import { AppTooltip } from "@/components/ui/tooltip";
-import { compressImageFile } from "@/lib/imageCompression";
+import { compressImageFile, getImageNaturalSize } from "@/lib/imageCompression";
 import {
   type ImageLayer,
   type FrameKind,
@@ -290,7 +290,19 @@ export function ImageSelectionToolbar({
           open={cropOpen}
           onClose={() => setCropOpen(false)}
           imageSrc={layer.src}
-          onCropComplete={(croppedDataUrl) => onUpdate({ src: croppedDataUrl })}
+          onCropComplete={async (croppedDataUrl) => {
+            // See index.tsx's crop-complete handler for why: a layer already
+            // auto-fits its natural aspect ratio until its height is
+            // explicitly set, so only the explicit case needs correcting to
+            // match the new crop instead of stretching/letterboxing it into
+            // the old box.
+            if (layer.height === undefined) {
+              onUpdate({ src: croppedDataUrl });
+              return;
+            }
+            const size = await getImageNaturalSize(croppedDataUrl);
+            onUpdate(size ? { src: croppedDataUrl, height: (layer.size * size.height) / size.width } : { src: croppedDataUrl });
+          }}
         />
       ) : null}
 
