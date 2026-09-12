@@ -167,12 +167,23 @@ create table if not exists public.templates (
   category text not null default 'starter' check (category in ('starter', 'premium')),
   description text,
   state jsonb not null,
+  thumbnail_url text,
   is_premium boolean not null default false,
   is_published boolean not null default true,
   sort_order integer default 0,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- Idempotent column addition for existing deployments: upsertTemplate() in
+-- src/lib/supabase.ts has always written thumbnail_url into this table's
+-- upsert payload, but this column was never actually added here — every
+-- admin template save got a genuine 400 (`column templates.thumbnail_url
+-- does not exist`) on its first attempt, silently masked by that
+-- function's own fallback retry (which just drops the column and relies on
+-- the duplicate copy inside state.thumbnailUrl instead). Adding it for
+-- real removes the need for that fallback path and the noisy console 400.
+alter table public.templates add column if not exists thumbnail_url text;
 
 alter table public.templates enable row level security;
 

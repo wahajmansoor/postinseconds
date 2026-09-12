@@ -909,10 +909,20 @@ export function AdminDashboard() {
                   if (!deleteConfirmId) return;
                   setIsDeleting(true);
                   try {
-                    await deleteTemplate(deleteConfirmId);
+                    const success = await deleteTemplate(deleteConfirmId);
                     await loadData();
-                    toast.success("Template deleted successfully");
-                    setDeleteConfirmId(null);
+                    if (success) {
+                      toast.success("Template deleted successfully");
+                      setDeleteConfirmId(null);
+                    } else {
+                      // deleteTemplate() now actually confirms the row was
+                      // removed (see its own comment) instead of trusting a
+                      // falsy `error`, so a false here is a real failure —
+                      // most likely this account isn't recognized as admin
+                      // by the live RLS check. Leave the confirm dialog open
+                      // rather than lying that it worked.
+                      toast.error("Delete didn't go through — you may not have admin rights on the server side");
+                    }
                   } catch {
                     toast.error("Failed to delete template");
                   } finally {

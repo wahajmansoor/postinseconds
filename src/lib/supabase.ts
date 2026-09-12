@@ -140,13 +140,28 @@ export async function upsertTemplate(
         updated_at: new Date().toISOString(),
       };
 
-      let { error } = await supabase.from("templates").upsert(payload);
+      // .select() is required here for more than just getting the row back:
+      // Postgres RLS silently excludes rows the USING policy doesn't allow
+      // instead of raising an error — for an UPDATE (what upsert does when
+      // this id already exists), that means "not authorized" and "matched
+      // zero rows" look identical to a plain `{ error }` check, both report
+      // success. Without .select(), a stale/unsynced admin session could
+      // save a template that never actually reached the row, the toast
+      // would still say "saved," and the next fresh fetch would show
+      // whatever was there before — exactly the "edits don't stick" /
+      // "blank fields" symptom reported. Checking the returned row array is
+      // non-empty is what actually confirms the write landed.
+      let { error, data } = await supabase.from("templates").upsert(payload).select();
 
       // If database table doesn't have thumbnail_url column, retry without it since state carries thumbnailUrl
       if (error && error.message && error.message.toLowerCase().includes("thumbnail_url")) {
         delete payload.thumbnail_url;
-        const retry = await supabase.from("templates").upsert(payload);
+        const retry = await supabase.from("templates").upsert(payload).select();
         error = retry.error;
+        data = retry.data;
+      }
+      if (!error && (!data || data.length === 0)) {
+        error = { message: "RLS silently rejected the write (0 rows affected)" } as any;
       }
 
       // If client-side RLS rejected (e.g. user is whitelisted admin but profile role is pending sync),
@@ -198,8 +213,14 @@ export async function deleteTemplate(id: string): Promise<boolean> {
 
   if (isSupabaseConfigured) {
     try {
-      const { error } = await supabase.from("templates").delete().eq("id", id);
-      if (error) {
+      // .select() so a row RLS silently excluded from the DELETE (matched
+      // zero rows, no error — see upsertTemplate's matching comment) can
+      // actually be told apart from a real delete. Without this, a
+      // same-browser delete looks instantly successful (the local cache
+      // above is already updated) while the live row is untouched, and the
+      // very next fresh fetch — a re-login, another device — resurrects it.
+      const { error, data } = await supabase.from("templates").delete().eq("id", id).select();
+      if (error || !data || data.length === 0) {
         const { deletePlatformTemplateServerFn } = await import("@/lib/stripe");
         const res = await deletePlatformTemplateServerFn({ data: { id } });
         return Boolean(res?.success);

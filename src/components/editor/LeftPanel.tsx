@@ -931,9 +931,13 @@ export function LeftPanel({
             )}
           >
             <span>Free</span>
-            <span className="rounded-full bg-secondary px-1.5 py-0.2 text-[9px] text-muted-foreground">
-              {starterSearch ? filteredStarterTemplates.length : starterTemplates.length}
-            </span>
+            {templatesLoading ? (
+              <span className="h-3.5 w-4 animate-pulse rounded-full bg-secondary" />
+            ) : (
+              <span className="rounded-full bg-secondary px-1.5 py-0.2 text-[9px] text-muted-foreground">
+                {starterSearch ? filteredStarterTemplates.length : starterTemplates.length}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -947,9 +951,13 @@ export function LeftPanel({
           >
             <StarCircleIcon size={13} className="text-amber-500" />
             <span>Premium</span>
-            <span className="rounded-full bg-amber-500/15 px-1.5 py-0.2 text-[9px] font-bold text-amber-600 dark:text-amber-400">
-              {premiumSearch ? filteredPremiumTemplates.length : premiumTemplates.length}
-            </span>
+            {templatesLoading ? (
+              <span className="h-3.5 w-4 animate-pulse rounded-full bg-amber-500/15" />
+            ) : (
+              <span className="rounded-full bg-amber-500/15 px-1.5 py-0.2 text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                {premiumSearch ? filteredPremiumTemplates.length : premiumTemplates.length}
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -963,9 +971,13 @@ export function LeftPanel({
           >
             <Folder01Icon size={13} />
             <span>Saved</span>
-            <span className="rounded-full bg-primary/10 px-1.5 py-0.2 text-[9px] font-bold text-primary">
-              {savedSearch ? filteredSavedQuotes.length : userSavedQuotes.length}
-            </span>
+            {templatesLoading ? (
+              <span className="h-3.5 w-4 animate-pulse rounded-full bg-primary/10" />
+            ) : (
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.2 text-[9px] font-bold text-primary">
+                {savedSearch ? filteredSavedQuotes.length : userSavedQuotes.length}
+              </span>
+            )}
           </button>
         </div>
 
